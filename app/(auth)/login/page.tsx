@@ -16,16 +16,24 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      // O .trim() remove espaços em branco invisíveis no início ou fim do e-mail
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password,
+      });
 
-    if (error) {
-      setError("E-mail ou senha incorretos. Verifique seus dados.");
+      if (error) {
+        // Agora o sistema vai cuspir o erro exato do Supabase
+        setError(`Erro técnico: ${error.message}`);
+        setLoading(false);
+      } else if (data.session) {
+        router.push("/dashboard");
+      }
+    } catch (err: any) {
+      // Captura erros de falta de chaves da Vercel
+      setError(`Erro de conexão: ${err.message}`);
       setLoading(false);
-    } else {
-      router.push("/dashboard");
     }
   };
 
@@ -75,7 +83,6 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Bloco restaurado: Lembrar de mim e Esqueceu a senha */}
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <input
@@ -95,9 +102,8 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Mensagem de Erro */}
             {error && (
-              <div className="text-cs-gold text-sm font-medium bg-cs-gold/10 p-3 rounded-md border border-cs-gold/20">
+              <div className="text-cs-gold text-sm font-medium bg-cs-gold/10 p-3 rounded-md border border-cs-gold/20 break-words">
                 {error}
               </div>
             )}
