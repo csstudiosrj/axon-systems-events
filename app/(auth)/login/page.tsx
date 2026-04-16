@@ -1,6 +1,34 @@
-import React from "react";
+"use client";
+
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "../../lib/supabase";
 
 export default function LoginPage() {
+  const router = useRouter();
+  const[email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      setError("E-mail ou senha incorretos. Tente novamente.");
+      setLoading(false);
+    } else {
+      router.push("/dashboard");
+    }
+  };
+
   return (
     <div className="min-h-screen flex bg-background text-text-primary">
       <div className="w-full lg:w-1/2 flex flex-col justify-center items-center p-8 sm:p-12">
@@ -14,7 +42,7 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <form className="mt-8 space-y-6">
+          <form onSubmit={handleLogin} className="mt-8 space-y-6">
             <div className="space-y-4">
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-text-secondary">
@@ -22,9 +50,10 @@ export default function LoginPage() {
                 </label>
                 <input
                   id="email"
-                  name="email"
                   type="email"
                   required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   className="mt-1 block w-full rounded-md border border-surface bg-surface px-3 py-2 text-white placeholder-text-secondary focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green sm:text-sm transition-colors"
                   placeholder="seu.nome@cscomeventos.com.br"
                 />
@@ -36,41 +65,29 @@ export default function LoginPage() {
                 </label>
                 <input
                   id="password"
-                  name="password"
                   type="password"
                   required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   className="mt-1 block w-full rounded-md border border-surface bg-surface px-3 py-2 text-white placeholder-text-secondary focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green sm:text-sm transition-colors"
                   placeholder="••••••••"
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <input
-                  id="remember-me"
-                  name="remember-me"
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-surface bg-surface text-cs-green focus:ring-cs-green"
-                />
-                <label htmlFor="remember-me" className="ml-2 block text-sm text-text-secondary">
-                  Lembrar de mim
-                </label>
+            {error && (
+              <div className="text-cs-gold text-sm font-medium bg-cs-gold/10 p-3 rounded-md border border-cs-gold/20">
+                {error}
               </div>
-
-              <div className="text-sm">
-                <a href="#" className="font-medium text-cs-gold hover:text-white transition-colors">
-                  Esqueceu a senha?
-                </a>
-              </div>
-            </div>
+            )}
 
             <div>
               <button
-                type="button"
-                className="flex w-full justify-center rounded-md border border-transparent bg-cs-green py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 focus:outline-none focus:ring-2 focus:ring-cs-green transition-all"
+                type="submit"
+                disabled={loading}
+                className="flex w-full justify-center rounded-md border border-transparent bg-cs-green py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 focus:outline-none focus:ring-2 focus:ring-cs-green transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Entrar no Sistema
+                {loading ? "Autenticando..." : "Entrar no Sistema"}
               </button>
             </div>
           </form>
