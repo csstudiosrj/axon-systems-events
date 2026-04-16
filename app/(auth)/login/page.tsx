@@ -6,10 +6,10 @@ import { supabase } from "../../lib/supabase";
 
 export default function LoginPage() {
   const router = useRouter();
-  const[email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");
+  const[password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const[loading, setLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,7 +22,7 @@ export default function LoginPage() {
     });
 
     if (error) {
-      setError("E-mail ou senha incorretos. Tente novamente.");
+      setError("E-mail ou senha incorretos. Verifique seus dados.");
       setLoading(false);
     } else {
       router.push("/dashboard");
@@ -75,6 +75,27 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {/* Bloco restaurado: Lembrar de mim e Esqueceu a senha */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <input
+                  id="remember-me"
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-surface bg-surface text-cs-green focus:ring-cs-green"
+                />
+                <label htmlFor="remember-me" className="ml-2 block text-sm text-text-secondary">
+                  Lembrar de mim
+                </label>
+              </div>
+
+              <div className="text-sm">
+                <a href="#" className="font-medium text-cs-gold hover:text-white transition-colors">
+                  Esqueceu a senha?
+                </a>
+              </div>
+            </div>
+
+            {/* Mensagem de Erro */}
             {error && (
               <div className="text-cs-gold text-sm font-medium bg-cs-gold/10 p-3 rounded-md border border-cs-gold/20">
                 {error}
