@@ -1,8 +1,16 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-cs-green: #138946;
+  --color-cs-dark: #0d0807;
+  --color-cs-gold: #C5A059;
+  --color-background: #0d0807;
+  --color-surface: #1a1413;
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #a19d9c;
+}
 
 body {
-  background-color: #0d0807;
-  color: #ffffff;
+  background-color: var(--color-background);
+  color: var(--color-text-primary);
 }
