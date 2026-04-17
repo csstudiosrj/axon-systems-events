@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
-import { FileText, Plus, Search, Loader2, ArrowLeft, Trash2, Save, Printer } from "lucide-react";
+import { FileText, Plus, Loader2, ArrowLeft, Trash2, Save, Printer, Edit } from "lucide-react";
 import Link from "next/link";
 
 export default function OrcamentosPage() {
@@ -13,12 +13,20 @@ export default function OrcamentosPage() {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Estados do Formulário
+  const [editQuoteId, setEditQuoteId] = useState<string | null>(null);
   const[title, setTitle] = useState("");
   const [clientId, setClientId] = useState("");
   const [items, setItems] = useState<any[]>([]);
 
   useEffect(() => {
-    if (view === "list") fetchQuotes();
+    if (view === "list") {
+      fetchQuotes();
+      setEditQuoteId(null);
+      setTitle("");
+      setClientId("");
+      setItems([]);
+    }
     if (view === "create") {
       fetchClients();
       fetchInventory();
@@ -45,22 +53,46 @@ export default function OrcamentosPage() {
     if (data) setInventory(data);
   };
 
-  const addItem = (category: "equipment" | "labor" | "logistics") => {
-    setItems([...items, { id: Date.now(), category, description: "", quantity: 1, daily_rate: 0, days: 1 }]);
+  // Função para abrir o modo de edição
+  const handleEditQuote = async (quote: any) => {
+    setLoading(true);
+    setEditQuoteId(quote.id);
+    setTitle(quote.title);
+    setClientId(quote.client_id);
+    
+    // Busca os itens salvos deste orçamento
+    const { data } = await supabase.from("quote_items").select("*").eq("quote_id", quote.id);
+    if (data) {
+      // Mapeia para o formato do nosso estado local
+      const formattedItems = data.map(item => ({
+        id: item.id, // ID real do banco
+        category: item.category,
+        description: item.description,
+        quantity: item.quantity,
+        daily_rate: item.daily_rate,
+        days: item.days
+      }));
+      setItems(formattedItems);
+    }
+    
+    setView("create");
+    setLoading(false);
   };
 
-  const removeItem = (id: number) => {
+  const addItem = (category: "equipment" | "labor" | "logistics") => {
+    setItems([...items, { id: Date.now().toString(), category, description: "", quantity: 1, daily_rate: 0, days: 1 }]);
+  };
+
+  const removeItem = (id: string) => {
     setItems(items.filter(item => item.id !== id));
   };
 
-  const updateItem = (id: number, field: string, value: string | number) => {
+  const updateItem = (id: string, field: string, value: string | number) => {
     setItems(items.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
 
-  // Função inteligente que detecta se o item digitado existe no inventário e puxa o preço
-  const handleDescriptionChange = (id: number, value: string) => {
+  const handleDescriptionChange = (id: string, value: string) => {
     const foundItem = inventory.find(eq => eq.name.toLowerCase() === value.toLowerCase());
-    
     if (foundItem) {
       setItems(items.map(item => item.id === id ? { 
         ...item, 
@@ -97,48 +129,59 @@ export default function OrcamentosPage() {
 
     setIsSubmitting(true);
 
-    const { data: quoteData, error: quoteError } = await supabase
-      .from("quotes")
-      .insert([{
-        title,
-        client_id: clientId,
-        total_equipment_cost: totals.equipment,
-        total_labor_cost: totals.labor,
-        total_logistics_cost: totals.logistics,
-        final_amount: totals.final,
-        status: "draft"
-      }])
-      .select()
-      .single();
+    try {
+      let currentQuoteId = editQuoteId;
 
-    if (quoteError) {
-      alert("Erro ao salvar orçamento: " + quoteError.message);
-      setIsSubmitting(false);
-      return;
-    }
+      if (editQuoteId) {
+        // ATUALIZAR orçamento existente
+        await supabase.from("quotes").update({
+          title,
+          client_id: clientId,
+          total_equipment_cost: totals.equipment,
+          total_labor_cost: totals.labor,
+          total_logistics_cost: totals.logistics,
+          final_amount: totals.final
+        }).eq("id", editQuoteId);
 
-    const itemsToInsert = items.map(item => ({
-      quote_id: quoteData.id,
-      category: item.category,
-      description: item.description,
-      quantity: Number(item.quantity),
-      daily_rate: Number(item.daily_rate),
-      days: Number(item.days),
-      total_price: Number(item.quantity) * Number(item.daily_rate) * Number(item.days)
-    }));
+        // Apaga os itens antigos para inserir os novos (forma mais segura de atualizar listas)
+        await supabase.from("quote_items").delete().eq("quote_id", editQuoteId);
 
-    const { error: itemsError } = await supabase.from("quote_items").insert(itemsToInsert);
+      } else {
+        // CRIAR novo orçamento
+        const { data: quoteData, error: quoteError } = await supabase.from("quotes").insert([{
+          title,
+          client_id: clientId,
+          total_equipment_cost: totals.equipment,
+          total_labor_cost: totals.labor,
+          total_logistics_cost: totals.logistics,
+          final_amount: totals.final,
+          status: "draft"
+        }]).select().single();
 
-    if (!itemsError) {
-      setTitle("");
-      setClientId("");
-      setItems([]);
+        if (quoteError) throw quoteError;
+        currentQuoteId = quoteData.id;
+      }
+
+      // Insere os itens (novos ou atualizados)
+      const itemsToInsert = items.map(item => ({
+        quote_id: currentQuoteId,
+        category: item.category,
+        description: item.description,
+        quantity: Number(item.quantity),
+        daily_rate: Number(item.daily_rate),
+        days: Number(item.days),
+        total_price: Number(item.quantity) * Number(item.daily_rate) * Number(item.days)
+      }));
+
+      const { error: itemsError } = await supabase.from("quote_items").insert(itemsToInsert);
+      if (itemsError) throw itemsError;
+
       setView("list");
-    } else {
-      alert("Erro ao salvar itens: " + itemsError.message);
+    } catch (error: any) {
+      alert("Erro ao salvar orçamento: " + error.message);
+    } finally {
+      setIsSubmitting(false);
     }
-    
-    setIsSubmitting(false);
   };
 
   const formatCurrency = (value: number) => {
@@ -148,9 +191,14 @@ export default function OrcamentosPage() {
   if (view === "create") {
     return (
       <div className="space-y-6 max-w-5xl mx-auto pb-12">
-        {/* Datalists invisíveis que alimentam o auto-completar */}
+        {/* Datalists dinâmicos para auto-completar */}
         <datalist id="inventory-equipment">
-          {inventory.filter(eq => eq.category !== 'logistics').map(eq => (
+          {inventory.filter(eq => !['logistics', 'labor'].includes(eq.category)).map(eq => (
+            <option key={eq.id} value={eq.name} />
+          ))}
+        </datalist>
+        <datalist id="inventory-labor">
+          {inventory.filter(eq => eq.category === 'labor').map(eq => (
             <option key={eq.id} value={eq.name} />
           ))}
         </datalist>
@@ -173,12 +221,14 @@ export default function OrcamentosPage() {
             className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50"
           >
             {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-            Salvar Orçamento
+            {editQuoteId ? "Atualizar Orçamento" : "Salvar Orçamento"}
           </button>
         </div>
 
         <div className="bg-surface border border-surface/50 p-6 rounded-lg space-y-4">
-          <h3 className="text-lg font-medium text-white border-b border-surface/50 pb-2">Dados do Evento</h3>
+          <h3 className="text-lg font-medium text-white border-b border-surface/50 pb-2">
+            {editQuoteId ? "Editando Evento" : "Dados do Evento"}
+          </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1">Nome do Evento / Proposta</label>
@@ -231,11 +281,10 @@ export default function OrcamentosPage() {
                     </span>
                   </div>
                   
-                  {/* Campo Inteligente de Descrição */}
                   <input
                     type="text"
-                    list={item.category === 'equipment' ? 'inventory-equipment' : item.category === 'logistics' ? 'inventory-logistics' : undefined}
-                    placeholder={item.category === 'labor' ? "Ex: Técnico de Áudio..." : "Buscar no acervo ou digitar..."}
+                    list={`inventory-${item.category}`}
+                    placeholder="Buscar no acervo ou digitar..."
                     value={item.description}
                     onChange={(e) => handleDescriptionChange(item.id, e.target.value)}
                     className="flex-1 bg-transparent border-b border-surface text-white focus:border-cs-green focus:outline-none px-2 py-1"
@@ -296,7 +345,7 @@ export default function OrcamentosPage() {
             className="flex items-center gap-2 rounded-md bg-cs-green py-3 px-8 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50"
           >
             {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-            Salvar Orçamento
+            {editQuoteId ? "Atualizar Orçamento" : "Salvar Orçamento"}
           </button>
         </div>
       </div>
@@ -355,12 +404,20 @@ export default function OrcamentosPage() {
                     </td>
                     <td className="px-6 py-4 font-medium text-cs-green">{formatCurrency(quote.final_amount)}</td>
                     <td className="px-6 py-4 text-right">
-                      <Link 
-                        href={`/orcamentos/${quote.id}`}
-                        className="inline-flex items-center gap-1 text-cs-gold hover:text-white transition-colors text-xs font-medium"
-                      >
-                        <Printer size={14} /> Gerar PDF
-                      </Link>
+                      <div className="flex items-center justify-end gap-4">
+                        <button 
+                          onClick={() => handleEditQuote(quote)}
+                          className="inline-flex items-center gap-1 text-text-secondary hover:text-white transition-colors text-xs font-medium"
+                        >
+                          <Edit size={14} /> Editar
+                        </button>
+                        <Link 
+                          href={`/orcamentos/${quote.id}`}
+                          className="inline-flex items-center gap-1 text-cs-gold hover:text-white transition-colors text-xs font-medium"
+                        >
+                          <Printer size={14} /> Gerar PDF
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))

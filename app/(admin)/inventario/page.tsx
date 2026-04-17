@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
-import { Package, Plus, Search, Loader2, Speaker, Lightbulb, MonitorPlay, Box, Zap } from "lucide-react";
+import { Package, Plus, Search, Loader2, Speaker, Lightbulb, MonitorPlay, Box, Zap, Users, Truck } from "lucide-react";
 
 export default function InventarioPage() {
   const [equipment, setEquipment] = useState<any[]>([]);
@@ -10,11 +10,10 @@ export default function InventarioPage() {
   const[isSubmitting, setIsSubmitting] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
-  // Estados do Formulário
   const [name, setName] = useState("");
   const [sku, setSku] = useState("");
   const [category, setCategory] = useState("audio");
-  const[dailyRate, setDailyRate] = useState("");
+  const [dailyRate, setDailyRate] = useState("");
   const [stockTotal, setStockTotal] = useState("1");
 
   useEffect(() => {
@@ -42,7 +41,7 @@ export default function InventarioPage() {
       .from("equipment")
       .insert([{ 
         name, 
-        sku: sku || null, // SKU é opcional, mas se for vazio mandamos null para não dar conflito de UNIQUE
+        sku: sku || null,
         category,
         daily_rate: Number(dailyRate),
         stock_total: Number(stockTotal)
@@ -55,7 +54,7 @@ export default function InventarioPage() {
       setStockTotal("1");
       fetchEquipment();
     } else {
-      alert("Erro ao cadastrar equipamento. Verifique se o SKU já existe. Erro: " + error.message);
+      alert("Erro ao cadastrar item. Verifique se o SKU já existe. Erro: " + error.message);
     }
     setIsSubmitting(false);
   };
@@ -71,6 +70,8 @@ export default function InventarioPage() {
       case 'led': return <MonitorPlay size={16} className="text-purple-400" />;
       case 'structure': return <Box size={16} className="text-gray-400" />;
       case 'energy': return <Zap size={16} className="text-orange-400" />;
+      case 'labor': return <Users size={16} className="text-cs-gold" />;
+      case 'logistics': return <Truck size={16} className="text-blue-500" />;
       default: return <Package size={16} className="text-cs-green" />;
     }
   };
@@ -78,7 +79,8 @@ export default function InventarioPage() {
   const getCategoryName = (cat: string) => {
     const names: Record<string, string> = {
       audio: "Áudio", lighting: "Iluminação", led: "Painel de LED", 
-      structure: "Estrutura / Box Truss", energy: "Energia / Gerador", logistics: "Logística", general: "Geral"
+      structure: "Estrutura / Box Truss", energy: "Energia / Cabos", 
+      labor: "Equipe Técnica / Staff", logistics: "Logística / Frete", general: "Geral"
     };
     return names[cat] || cat;
   };
@@ -90,24 +92,23 @@ export default function InventarioPage() {
 
   return (
     <div className="space-y-8">
-      {/* Formulário de Cadastro */}
       <div className="bg-surface border border-surface/50 p-6 rounded-lg">
         <h3 className="text-lg font-medium text-white mb-6 flex items-center gap-2">
           <Plus className="text-cs-green" size={20} />
-          Cadastrar Equipamento (LOC FIX)
+          Cadastrar Item no Acervo (LOC FIX)
         </h3>
         
         <form onSubmit={handleAddEquipment} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-text-secondary mb-1">Nome do Equipamento *</label>
+              <label className="block text-sm font-medium text-text-secondary mb-1">Nome do Item / Cargo *</label>
               <input
                 type="text"
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors"
-                placeholder="Ex: Caixa Ativa QSC K12.2"
+                placeholder="Ex: Caixa Ativa QSC ou Técnico de P.A."
               />
             </div>
             <div>
@@ -135,7 +136,8 @@ export default function InventarioPage() {
                 <option value="led">Painel de LED / Vídeo</option>
                 <option value="structure">Estrutura / Box Truss</option>
                 <option value="energy">Energia / Cabos</option>
-                <option value="logistics">Logística / Transporte</option>
+                <option value="labor">Equipe Técnica / Staff</option>
+                <option value="logistics">Logística / Frete</option>
               </select>
             </div>
             <div>
@@ -152,7 +154,7 @@ export default function InventarioPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1">Quantidade no Galpão *</label>
+              <label className="block text-sm font-medium text-text-secondary mb-1">Quantidade Disponível *</label>
               <input
                 type="number"
                 min="1"
@@ -176,7 +178,6 @@ export default function InventarioPage() {
         </form>
       </div>
 
-      {/* Lista de Equipamentos */}
       <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
         <div className="p-4 border-b border-surface/50 flex justify-between items-center bg-surface">
           <h3 className="text-lg font-medium text-white flex items-center gap-2">
@@ -187,7 +188,7 @@ export default function InventarioPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={16} />
             <input
               type="text"
-              placeholder="Buscar equipamento ou SKU..."
+              placeholder="Buscar item ou SKU..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-1.5 rounded-md border border-surface bg-background text-sm text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green"
@@ -199,7 +200,7 @@ export default function InventarioPage() {
           <table className="w-full text-left text-sm text-text-secondary">
             <thead className="bg-background/50 text-xs uppercase text-text-secondary">
               <tr>
-                <th className="px-6 py-3 font-medium">Equipamento</th>
+                <th className="px-6 py-3 font-medium">Item / Cargo</th>
                 <th className="px-6 py-3 font-medium">Categoria</th>
                 <th className="px-6 py-3 font-medium text-center">Estoque Total</th>
                 <th className="px-6 py-3 font-medium text-right">Diária Base</th>
@@ -215,7 +216,7 @@ export default function InventarioPage() {
               ) : filteredEquipment.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-6 py-8 text-center text-text-secondary">
-                    Nenhum equipamento encontrado.
+                    Nenhum item encontrado.
                   </td>
                 </tr>
               ) : (
