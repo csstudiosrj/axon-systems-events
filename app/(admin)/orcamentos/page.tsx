@@ -2,18 +2,18 @@
 
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
-import { FileText, Plus, Search, Loader2, ArrowLeft, Trash2, Calculator, Save } from "lucide-react";
+import { FileText, Plus, Search, Loader2, ArrowLeft, Trash2, Save, Printer } from "lucide-react";
+import Link from "next/link";
 
 export default function OrcamentosPage() {
-  const[view, setView] = useState<"list" | "create">("list");
+  const [view, setView] = useState<"list" | "create">("list");
   const [quotes, setQuotes] = useState<any[]>([]);
-  const [clients, setClients] = useState<any[]>([]);
+  const[clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Estados do Formulário de Orçamento
   const [title, setTitle] = useState("");
-  const [clientId, setClientId] = useState("");
+  const[clientId, setClientId] = useState("");
   const [items, setItems] = useState<any[]>([]);
 
   useEffect(() => {
@@ -36,7 +36,6 @@ export default function OrcamentosPage() {
     if (data) setClients(data);
   };
 
-  // Funções do Construtor de Orçamento
   const addItem = (category: "equipment" | "labor" | "logistics") => {
     setItems([...items, { id: Date.now(), category, description: "", quantity: 1, daily_rate: 0, days: 1 }]);
   };
@@ -49,7 +48,6 @@ export default function OrcamentosPage() {
     setItems(items.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
 
-  // Cálculos em Tempo Real
   const calculateTotals = () => {
     let equipment = 0;
     let labor = 0;
@@ -75,7 +73,6 @@ export default function OrcamentosPage() {
 
     setIsSubmitting(true);
 
-    // 1. Salva o Cabeçalho do Orçamento
     const { data: quoteData, error: quoteError } = await supabase
       .from("quotes")
       .insert([{
@@ -96,7 +93,6 @@ export default function OrcamentosPage() {
       return;
     }
 
-    // 2. Prepara e Salva os Itens
     const itemsToInsert = items.map(item => ({
       quote_id: quoteData.id,
       category: item.category,
@@ -121,14 +117,13 @@ export default function OrcamentosPage() {
     setIsSubmitting(false);
   };
 
-  // Formatação de Moeda
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
   };
 
   if (view === "create") {
     return (
-      <div className="space-y-6 max-w-5xl mx-auto">
+      <div className="space-y-6 max-w-5xl mx-auto pb-12">
         <div className="flex items-center justify-between">
           <button 
             onClick={() => setView("list")}
@@ -146,7 +141,6 @@ export default function OrcamentosPage() {
           </button>
         </div>
 
-        {/* Dados Gerais */}
         <div className="bg-surface border border-surface/50 p-6 rounded-lg space-y-4">
           <h3 className="text-lg font-medium text-white border-b border-surface/50 pb-2">Dados do Evento</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -176,7 +170,6 @@ export default function OrcamentosPage() {
           </div>
         </div>
 
-        {/* Construtor de Itens */}
         <div className="bg-surface border border-surface/50 p-6 rounded-lg space-y-6">
           <div className="flex items-center justify-between border-b border-surface/50 pb-2">
             <h3 className="text-lg font-medium text-white">Planilha de Custos</h3>
@@ -191,7 +184,7 @@ export default function OrcamentosPage() {
             {items.length === 0 ? (
               <p className="text-center text-text-secondary py-8">Nenhum item adicionado. Use os botões acima para começar.</p>
             ) : (
-              items.map((item, index) => (
+              items.map((item) => (
                 <div key={item.id} className="flex items-center gap-4 bg-background p-3 rounded-md border border-surface/50">
                   <div className="w-24">
                     <span className={`text-xs font-medium px-2 py-1 rounded-full ${
@@ -235,7 +228,6 @@ export default function OrcamentosPage() {
           </div>
         </div>
 
-        {/* Resumo Financeiro */}
         <div className="bg-surface border border-surface/50 p-6 rounded-lg flex justify-end">
           <div className="w-72 space-y-3">
             <div className="flex justify-between text-sm text-text-secondary">
@@ -256,11 +248,22 @@ export default function OrcamentosPage() {
             </div>
           </div>
         </div>
+
+        {/* Botão Salvar no Rodapé */}
+        <div className="flex justify-end pt-4">
+          <button
+            onClick={handleSaveQuote}
+            disabled={isSubmitting}
+            className="flex items-center gap-2 rounded-md bg-cs-green py-3 px-8 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50"
+          >
+            {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+            Salvar Orçamento
+          </button>
+        </div>
       </div>
     );
   }
 
-  // Visão de Lista (Padrão)
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center bg-surface p-4 border border-surface/50 rounded-lg">
@@ -285,7 +288,7 @@ export default function OrcamentosPage() {
                 <th className="px-6 py-3 font-medium">Cliente</th>
                 <th className="px-6 py-3 font-medium">Status</th>
                 <th className="px-6 py-3 font-medium">Valor Total</th>
-                <th className="px-6 py-3 font-medium text-right">Data</th>
+                <th className="px-6 py-3 font-medium text-right">Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -303,7 +306,7 @@ export default function OrcamentosPage() {
                 </tr>
               ) : (
                 quotes.map((quote) => (
-                  <tr key={quote.id} className="border-b border-surface/50 hover:bg-background/50 transition-colors cursor-pointer">
+                  <tr key={quote.id} className="border-b border-surface/50 hover:bg-background/50 transition-colors">
                     <td className="px-6 py-4 font-medium text-white">{quote.title}</td>
                     <td className="px-6 py-4">{quote.clients?.company_name}</td>
                     <td className="px-6 py-4">
@@ -313,7 +316,12 @@ export default function OrcamentosPage() {
                     </td>
                     <td className="px-6 py-4 font-medium text-cs-green">{formatCurrency(quote.final_amount)}</td>
                     <td className="px-6 py-4 text-right">
-                      {new Date(quote.created_at).toLocaleDateString('pt-BR')}
+                      <Link 
+                        href={`/orcamentos/${quote.id}`}
+                        className="inline-flex items-center gap-1 text-cs-gold hover:text-white transition-colors text-xs font-medium"
+                      >
+                        <Printer size={14} /> Gerar PDF
+                      </Link>
                     </td>
                   </tr>
                 ))
