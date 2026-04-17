@@ -3,13 +3,13 @@
 import React, { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "../lib/supabase";
-import { LayoutDashboard, FileText, Truck, Ticket, LogOut, Users } from "lucide-react";
+import { LayoutDashboard, FileText, Truck, Ticket, LogOut, Users, Package } from "lucide-react";
 import Link from "next/link";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [userEmail, setUserEmail] = useState<string | null>("");
+  const[userEmail, setUserEmail] = useState<string | null>("");
 
   useEffect(() => {
     const checkUser = async () => {
@@ -31,6 +31,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const navItems =[
     { name: "Visão Geral", href: "/dashboard", icon: LayoutDashboard },
     { name: "Clientes", href: "/clientes", icon: Users },
+    { name: "Inventário (LOC FIX)", href: "/inventario", icon: Package },
     { name: "Orçamentos", href: "/orcamentos", icon: FileText },
     { name: "Ordens de Serviço", href: "/os", icon: Truck },
     { name: "Suporte Técnico", href: "/suporte", icon: Ticket },
@@ -38,7 +39,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="min-h-screen bg-background text-text-primary flex print:bg-white">
-      {/* Sidebar Fixa - Oculta na Impressão */}
       <aside className="w-64 bg-surface border-r border-surface/50 flex flex-col print:hidden">
         <div className="h-16 flex items-center px-6 border-b border-surface/50">
           <h1 className="text-xl font-bold text-white">
@@ -81,7 +81,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </aside>
 
-      {/* Área de Conteúdo Dinâmico - Ajustada para Impressão */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden print:h-auto print:overflow-visible print:bg-white">
         <header className="h-16 bg-surface border-b border-surface/50 flex items-center px-8 justify-between shrink-0 print:hidden">
           <h2 className="text-lg font-medium text-white capitalize">
