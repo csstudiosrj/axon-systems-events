@@ -2,22 +2,21 @@
 
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
-import { Megaphone, Plus, Loader2, ArrowLeft, Calendar, Image as ImageIcon, Instagram, Globe, CheckCircle, Clock, Save, Trash2, Edit } from "lucide-react";
+import { Megaphone, Plus, Loader2, ArrowLeft, Calendar, Image as ImageIcon, Camera, Globe, CheckCircle, Clock, Save, Trash2, Edit } from "lucide-react";
 
 export default function MarketingPage() {
   const [view, setView] = useState<"list" | "create">("list");
-  const [posts, setPosts] = useState<any[]>([]);
-  const[loading, setLoading] = useState(true);
+  const[posts, setPosts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Estados do Formulário
   const [editId, setEditId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const[scheduledFor, setScheduledFor] = useState("");
   const [platformInstagram, setPlatformInstagram] = useState(true);
-  const[platformBlog, setPlatformBlog] = useState(true);
+  const [platformBlog, setPlatformBlog] = useState(true);
   const [status, setStatus] = useState("scheduled");
 
   useEffect(() => {
@@ -87,7 +86,6 @@ export default function MarketingPage() {
     setContent(post.content);
     setImageUrl(post.image_url || "");
     
-    // Formata a data do banco para o input datetime-local (YYYY-MM-DDThh:mm)
     const dateObj = new Date(post.scheduled_for);
     const formattedDate = new Date(dateObj.getTime() - dateObj.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     setScheduledFor(formattedDate);
@@ -115,7 +113,6 @@ export default function MarketingPage() {
 
         <div className="bg-surface border border-surface/50 p-6 rounded-lg flex flex-col md:flex-row gap-8">
           
-          {/* Formulário */}
           <div className="flex-1 space-y-6">
             <h3 className="text-lg font-medium text-white flex items-center gap-2 border-b border-surface/50 pb-4">
               <Megaphone className="text-cs-green" size={20} />
@@ -159,7 +156,7 @@ export default function MarketingPage() {
                 <div className="flex gap-6">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={platformInstagram} onChange={(e) => setPlatformInstagram(e.target.checked)} className="rounded border-surface bg-background text-cs-green focus:ring-cs-green w-4 h-4" />
-                    <span className="text-sm text-white flex items-center gap-1.5"><Instagram size={16} className="text-pink-500" /> Instagram</span>
+                    <span className="text-sm text-white flex items-center gap-1.5"><Camera size={16} className="text-pink-500" /> Instagram</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={platformBlog} onChange={(e) => setPlatformBlog(e.target.checked)} className="rounded border-surface bg-background text-cs-green focus:ring-cs-green w-4 h-4" />
@@ -177,11 +174,9 @@ export default function MarketingPage() {
             </form>
           </div>
 
-          {/* Preview do Post (Simulação Visual) */}
           <div className="w-full md:w-80 shrink-0">
             <h4 className="text-sm font-medium text-text-secondary mb-4 uppercase tracking-wider">Preview da Postagem</h4>
             <div className="bg-background border border-surface/50 rounded-xl overflow-hidden shadow-lg">
-              {/* Header do Preview */}
               <div className="p-3 flex items-center gap-2 border-b border-surface/50">
                 <div className="w-8 h-8 rounded-full bg-cs-green flex items-center justify-center text-xs font-bold text-white">CS</div>
                 <div>
@@ -192,7 +187,6 @@ export default function MarketingPage() {
                 </div>
               </div>
               
-              {/* Imagem do Preview */}
               <div className="w-full aspect-square bg-surface flex items-center justify-center overflow-hidden">
                 {imageUrl ? (
                   <img src={imageUrl} alt="Preview" className="w-full h-full object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />
@@ -201,7 +195,6 @@ export default function MarketingPage() {
                 )}
               </div>
               
-              {/* Texto do Preview */}
               <div className="p-4">
                 <p className="text-xs text-white whitespace-pre-wrap line-clamp-4">
                   <span className="font-bold mr-1">cscomeventos</span>
@@ -231,7 +224,6 @@ export default function MarketingPage() {
         </button>
       </div>
 
-      {/* Tabela de Agendamentos */}
       <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm text-text-secondary">
@@ -284,7 +276,7 @@ export default function MarketingPage() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex gap-2">
-                        {post.platform_instagram && <Instagram size={16} className="text-pink-500" title="Instagram" />}
+                        {post.platform_instagram && <Camera size={16} className="text-pink-500" title="Instagram" />}
                         {post.platform_blog && <Globe size={16} className="text-blue-400" title="Blog do Site" />}
                       </div>
                     </td>
