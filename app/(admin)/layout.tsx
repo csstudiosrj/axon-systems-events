@@ -3,13 +3,13 @@
 import React, { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "../lib/supabase";
-import { LayoutDashboard, FileText, Truck, Ticket, LogOut, Users, Package } from "lucide-react";
+import { LayoutDashboard, FileText, Truck, Ticket, LogOut, Users, Package, Target } from "lucide-react";
 import Link from "next/link";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const[userEmail, setUserEmail] = useState<string | null>("");
+  const [userEmail, setUserEmail] = useState<string | null>("");
 
   useEffect(() => {
     const checkUser = async () => {
@@ -30,6 +30,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const navItems =[
     { name: "Visão Geral", href: "/dashboard", icon: LayoutDashboard },
+    { name: "CRM / Vendas", href: "/crm", icon: Target },
     { name: "Clientes", href: "/clientes", icon: Users },
     { name: "Inventário (LOC FIX)", href: "/inventario", icon: Package },
     { name: "Orçamentos", href: "/orcamentos", icon: FileText },
@@ -46,7 +47,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </h1>
         </div>
         
-        <nav className="flex-1 p-4 space-y-2">
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
