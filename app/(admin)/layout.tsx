@@ -28,7 +28,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     router.push("/login");
   };
 
-  // Definição dinâmica do menu
   const navItems =[
     { name: "Visão Geral", href: "/dashboard", icon: LayoutDashboard },
     { name: "Clientes", href: "/clientes", icon: Users },
@@ -38,9 +37,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   ];
 
   return (
-    <div className="min-h-screen bg-background text-text-primary flex">
-      {/* Sidebar Fixa */}
-      <aside className="w-64 bg-surface border-r border-surface/50 flex flex-col">
+    <div className="min-h-screen bg-background text-text-primary flex print:bg-white">
+      {/* Sidebar Fixa - Oculta na Impressão */}
+      <aside className="w-64 bg-surface border-r border-surface/50 flex flex-col print:hidden">
         <div className="h-16 flex items-center px-6 border-b border-surface/50">
           <h1 className="text-xl font-bold text-white">
             AXON <span className="text-cs-green">systems</span>
@@ -82,9 +81,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </aside>
 
-      {/* Área de Conteúdo Dinâmico */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        <header className="h-16 bg-surface border-b border-surface/50 flex items-center px-8 justify-between shrink-0">
+      {/* Área de Conteúdo Dinâmico - Ajustada para Impressão */}
+      <main className="flex-1 flex flex-col h-screen overflow-hidden print:h-auto print:overflow-visible print:bg-white">
+        <header className="h-16 bg-surface border-b border-surface/50 flex items-center px-8 justify-between shrink-0 print:hidden">
           <h2 className="text-lg font-medium text-white capitalize">
             {pathname.replace('/', '') || 'Dashboard'}
           </h2>
@@ -95,8 +94,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         </header>
         
-        {/* Aqui é onde as páginas (Dashboard, Clientes) serão injetadas */}
-        <div className="p-8 flex-1 overflow-y-auto">
+        <div className="p-8 flex-1 overflow-y-auto print:p-0 print:overflow-visible print:bg-white">
           {children}
         </div>
       </main>
