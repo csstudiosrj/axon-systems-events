@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../../lib/supabase";
-import { Target, Plus, Loader2, ArrowLeft, Mail, Phone, DollarSign, GripVertical, Minimize2, Maximize2, X, Save, Trash2, FileText } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Target, Plus, Loader2, ArrowLeft, Mail, Phone, DollarSign, GripVertical, Minimize2, Maximize2, X, Save, Trash2, FileText, FileOutput } from "lucide-react";
 
 const COLUMNS =[
   { id: "new", title: "Novos Leads", color: "border-blue-500/30", bg: "bg-blue-500/10", text: "text-blue-400" },
@@ -14,18 +15,17 @@ const COLUMNS =[
 ];
 
 export default function CRMPage() {
-  const [view, setView] = useState<"board" | "create">("board");
-  const [leads, setLeads] = useState<any[]>([]);
+  const router = useRouter();
+  const[view, setView] = useState<"board" | "create">("board");
+  const[leads, setLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const[isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const[isConverting, setIsConverting] = useState(false);
   const [compactView, setCompactView] = useState(false);
 
-  // Estado para o Modal de Edição
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
-
   const boardRef = useRef<HTMLDivElement>(null);
 
-  // Estados do Formulário (Usados tanto para Criar quanto para Editar)
   const [clientName, setClientName] = useState("");
   const[companyName, setCompanyName] = useState("");
   const [email, setEmail] = useState("");
@@ -86,11 +86,9 @@ export default function CRMPage() {
     let error;
 
     if (editingLeadId) {
-      // Atualiza Lead Existente
       const { error: updateError } = await supabase.from("leads").update(payload).eq("id", editingLeadId);
       error = updateError;
     } else {
-      // Cria Novo Lead
       const { error: insertError } = await supabase.from("leads").insert([payload]);
       error = insertError;
     }
@@ -119,6 +117,50 @@ export default function CRMPage() {
       alert("Erro ao excluir: " + error.message);
     }
     setIsSubmitting(false);
+  };
+
+  // A MÁGICA: Converter Lead em Cliente e Orçamento
+  const handleConvertToQuote = async () => {
+    if (!editingLeadId) return;
+    setIsConverting(true);
+
+    try {
+      // 1. Cadastra o cliente na tabela oficial
+      const { data: clientData, error: clientError } = await supabase
+        .from("clients")
+        .insert([{
+          company_name: companyName || clientName,
+          contact_name: clientName,
+          email: email || null,
+          phone: phone || null,
+          document: "00.000.000/0000-00" // Placeholder obrigatório no banco atual
+        }])
+        .select()
+        .single();
+
+      if (clientError) throw clientError;
+
+      // 2. Cria o Orçamento em Rascunho
+      const { error: quoteError } = await supabase
+        .from("quotes")
+        .insert([{
+          client_id: clientData.id,
+          title: eventType ? `Orçamento: ${eventType}` : `Orçamento - ${clientName}`,
+          status: "draft"
+        }]);
+
+      if (quoteError) throw quoteError;
+
+      // 3. Atualiza o status do Lead para "Proposta Enviada"
+      await supabase.from("leads").update({ status: "proposal" }).eq("id", editingLeadId);
+
+      // 4. Redireciona para a tela de orçamentos
+      router.push("/orcamentos");
+
+    } catch (error: any) {
+      alert("Erro ao converter lead: " + error.message);
+      setIsConverting(false);
+    }
   };
 
   const openEditModal = (lead: any) => {
@@ -285,7 +327,6 @@ export default function CRMPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             
-            {/* Header do Modal */}
             <div className="flex justify-between items-center p-6 border-b border-surface/50 bg-background/50">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
                 <Target className="text-cs-green" size={24} /> Ficha da Oportunidade
@@ -295,7 +336,6 @@ export default function CRMPage() {
               </button>
             </div>
 
-            {/* Corpo do Modal (Rolável) */}
             <div className="p-6 overflow-y-auto flex-1">
               <form id="edit-lead-form" onSubmit={handleSaveLead} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -351,32 +391,34 @@ export default function CRMPage() {
               </form>
             </div>
 
-            {/* Footer do Modal (Fixo na base) */}
+            {/* Footer do Modal com o Botão de Conversão */}
             <div className="p-6 border-t border-surface/50 bg-background/50 flex justify-between items-center shrink-0">
               <button 
                 type="button"
                 onClick={handleDeleteLead}
-                disabled={isSubmitting}
+                disabled={isSubmitting || isConverting}
                 className="flex items-center gap-2 text-sm font-medium text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
               >
-                <Trash2 size={18} /> Excluir Lead
+                <Trash2 size={18} /> Excluir
               </button>
-              <div className="flex gap-4">
+              <div className="flex gap-3">
                 <button 
                   type="button"
-                  onClick={resetForm}
-                  className="px-6 py-2 text-sm font-medium text-text-secondary hover:text-white transition-colors"
+                  onClick={handleConvertToQuote}
+                  disabled={isSubmitting || isConverting}
+                  className="flex items-center gap-2 rounded-md bg-cs-gold/20 text-cs-gold border border-cs-gold/30 py-2 px-4 text-sm font-medium hover:bg-cs-gold/30 transition-all disabled:opacity-50"
                 >
-                  Cancelar
+                  {isConverting ? <Loader2 className="animate-spin" size={16} /> : <FileOutput size={16} />}
+                  Converter em Orçamento
                 </button>
                 <button 
                   type="submit"
                   form="edit-lead-form"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isConverting}
                   className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50"
                 >
                   {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-                  Salvar Alterações
+                  Salvar
                 </button>
               </div>
             </div>
