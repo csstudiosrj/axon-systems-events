@@ -2,19 +2,21 @@
 
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
-import { Package, Plus, Search, Loader2, Speaker, Lightbulb, MonitorPlay, Box, Zap, Users, Truck } from "lucide-react";
+import { Package, Plus, Search, Loader2, Speaker, Lightbulb, MonitorPlay, Box, Zap, Users, Truck, Edit, Trash2, X } from "lucide-react";
 
 export default function InventarioPage() {
   const [equipment, setEquipment] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const[isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
+  // Estados do Formulário
+  const[editId, setEditId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [sku, setSku] = useState("");
   const [category, setCategory] = useState("audio");
   const [dailyRate, setDailyRate] = useState("");
-  const [stockTotal, setStockTotal] = useState("1");
+  const[stockTotal, setStockTotal] = useState("1");
 
   useEffect(() => {
     fetchEquipment();
@@ -32,31 +34,74 @@ export default function InventarioPage() {
     setLoading(false);
   };
 
-  const handleAddEquipment = async (e: React.FormEvent) => {
+  const handleAddOrUpdateEquipment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !dailyRate || !stockTotal) return;
     
     setIsSubmitting(true);
-    const { error } = await supabase
-      .from("equipment")
-      .insert([{ 
-        name, 
-        sku: sku || null,
-        category,
-        daily_rate: Number(dailyRate),
-        stock_total: Number(stockTotal)
-      }]);
+
+    const payload = {
+      name, 
+      sku: sku || null,
+      category,
+      daily_rate: Number(dailyRate),
+      stock_total: Number(stockTotal)
+    };
+
+    let error;
+
+    if (editId) {
+      // Atualizar item existente
+      const { error: updateError } = await supabase
+        .from("equipment")
+        .update(payload)
+        .eq("id", editId);
+      error = updateError;
+    } else {
+      // Criar novo item
+      const { error: insertError } = await supabase
+        .from("equipment")
+        .insert([payload]);
+      error = insertError;
+    }
 
     if (!error) {
-      setName("");
-      setSku("");
-      setDailyRate("");
-      setStockTotal("1");
+      resetForm();
       fetchEquipment();
     } else {
-      alert("Erro ao cadastrar item. Verifique se o SKU já existe. Erro: " + error.message);
+      alert("Erro ao salvar item. Verifique se o SKU já existe. Erro: " + error.message);
     }
     setIsSubmitting(false);
+  };
+
+  const handleEdit = (item: any) => {
+    setEditId(item.id);
+    setName(item.name);
+    setSku(item.sku || "");
+    setCategory(item.category);
+    setDailyRate(item.daily_rate.toString());
+    setStockTotal(item.stock_total.toString());
+    window.scrollTo({ top: 0, behavior: 'smooth' }); // Rola a tela para o formulário
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm("Tem certeza que deseja excluir este item do acervo?")) return;
+    
+    const { error } = await supabase.from("equipment").delete().eq("id", id);
+    if (!error) {
+      fetchEquipment();
+    } else {
+      alert("Erro ao excluir item: " + error.message);
+    }
+  };
+
+  const resetForm = () => {
+    setEditId(null);
+    setName("");
+    setSku("");
+    setCategory("audio");
+    setDailyRate("");
+    setStockTotal("1");
   };
 
   const formatCurrency = (value: number) => {
@@ -92,13 +137,21 @@ export default function InventarioPage() {
 
   return (
     <div className="space-y-8">
+      {/* Formulário de Cadastro / Edição */}
       <div className="bg-surface border border-surface/50 p-6 rounded-lg">
-        <h3 className="text-lg font-medium text-white mb-6 flex items-center gap-2">
-          <Plus className="text-cs-green" size={20} />
-          Cadastrar Item no Acervo (LOC FIX)
-        </h3>
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-lg font-medium text-white flex items-center gap-2">
+            {editId ? <Edit className="text-cs-gold" size={20} /> : <Plus className="text-cs-green" size={20} />}
+            {editId ? "Editar Item do Acervo" : "Cadastrar Item no Acervo (LOC FIX)"}
+          </h3>
+          {editId && (
+            <button onClick={resetForm} className="text-sm text-text-secondary hover:text-white flex items-center gap-1 transition-colors">
+              <X size={16} /> Cancelar Edição
+            </button>
+          )}
+        </div>
         
-        <form onSubmit={handleAddEquipment} className="space-y-6">
+        <form onSubmit={handleAddOrUpdateEquipment} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-text-secondary mb-1">Nome do Item / Cargo *</label>
@@ -170,14 +223,17 @@ export default function InventarioPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50"
+              className={`flex items-center gap-2 rounded-md py-2 px-6 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50 ${
+                editId ? 'bg-cs-gold focus:ring-cs-gold' : 'bg-cs-green focus:ring-cs-green'
+              }`}
             >
-              {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : "Adicionar ao Acervo"}
+              {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : (editId ? "Atualizar Item" : "Adicionar ao Acervo")}
             </button>
           </div>
         </form>
       </div>
 
+      {/* Lista de Equipamentos */}
       <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
         <div className="p-4 border-b border-surface/50 flex justify-between items-center bg-surface">
           <h3 className="text-lg font-medium text-white flex items-center gap-2">
@@ -204,18 +260,19 @@ export default function InventarioPage() {
                 <th className="px-6 py-3 font-medium">Categoria</th>
                 <th className="px-6 py-3 font-medium text-center">Estoque Total</th>
                 <th className="px-6 py-3 font-medium text-right">Diária Base</th>
+                <th className="px-6 py-3 font-medium text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-surface/50">
               {loading ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-text-secondary">
+                  <td colSpan={5} className="px-6 py-8 text-center text-text-secondary">
                     <Loader2 className="animate-spin mx-auto mb-2" size={24} /> Carregando acervo...
                   </td>
                 </tr>
               ) : filteredEquipment.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-text-secondary">
+                  <td colSpan={5} className="px-6 py-8 text-center text-text-secondary">
                     Nenhum item encontrado.
                   </td>
                 </tr>
@@ -239,6 +296,24 @@ export default function InventarioPage() {
                     </td>
                     <td className="px-6 py-4 text-right font-medium text-cs-green">
                       {formatCurrency(item.daily_rate)}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-3">
+                        <button 
+                          onClick={() => handleEdit(item)}
+                          className="text-text-secondary hover:text-cs-gold transition-colors"
+                          title="Editar"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(item.id)}
+                          className="text-text-secondary hover:text-red-500 transition-colors"
+                          title="Excluir"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))

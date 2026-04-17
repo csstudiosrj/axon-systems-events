@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../../lib/supabase";
 import { FileText, Plus, Loader2, ArrowLeft, Trash2, Save, Printer, Edit } from "lucide-react";
 import Link from "next/link";
@@ -8,16 +8,19 @@ import Link from "next/link";
 export default function OrcamentosPage() {
   const [view, setView] = useState<"list" | "create">("list");
   const [quotes, setQuotes] = useState<any[]>([]);
-  const [clients, setClients] = useState<any[]>([]);
-  const[inventory, setInventory] = useState<any[]>([]);
+  const[clients, setClients] = useState<any[]>([]);
+  const [inventory, setInventory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const[isSubmitting, setIsSubmitting] = useState(false);
 
   // Estados do Formulário
   const [editQuoteId, setEditQuoteId] = useState<string | null>(null);
-  const[title, setTitle] = useState("");
-  const [clientId, setClientId] = useState("");
+  const [title, setTitle] = useState("");
+  const[clientId, setClientId] = useState("");
   const [items, setItems] = useState<any[]>([]);
+
+  // Referência para o final da lista (usado para o auto-scroll)
+  const itemsEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (view === "list") {
@@ -53,19 +56,16 @@ export default function OrcamentosPage() {
     if (data) setInventory(data);
   };
 
-  // Função para abrir o modo de edição
   const handleEditQuote = async (quote: any) => {
     setLoading(true);
     setEditQuoteId(quote.id);
     setTitle(quote.title);
     setClientId(quote.client_id);
     
-    // Busca os itens salvos deste orçamento
     const { data } = await supabase.from("quote_items").select("*").eq("quote_id", quote.id);
     if (data) {
-      // Mapeia para o formato do nosso estado local
       const formattedItems = data.map(item => ({
-        id: item.id, // ID real do banco
+        id: item.id,
         category: item.category,
         description: item.description,
         quantity: item.quantity,
@@ -81,6 +81,11 @@ export default function OrcamentosPage() {
 
   const addItem = (category: "equipment" | "labor" | "logistics") => {
     setItems([...items, { id: Date.now().toString(), category, description: "", quantity: 1, daily_rate: 0, days: 1 }]);
+    
+    // Aguarda o React renderizar o novo item e faz o scroll suave
+    setTimeout(() => {
+      itemsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 100);
   };
 
   const removeItem = (id: string) => {
@@ -133,7 +138,6 @@ export default function OrcamentosPage() {
       let currentQuoteId = editQuoteId;
 
       if (editQuoteId) {
-        // ATUALIZAR orçamento existente
         await supabase.from("quotes").update({
           title,
           client_id: clientId,
@@ -143,11 +147,8 @@ export default function OrcamentosPage() {
           final_amount: totals.final
         }).eq("id", editQuoteId);
 
-        // Apaga os itens antigos para inserir os novos (forma mais segura de atualizar listas)
         await supabase.from("quote_items").delete().eq("quote_id", editQuoteId);
-
       } else {
-        // CRIAR novo orçamento
         const { data: quoteData, error: quoteError } = await supabase.from("quotes").insert([{
           title,
           client_id: clientId,
@@ -162,7 +163,6 @@ export default function OrcamentosPage() {
         currentQuoteId = quoteData.id;
       }
 
-      // Insere os itens (novos ou atualizados)
       const itemsToInsert = items.map(item => ({
         quote_id: currentQuoteId,
         category: item.category,
@@ -191,7 +191,6 @@ export default function OrcamentosPage() {
   if (view === "create") {
     return (
       <div className="space-y-6 max-w-5xl mx-auto pb-12">
-        {/* Datalists dinâmicos para auto-completar */}
         <datalist id="inventory-equipment">
           {inventory.filter(eq => !['logistics', 'labor'].includes(eq.category)).map(eq => (
             <option key={eq.id} value={eq.name} />
@@ -314,6 +313,8 @@ export default function OrcamentosPage() {
                 </div>
               ))
             )}
+            {/* Âncora invisível para o auto-scroll */}
+            <div ref={itemsEndRef} />
           </div>
         </div>
 
