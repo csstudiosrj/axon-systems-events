@@ -6,8 +6,8 @@ import { Megaphone, Plus, Loader2, ArrowLeft, Calendar, Image as ImageIcon, Came
 
 export default function MarketingPage() {
   const [view, setView] = useState<"list" | "create">("list");
-  const[posts, setPosts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [posts, setPosts] = useState<any[]>([]);
+  const[loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [editId, setEditId] = useState<string | null>(null);
@@ -276,8 +276,9 @@ export default function MarketingPage() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex gap-2">
-                        {post.platform_instagram && <Camera size={16} className="text-pink-500" title="Instagram" />}
-                        {post.platform_blog && <Globe size={16} className="text-blue-400" title="Blog do Site" />}
+                        {/* Correção aplicada aqui: envelopando com span para o title */}
+                        {post.platform_instagram && <span title="Instagram"><Camera size={16} className="text-pink-500" /></span>}
+                        {post.platform_blog && <span title="Blog do Site"><Globe size={16} className="text-blue-400" /></span>}
                       </div>
                     </td>
                     <td className="px-6 py-4">
