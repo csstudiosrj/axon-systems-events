@@ -7,17 +7,21 @@ import { Megaphone, Plus, Loader2, ArrowLeft, Calendar, Image as ImageIcon, Came
 export default function MarketingPage() {
   const [view, setView] = useState<"list" | "create">("list");
   const [posts, setPosts] = useState<any[]>([]);
-  const[loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Estados do Formulário
   const [editId, setEditId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [imageUrl, setImageUrl] = useState("");
-  const[scheduledFor, setScheduledFor] = useState("");
+  const [scheduledFor, setScheduledFor] = useState("");
   const [platformInstagram, setPlatformInstagram] = useState(true);
   const [platformBlog, setPlatformBlog] = useState(true);
   const [status, setStatus] = useState("scheduled");
+  
+  // Estado para controle de erro na imagem
+  const [imageError, setImageError] = useState(false);
 
   useEffect(() => {
     if (view === "list") fetchPosts();
@@ -43,6 +47,7 @@ export default function MarketingPage() {
     setPlatformInstagram(true);
     setPlatformBlog(true);
     setStatus("scheduled");
+    setImageError(false);
   };
 
   const handleSavePost = async (e: React.FormEvent) => {
@@ -85,6 +90,7 @@ export default function MarketingPage() {
     setTitle(post.title);
     setContent(post.content);
     setImageUrl(post.image_url || "");
+    setImageError(false);
     
     const dateObj = new Date(post.scheduled_for);
     const formattedDate = new Date(dateObj.getTime() - dateObj.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -132,7 +138,16 @@ export default function MarketingPage() {
 
               <div>
                 <label className="block text-sm font-medium text-text-secondary mb-1">URL da Imagem (Link)</label>
-                <input type="url" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" placeholder="https://exemplo.com/imagem.jpg" />
+                <input 
+                  type="url" 
+                  value={imageUrl} 
+                  onChange={(e) => {
+                    setImageUrl(e.target.value);
+                    setImageError(false);
+                  }} 
+                  className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" 
+                  placeholder="https://exemplo.com/imagem.jpg" 
+                />
                 <p className="text-xs text-text-secondary mt-1">Cole o link da imagem. O upload direto será ativado na próxima fase.</p>
               </div>
 
@@ -188,10 +203,20 @@ export default function MarketingPage() {
               </div>
               
               <div className="w-full aspect-square bg-surface flex items-center justify-center overflow-hidden">
-                {imageUrl ? (
-                  <img src={imageUrl} alt="Preview" className="w-full h-full object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                {imageUrl && !imageError ? (
+                  <img 
+                    src={imageUrl} 
+                    alt="Preview" 
+                    className="w-full h-full object-cover" 
+                    onError={() => setImageError(true)} 
+                  />
                 ) : (
-                  <ImageIcon size={32} className="text-surface/50" />
+                  <div className="flex flex-col items-center gap-2 text-text-secondary">
+                    <ImageIcon size={32} className="text-surface/50" />
+                    {imageUrl && imageError && (
+                      <span className="text-xs text-red-400 font-medium">Erro ao carregar imagem</span>
+                    )}
+                  </div>
                 )}
               </div>
               
@@ -276,7 +301,6 @@ export default function MarketingPage() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex gap-2">
-                        {/* Correção aplicada aqui: envelopando com span para o title */}
                         {post.platform_instagram && <span title="Instagram"><Camera size={16} className="text-pink-500" /></span>}
                         {post.platform_blog && <span title="Blog do Site"><Globe size={16} className="text-blue-400" /></span>}
                       </div>
