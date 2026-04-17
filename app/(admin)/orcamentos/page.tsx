@@ -6,20 +6,24 @@ import { FileText, Plus, Search, Loader2, ArrowLeft, Trash2, Save, Printer } fro
 import Link from "next/link";
 
 export default function OrcamentosPage() {
-  const[view, setView] = useState<"list" | "create">("list");
+  const [view, setView] = useState<"list" | "create">("list");
   const [quotes, setQuotes] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
+  const[inventory, setInventory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [title, setTitle] = useState("");
+  const[title, setTitle] = useState("");
   const [clientId, setClientId] = useState("");
   const [items, setItems] = useState<any[]>([]);
 
   useEffect(() => {
     if (view === "list") fetchQuotes();
-    if (view === "create") fetchClients();
-  },[view]);
+    if (view === "create") {
+      fetchClients();
+      fetchInventory();
+    }
+  }, [view]);
 
   const fetchQuotes = async () => {
     setLoading(true);
@@ -36,6 +40,11 @@ export default function OrcamentosPage() {
     if (data) setClients(data);
   };
 
+  const fetchInventory = async () => {
+    const { data } = await supabase.from("equipment").select("*").order("name");
+    if (data) setInventory(data);
+  };
+
   const addItem = (category: "equipment" | "labor" | "logistics") => {
     setItems([...items, { id: Date.now(), category, description: "", quantity: 1, daily_rate: 0, days: 1 }]);
   };
@@ -46,6 +55,21 @@ export default function OrcamentosPage() {
 
   const updateItem = (id: number, field: string, value: string | number) => {
     setItems(items.map(item => item.id === id ? { ...item, [field]: value } : item));
+  };
+
+  // Função inteligente que detecta se o item digitado existe no inventário e puxa o preço
+  const handleDescriptionChange = (id: number, value: string) => {
+    const foundItem = inventory.find(eq => eq.name.toLowerCase() === value.toLowerCase());
+    
+    if (foundItem) {
+      setItems(items.map(item => item.id === id ? { 
+        ...item, 
+        description: value, 
+        daily_rate: foundItem.daily_rate 
+      } : item));
+    } else {
+      updateItem(id, "description", value);
+    }
   };
 
   const calculateTotals = () => {
@@ -124,6 +148,18 @@ export default function OrcamentosPage() {
   if (view === "create") {
     return (
       <div className="space-y-6 max-w-5xl mx-auto pb-12">
+        {/* Datalists invisíveis que alimentam o auto-completar */}
+        <datalist id="inventory-equipment">
+          {inventory.filter(eq => eq.category !== 'logistics').map(eq => (
+            <option key={eq.id} value={eq.name} />
+          ))}
+        </datalist>
+        <datalist id="inventory-logistics">
+          {inventory.filter(eq => eq.category === 'logistics').map(eq => (
+            <option key={eq.id} value={eq.name} />
+          ))}
+        </datalist>
+
         <div className="flex items-center justify-between">
           <button 
             onClick={() => setView("list")}
@@ -194,13 +230,17 @@ export default function OrcamentosPage() {
                       {item.category === 'equipment' ? 'Equip.' : item.category === 'labor' ? 'Equipe' : 'Logística'}
                     </span>
                   </div>
+                  
+                  {/* Campo Inteligente de Descrição */}
                   <input
                     type="text"
-                    placeholder="Descrição do item..."
+                    list={item.category === 'equipment' ? 'inventory-equipment' : item.category === 'logistics' ? 'inventory-logistics' : undefined}
+                    placeholder={item.category === 'labor' ? "Ex: Técnico de Áudio..." : "Buscar no acervo ou digitar..."}
                     value={item.description}
-                    onChange={(e) => updateItem(item.id, "description", e.target.value)}
+                    onChange={(e) => handleDescriptionChange(item.id, e.target.value)}
                     className="flex-1 bg-transparent border-b border-surface text-white focus:border-cs-green focus:outline-none px-2 py-1"
                   />
+                  
                   <div className="w-20">
                     <label className="text-[10px] text-text-secondary block">Qtd</label>
                     <input type="number" min="1" value={item.quantity} onChange={(e) => updateItem(item.id, "quantity", e.target.value)} className="w-full bg-surface border border-surface/50 rounded px-2 py-1 text-white focus:outline-none focus:border-cs-green" />
@@ -249,7 +289,6 @@ export default function OrcamentosPage() {
           </div>
         </div>
 
-        {/* Botão Salvar no Rodapé */}
         <div className="flex justify-end pt-4">
           <button
             onClick={handleSaveQuote}
