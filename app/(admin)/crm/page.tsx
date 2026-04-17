@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../../lib/supabase";
-import { Target, Plus, Loader2, ArrowLeft, Mail, Phone, DollarSign, GripVertical, Minimize2, Maximize2 } from "lucide-react";
+import { Target, Plus, Loader2, ArrowLeft, Mail, Phone, DollarSign, GripVertical, Minimize2, Maximize2, X, Save, Trash2, FileText } from "lucide-react";
 
 const COLUMNS =[
   { id: "new", title: "Novos Leads", color: "border-blue-500/30", bg: "bg-blue-500/10", text: "text-blue-400" },
@@ -14,23 +14,27 @@ const COLUMNS =[
 ];
 
 export default function CRMPage() {
-  const[view, setView] = useState<"board" | "create">("board");
-  const[leads, setLeads] = useState<any[]>([]);
+  const [view, setView] = useState<"board" | "create">("board");
+  const [leads, setLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const[compactView, setCompactView] = useState(false);
+  const[isSubmitting, setIsSubmitting] = useState(false);
+  const [compactView, setCompactView] = useState(false);
 
-  // Referência para o container do Kanban (usado no auto-scroll)
+  // Estado para o Modal de Edição
+  const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
+
   const boardRef = useRef<HTMLDivElement>(null);
 
-  // Estados do Formulário
+  // Estados do Formulário (Usados tanto para Criar quanto para Editar)
   const [clientName, setClientName] = useState("");
-  const [companyName, setCompanyName] = useState("");
+  const[companyName, setCompanyName] = useState("");
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
+  const[phone, setPhone] = useState("");
   const [eventType, setEventType] = useState("");
-  const [eventDate, setEventDate] = useState("");
+  const[eventDate, setEventDate] = useState("");
   const [estimatedBudget, setEstimatedBudget] = useState("");
+  const[notes, setNotes] = useState("");
+  const [leadStatus, setLeadStatus] = useState("new");
 
   useEffect(() => {
     if (view === "board") fetchLeads();
@@ -47,7 +51,6 @@ export default function CRMPage() {
     setLoading(false);
   };
 
-  // Máscara de Telefone
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let value = e.target.value.replace(/\D/g, "");
     if (value.length > 11) value = value.slice(0, 11);
@@ -56,59 +59,99 @@ export default function CRMPage() {
     setPhone(value);
   };
 
-  const handleCreateLead = async (e: React.FormEvent) => {
+  const resetForm = () => {
+    setClientName(""); setCompanyName(""); setEmail(""); setPhone(""); 
+    setEventType(""); setEventDate(""); setEstimatedBudget(""); setNotes(""); setLeadStatus("new");
+    setEditingLeadId(null);
+  };
+
+  const handleSaveLead = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clientName) return;
     
     setIsSubmitting(true);
-    const { error } = await supabase
-      .from("leads")
-      .insert([{ 
-        client_name: clientName,
-        company_name: companyName,
-        email,
-        phone,
-        event_type: eventType,
-        event_date: eventDate ? new Date(eventDate).toISOString() : null,
-        estimated_budget: estimatedBudget ? Number(estimatedBudget) : 0,
-        status: "new"
-      }]);
+
+    const payload = {
+      client_name: clientName,
+      company_name: companyName,
+      email,
+      phone,
+      event_type: eventType,
+      event_date: eventDate ? new Date(eventDate).toISOString() : null,
+      estimated_budget: estimatedBudget ? Number(estimatedBudget) : 0,
+      notes,
+      status: leadStatus
+    };
+
+    let error;
+
+    if (editingLeadId) {
+      // Atualiza Lead Existente
+      const { error: updateError } = await supabase.from("leads").update(payload).eq("id", editingLeadId);
+      error = updateError;
+    } else {
+      // Cria Novo Lead
+      const { error: insertError } = await supabase.from("leads").insert([payload]);
+      error = insertError;
+    }
 
     if (!error) {
-      setClientName(""); setCompanyName(""); setEmail(""); setPhone(""); setEventType(""); setEventDate(""); setEstimatedBudget("");
-      setView("board");
+      resetForm();
+      if (view === "create") setView("board");
+      fetchLeads();
     } else {
-      alert("Erro ao cadastrar lead: " + error.message);
+      alert("Erro ao salvar lead: " + error.message);
     }
     setIsSubmitting(false);
   };
 
-  // Funções de Drag and Drop
+  const handleDeleteLead = async () => {
+    if (!editingLeadId) return;
+    if (!window.confirm("Tem certeza que deseja excluir esta oportunidade permanentemente?")) return;
+
+    setIsSubmitting(true);
+    const { error } = await supabase.from("leads").delete().eq("id", editingLeadId);
+    
+    if (!error) {
+      resetForm();
+      fetchLeads();
+    } else {
+      alert("Erro ao excluir: " + error.message);
+    }
+    setIsSubmitting(false);
+  };
+
+  const openEditModal = (lead: any) => {
+    setEditingLeadId(lead.id);
+    setClientName(lead.client_name || "");
+    setCompanyName(lead.company_name || "");
+    setEmail(lead.email || "");
+    setPhone(lead.phone || "");
+    setEventType(lead.event_type || "");
+    setEventDate(lead.event_date ? lead.event_date.split('T')[0] : "");
+    setEstimatedBudget(lead.estimated_budget?.toString() || "");
+    setNotes(lead.notes || "");
+    setLeadStatus(lead.status || "new");
+  };
+
   const handleDragStart = (e: React.DragEvent, leadId: string) => {
     e.dataTransfer.setData("leadId", leadId);
   };
 
-  // Algoritmo de Auto-scroll Horizontal
   const handleDragOverBoard = (e: React.DragEvent) => {
     e.preventDefault();
     if (!boardRef.current) return;
-
     const scrollSpeed = 15;
-    const threshold = 100; // Distância da borda em pixels para ativar o scroll
+    const threshold = 100;
     const rect = boardRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
-
-    if (x < threshold) {
-      boardRef.current.scrollLeft -= scrollSpeed;
-    } else if (x > rect.width - threshold) {
-      boardRef.current.scrollLeft += scrollSpeed;
-    }
+    if (x < threshold) boardRef.current.scrollLeft -= scrollSpeed;
+    else if (x > rect.width - threshold) boardRef.current.scrollLeft += scrollSpeed;
   };
 
   const handleDrop = async (e: React.DragEvent, newStatus: string) => {
     e.preventDefault();
     const leadId = e.dataTransfer.getData("leadId");
-    
     setLeads(prev => prev.map(lead => lead.id === leadId ? { ...lead, status: newStatus } : lead));
     await supabase.from("leads").update({ status: newStatus }).eq("id", leadId);
   };
@@ -121,21 +164,17 @@ export default function CRMPage() {
     return (
       <div className="space-y-6 max-w-3xl mx-auto">
         <div className="flex items-center justify-between">
-          <button 
-            onClick={() => setView("board")}
-            className="flex items-center gap-2 text-text-secondary hover:text-white transition-colors"
-          >
+          <button onClick={() => { resetForm(); setView("board"); }} className="flex items-center gap-2 text-text-secondary hover:text-white transition-colors">
             <ArrowLeft size={20} /> Voltar para o Funil
           </button>
         </div>
 
         <div className="bg-surface border border-surface/50 p-6 rounded-lg">
           <h3 className="text-lg font-medium text-white mb-6 flex items-center gap-2">
-            <Plus className="text-cs-green" size={20} />
-            Cadastrar Novo Lead (Oportunidade)
+            <Plus className="text-cs-green" size={20} /> Cadastrar Novo Lead
           </h3>
           
-          <form onSubmit={handleCreateLead} className="space-y-6">
+          <form onSubmit={handleSaveLead} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-text-secondary mb-1">Nome do Contato *</label>
@@ -155,37 +194,17 @@ export default function CRMPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-text-secondary mb-1">Tipo de Evento</label>
-                <input type="text" value={eventType} onChange={(e) => setEventType(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" placeholder="Ex: Convenção, Show, Lançamento" />
+                <input type="text" value={eventType} onChange={(e) => setEventType(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" placeholder="Ex: Convenção, Show" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-text-secondary mb-1">Data Prevista (Calendário)</label>
-                <input 
-                  type="date" 
-                  max="2099-12-31"
-                  value={eventDate} 
-                  onChange={(e) => {
-                    if (e.target.value.length > 10) return; // Trava contra anos infinitos
-                    setEventDate(e.target.value);
-                  }} 
-                  className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" 
-                />
+                <label className="block text-sm font-medium text-text-secondary mb-1">Data Prevista</label>
+                <input type="date" max="2099-12-31" value={eventDate} onChange={(e) => { if (e.target.value.length <= 10) setEventDate(e.target.value); }} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-text-secondary mb-1">Orçamento Estimado (Budget)</label>
-                <input 
-                  type="number" 
-                  max="999999999"
-                  value={estimatedBudget} 
-                  onChange={(e) => {
-                    if (e.target.value.length > 10) return; // Trava contra números infinitos
-                    setEstimatedBudget(e.target.value);
-                  }} 
-                  className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" 
-                  placeholder="R$ 0,00" 
-                />
+                <input type="number" max="999999999" value={estimatedBudget} onChange={(e) => { if (e.target.value.length <= 10) setEstimatedBudget(e.target.value); }} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" placeholder="R$ 0,00" />
               </div>
             </div>
-
             <div className="flex justify-end pt-4 border-t border-surface/50">
               <button type="submit" disabled={isSubmitting} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50">
                 {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : "Salvar Lead"}
@@ -198,24 +217,17 @@ export default function CRMPage() {
   }
 
   return (
-    <div className="space-y-6 h-full flex flex-col">
+    <div className="space-y-6 h-full flex flex-col relative">
       <div className="flex justify-between items-center bg-surface p-4 border border-surface/50 rounded-lg shrink-0">
         <h3 className="text-lg font-medium text-white flex items-center gap-2">
-          <Target className="text-cs-green" size={20} />
-          Funil de Vendas (CRM)
+          <Target className="text-cs-green" size={20} /> Funil de Vendas (CRM)
         </h3>
         <div className="flex items-center gap-4">
-          <button
-            onClick={() => setCompactView(!compactView)}
-            className="flex items-center gap-2 text-sm font-medium text-text-secondary hover:text-white transition-colors"
-          >
+          <button onClick={() => setCompactView(!compactView)} className="flex items-center gap-2 text-sm font-medium text-text-secondary hover:text-white transition-colors">
             {compactView ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
             {compactView ? "Visão Detalhada" : "Visão Compacta"}
           </button>
-          <button
-            onClick={() => setView("create")}
-            className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all"
-          >
+          <button onClick={() => { resetForm(); setView("create"); }} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all">
             <Plus size={18} /> Adicionar Lead
           </button>
         </div>
@@ -226,23 +238,12 @@ export default function CRMPage() {
           <Loader2 className="animate-spin text-cs-green" size={32} />
         </div>
       ) : (
-        <div 
-          ref={boardRef}
-          onDragOver={handleDragOverBoard}
-          className="flex-1 flex gap-4 overflow-x-auto pb-4 custom-scrollbar"
-        >
+        <div ref={boardRef} onDragOver={handleDragOverBoard} className="flex-1 flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
           {COLUMNS.map(column => (
-            <div 
-              key={column.id} 
-              className="flex-shrink-0 w-80 flex flex-col bg-surface border border-surface/50 rounded-lg overflow-hidden"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => handleDrop(e, column.id)}
-            >
+            <div key={column.id} className="flex-shrink-0 w-80 flex flex-col bg-surface border border-surface/50 rounded-lg overflow-hidden" onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, column.id)}>
               <div className={`p-3 border-b border-surface/50 flex justify-between items-center ${column.bg}`}>
                 <h4 className={`font-semibold text-sm ${column.text}`}>{column.title}</h4>
-                <span className="bg-background text-text-secondary text-xs py-0.5 px-2 rounded-full font-medium">
-                  {leads.filter(l => l.status === column.id).length}
-                </span>
+                <span className="bg-background text-text-secondary text-xs py-0.5 px-2 rounded-full font-medium">{leads.filter(l => l.status === column.id).length}</span>
               </div>
 
               <div className="flex-1 p-3 space-y-3 overflow-y-auto">
@@ -251,35 +252,23 @@ export default function CRMPage() {
                     key={lead.id} 
                     draggable
                     onDragStart={(e) => handleDragStart(e, lead.id)}
-                    className="bg-background border border-surface/50 p-4 rounded-md cursor-grab active:cursor-grabbing hover:border-cs-green/50 transition-colors shadow-sm"
+                    onClick={() => openEditModal(lead)}
+                    className="bg-background border border-surface/50 p-4 rounded-md cursor-pointer hover:border-cs-green/50 transition-colors shadow-sm group"
                   >
                     <div className="flex justify-between items-start">
-                      <h5 className="font-medium text-white text-sm">{lead.client_name}</h5>
-                      <GripVertical size={14} className="text-text-secondary shrink-0" />
+                      <h5 className="font-medium text-white text-sm group-hover:text-cs-green transition-colors">{lead.client_name}</h5>
+                      <GripVertical size={14} className="text-text-secondary shrink-0 cursor-grab active:cursor-grabbing" />
                     </div>
                     
                     {lead.company_name && <p className={`text-xs text-text-secondary ${compactView ? 'mt-1' : 'mb-3'}`}>{lead.company_name}</p>}
                     
-                    {/* Renderização Condicional baseada na Visão Compacta */}
                     {!compactView && (
                       <>
                         {lead.event_type && <p className="text-xs text-cs-gold mb-3">{lead.event_type}</p>}
                         <div className="space-y-1.5">
-                          {lead.phone && (
-                            <div className="flex items-center gap-2 text-xs text-text-secondary">
-                              <Phone size={12} /> {lead.phone}
-                            </div>
-                          )}
-                          {lead.email && (
-                            <div className="flex items-center gap-2 text-xs text-text-secondary">
-                              <Mail size={12} /> <span className="truncate">{lead.email}</span>
-                            </div>
-                          )}
-                          {lead.estimated_budget > 0 && (
-                            <div className="flex items-center gap-2 text-xs text-cs-green font-medium mt-2 pt-2 border-t border-surface/50">
-                              <DollarSign size={12} /> {formatCurrency(lead.estimated_budget)}
-                            </div>
-                          )}
+                          {lead.phone && <div className="flex items-center gap-2 text-xs text-text-secondary"><Phone size={12} /> {lead.phone}</div>}
+                          {lead.email && <div className="flex items-center gap-2 text-xs text-text-secondary"><Mail size={12} /> <span className="truncate">{lead.email}</span></div>}
+                          {lead.estimated_budget > 0 && <div className="flex items-center gap-2 text-xs text-cs-green font-medium mt-2 pt-2 border-t border-surface/50"><DollarSign size={12} /> {formatCurrency(lead.estimated_budget)}</div>}
                         </div>
                       </>
                     )}
@@ -288,6 +277,110 @@ export default function CRMPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Modal de Detalhes / Edição do Lead */}
+      {editingLeadId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            
+            {/* Header do Modal */}
+            <div className="flex justify-between items-center p-6 border-b border-surface/50 bg-background/50">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <Target className="text-cs-green" size={24} /> Ficha da Oportunidade
+              </h2>
+              <button onClick={resetForm} className="text-text-secondary hover:text-white transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Corpo do Modal (Rolável) */}
+            <div className="p-6 overflow-y-auto flex-1">
+              <form id="edit-lead-form" onSubmit={handleSaveLead} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-1">Nome do Contato *</label>
+                    <input type="text" required value={clientName} onChange={(e) => setClientName(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-1">Empresa / Instituição</label>
+                    <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-1">E-mail</label>
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-1">Telefone / WhatsApp</label>
+                    <input type="text" value={phone} onChange={handlePhoneChange} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-1">Tipo de Evento</label>
+                    <input type="text" value={eventType} onChange={(e) => setEventType(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-1">Data Prevista</label>
+                    <input type="date" max="2099-12-31" value={eventDate} onChange={(e) => { if (e.target.value.length <= 10) setEventDate(e.target.value); }} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-1">Orçamento Estimado (Budget)</label>
+                    <input type="number" max="999999999" value={estimatedBudget} onChange={(e) => { if (e.target.value.length <= 10) setEstimatedBudget(e.target.value); }} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-1">Fase do Funil (Status)</label>
+                    <select value={leadStatus} onChange={(e) => setLeadStatus(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors">
+                      {COLUMNS.map(col => (
+                        <option key={col.id} value={col.id}>{col.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-text-secondary mb-1 flex items-center gap-2">
+                      <FileText size={14} /> Anotações / Histórico de Reuniões
+                    </label>
+                    <textarea 
+                      rows={4} 
+                      value={notes} 
+                      onChange={(e) => setNotes(e.target.value)} 
+                      className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors resize-none" 
+                      placeholder="Registre aqui os detalhes do briefing, necessidades do cliente, links de referência..."
+                    />
+                  </div>
+                </div>
+              </form>
+            </div>
+
+            {/* Footer do Modal (Fixo na base) */}
+            <div className="p-6 border-t border-surface/50 bg-background/50 flex justify-between items-center shrink-0">
+              <button 
+                type="button"
+                onClick={handleDeleteLead}
+                disabled={isSubmitting}
+                className="flex items-center gap-2 text-sm font-medium text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+              >
+                <Trash2 size={18} /> Excluir Lead
+              </button>
+              <div className="flex gap-4">
+                <button 
+                  type="button"
+                  onClick={resetForm}
+                  className="px-6 py-2 text-sm font-medium text-text-secondary hover:text-white transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit"
+                  form="edit-lead-form"
+                  disabled={isSubmitting}
+                  className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50"
+                >
+                  {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+                  Salvar Alterações
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
