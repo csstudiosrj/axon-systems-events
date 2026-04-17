@@ -5,13 +5,12 @@ import { supabase } from "../../lib/supabase";
 import { Truck, Plus, Loader2, ArrowLeft, Calendar, Clock, Play, CheckCircle, AlertCircle } from "lucide-react";
 
 export default function OSPage() {
-  const[view, setView] = useState<"list" | "create">("list");
+  const [view, setView] = useState<"list" | "create">("list");
   const [orders, setOrders] = useState<any[]>([]);
   const [availableQuotes, setAvailableQuotes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const[isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Estados do Formulário
   const [quoteId, setQuoteId] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -19,11 +18,10 @@ export default function OSPage() {
   useEffect(() => {
     if (view === "list") fetchOrders();
     if (view === "create") fetchAvailableQuotes();
-  }, [view]);
+  },[view]);
 
   const fetchOrders = async () => {
     setLoading(true);
-    // Busca as OSs e traz junto os dados do Orçamento e do Cliente
     const { data, error } = await supabase
       .from("service_orders")
       .select(`
@@ -40,7 +38,6 @@ export default function OSPage() {
   };
 
   const fetchAvailableQuotes = async () => {
-    // Busca orçamentos para vincular à nova OS
     const { data } = await supabase
       .from("quotes")
       .select("id, title, clients(company_name)")
@@ -54,24 +51,42 @@ export default function OSPage() {
     if (!quoteId || !startDate || !endDate) return;
 
     setIsSubmitting(true);
-    const { error } = await supabase
-      .from("service_orders")
-      .insert([{
-        quote_id: quoteId,
-        event_start_date: new Date(startDate).toISOString(),
-        event_end_date: new Date(endDate).toISOString(),
-        status: "pending"
-      }]);
 
-    if (!error) {
-      setQuoteId("");
-      setStartDate("");
-      setEndDate("");
-      setView("list");
-    } else {
-      alert("Erro ao criar OS. Verifique se este orçamento já possui uma OS vinculada. Erro: " + error.message);
+    try {
+      // Validação rigorosa de data para evitar travamento (Invalid time value)
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        alert("Por favor, insira datas e horários válidos.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      const { error } = await supabase
+        .from("service_orders")
+        .insert([{
+          quote_id: quoteId,
+          event_start_date: start.toISOString(),
+          event_end_date: end.toISOString(),
+          status: "pending"
+        }]);
+
+      if (!error) {
+        setQuoteId("");
+        setStartDate("");
+        setEndDate("");
+        setView("list");
+        fetchOrders();
+      } else {
+        alert("Erro ao criar OS. Verifique se este orçamento já possui uma OS vinculada. Erro: " + error.message);
+      }
+    } catch (err: any) {
+      alert("Erro inesperado ao processar os dados: " + err.message);
+    } finally {
+      // Garante que o botão pare de girar independentemente de sucesso ou erro
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   };
 
   const updateOrderStatus = async (id: string, newStatus: string) => {
@@ -87,7 +102,6 @@ export default function OSPage() {
     }
   };
 
-  // Função para renderizar o badge de status com cores dinâmicas
   const getStatusBadge = (status: string) => {
     const statusConfig: Record<string, { label: string, color: string, icon: any }> = {
       pending: { label: "Pendente", color: "bg-gray-500/10 text-gray-400 border-gray-500/20", icon: Clock },
@@ -157,6 +171,7 @@ export default function OSPage() {
                 <input
                   type="datetime-local"
                   required
+                  max="2099-12-31T23:59"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
                   className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors"
@@ -170,6 +185,7 @@ export default function OSPage() {
                 <input
                   type="datetime-local"
                   required
+                  max="2099-12-31T23:59"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
                   className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors"
