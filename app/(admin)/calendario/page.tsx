@@ -7,11 +7,9 @@ import { CalendarDays, ChevronLeft, ChevronRight, Loader2, Truck, Wallet, Megaph
 
 export default function CalendarioPage() {
   const router = useRouter();
-  const[currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState(new Date());
   const [events, setEvents] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  
-  // Estado para controlar o Modal do Evento clicado
+  const[loading, setLoading] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
 
   useEffect(() => {
@@ -25,7 +23,7 @@ export default function CalendarioPage() {
     const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 2, 0).toISOString();
 
     try {
-      const[osRes, finRes, mktRes, tktRes] = await Promise.all([
+      const [osRes, finRes, mktRes, tktRes] = await Promise.all([
         supabase.from("service_orders").select("id, event_start_date, status, quotes(title)").gte("event_start_date", startOfMonth).lte("event_start_date", endOfMonth),
         supabase.from("financial_transactions").select("id, due_date, description, type, status, amount").gte("due_date", startOfMonth).lte("due_date", endOfMonth),
         supabase.from("marketing_posts").select("id, scheduled_for, title, status").gte("scheduled_for", startOfMonth).lte("scheduled_for", endOfMonth),
@@ -131,7 +129,7 @@ export default function CalendarioPage() {
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
   const monthNames =["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-  const weekDays =["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+  const weekDays = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
   return (
     <div className="space-y-6 h-full flex flex-col relative">
@@ -203,14 +201,18 @@ export default function CalendarioPage() {
                     {day}
                   </div>
                   
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 relative z-10">
                     {dayEvents.map(event => {
                       const Icon = event.icon;
                       return (
                         <div 
                           key={event.id} 
-                          onClick={() => setSelectedEvent(event)}
-                          className={`px-2 py-1.5 rounded border text-[10px] font-medium truncate flex items-center gap-1.5 cursor-pointer hover:opacity-80 transition-opacity ${event.color}`}
+                          title={event.title}
+                          onClick={(e) => {
+                            e.stopPropagation(); // Impede que o clique vaze para elementos abaixo
+                            setSelectedEvent(event);
+                          }}
+                          className={`px-2 py-1.5 rounded border text-[10px] font-medium truncate flex items-center gap-1.5 cursor-pointer hover:opacity-80 transition-opacity relative z-20 ${event.color}`}
                         >
                           <Icon size={10} className="shrink-0" />
                           <span className="truncate">{event.title}</span>
@@ -225,7 +227,6 @@ export default function CalendarioPage() {
         )}
       </div>
 
-      {/* Modal de Detalhes do Evento */}
       {selectedEvent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
