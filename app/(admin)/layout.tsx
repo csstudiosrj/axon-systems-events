@@ -9,38 +9,62 @@ import Link from "next/link";
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [userEmail, setUserEmail] = useState<string | null>("");
+  const [userProfile, setUserProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         router.push("/login");
-      } else {
-        setUserEmail(session.user.email || "");
+        return;
       }
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", session.user.id)
+        .single();
+
+      if (profile) {
+        // Se for cliente, expulsa do painel admin e joga pro portal
+        if (['client', 'student', 'subscriber'].includes(profile.role)) {
+          router.push("/portal");
+          return;
+        }
+        setUserProfile(profile);
+      }
+      setLoading(false);
     };
     checkUser();
-  },[router]);
+  }, [router]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push("/login");
   };
 
-  const navItems =[
-    { name: "Visão Geral", href: "/dashboard", icon: LayoutDashboard },
-    { name: "Calendário Geral", href: "/calendario", icon: CalendarDays },
-    { name: "CRM / Vendas", href: "/crm", icon: Target },
-    { name: "Financeiro", href: "/financeiro", icon: Wallet },
-    { name: "Marketing", href: "/marketing", icon: Megaphone },
-    { name: "Treinamentos", href: "/treinamentos", icon: PlaySquare },
-    { name: "Clientes", href: "/clientes", icon: Users },
-    { name: "Inventário (LOC FIX)", href: "/inventario", icon: Package },
-    { name: "Orçamentos", href: "/orcamentos", icon: FileText },
-    { name: "Ordens de Serviço", href: "/os", icon: Truck },
-    { name: "Suporte Técnico", href: "/suporte", icon: Ticket },
+  // Definição de todos os menus possíveis
+  const allNavItems =[
+    { name: "Visão Geral", href: "/dashboard", icon: LayoutDashboard, roles:['super_admin', 'admin', 'commercial', 'financial', 'logistics', 'marketing', 'training', 'support'] },
+    { name: "Calendário Geral", href: "/calendario", icon: CalendarDays, roles:['super_admin', 'admin', 'commercial', 'logistics'] },
+    { name: "CRM / Vendas", href: "/crm", icon: Target, roles: ['super_admin', 'admin', 'commercial', 'financial'] },
+    { name: "Financeiro", href: "/financeiro", icon: Wallet, roles: ['super_admin', 'admin', 'financial'] },
+    { name: "Marketing", href: "/marketing", icon: Megaphone, roles:['super_admin', 'admin', 'marketing'] },
+    { name: "Treinamentos", href: "/treinamentos", icon: PlaySquare, roles: ['super_admin', 'admin', 'training'] },
+    { name: "Clientes", href: "/clientes", icon: Users, roles: ['super_admin', 'admin', 'commercial', 'financial'] },
+    { name: "Inventário (LOC FIX)", href: "/inventario", icon: Package, roles:['super_admin', 'admin', 'logistics', 'commercial'] },
+    { name: "Orçamentos", href: "/orcamentos", icon: FileText, roles:['super_admin', 'admin', 'commercial', 'financial'] },
+    { name: "Ordens de Serviço", href: "/os", icon: Truck, roles: ['super_admin', 'admin', 'logistics', 'commercial', 'support'] },
+    { name: "Suporte Técnico", href: "/suporte", icon: Ticket, roles:['super_admin', 'admin', 'support'] },
   ];
+
+  // Filtra os menus baseados no cargo do usuário logado
+  const allowedNavItems = allNavItems.filter(item => 
+    userProfile ? item.roles.includes(userProfile.role) : false
+  );
+
+  if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"></div>;
 
   return (
     <div className="min-h-screen bg-background text-text-primary flex print:bg-white">
@@ -52,7 +76,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
         
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto custom-scrollbar">
-          {navItems.map((item) => {
+          {allowedNavItems.map((item) => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
             return (
@@ -74,7 +98,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         <div className="p-4 border-t border-surface/50">
           <div className="px-4 py-2 mb-2 text-xs text-text-secondary truncate">
-            {userEmail}
+            {userProfile?.email}
+            <span className="block text-[10px] text-cs-gold uppercase mt-0.5">{userProfile?.role.replace('_', ' ')}</span>
           </div>
           <button 
             onClick={handleLogout}
@@ -92,8 +117,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             {pathname.replace('/', '') || 'Dashboard'}
           </h2>
           <div className="flex items-center gap-4">
-            <div className="h-8 w-8 rounded-full bg-cs-green flex items-center justify-center text-sm font-bold text-white">
-              CS
+            <div className="h-8 w-8 rounded-full bg-cs-green flex items-center justify-center text-sm font-bold text-white uppercase">
+              {userProfile?.email?.substring(0, 2)}
             </div>
           </div>
         </header>

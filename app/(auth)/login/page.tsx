@@ -3,11 +3,12 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
+import { Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
-  const[password, setPassword] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const[loading, setLoading] = useState(false);
 
@@ -17,21 +18,35 @@ export default function LoginPage() {
     setError("");
 
     try {
-      // O .trim() remove espaços em branco invisíveis no início ou fim do e-mail
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password: password,
       });
 
-      if (error) {
-        // Agora o sistema vai cuspir o erro exato do Supabase
-        setError(`Erro técnico: ${error.message}`);
+      if (authError) {
+        setError(`Erro: ${authError.message}`);
         setLoading(false);
-      } else if (data.session) {
-        router.push("/dashboard");
+        return;
+      }
+
+      if (authData.session) {
+        // Consulta o cargo (role) do usuário no banco de dados
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", authData.session.user.id)
+          .single();
+
+        const role = profile?.role || 'client';
+
+        // Roteamento Inteligente baseado no Cargo
+        if (['client', 'student', 'subscriber'].includes(role)) {
+          router.push("/portal");
+        } else {
+          router.push("/dashboard");
+        }
       }
     } catch (err: any) {
-      // Captura erros de falta de chaves da Vercel
       setError(`Erro de conexão: ${err.message}`);
       setLoading(false);
     }
@@ -53,52 +68,22 @@ export default function LoginPage() {
           <form onSubmit={handleLogin} className="mt-8 space-y-6">
             <div className="space-y-4">
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-text-secondary">
-                  E-mail corporativo
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-surface bg-surface px-3 py-2 text-white placeholder-text-secondary focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green sm:text-sm transition-colors"
-                  placeholder="seu.nome@cscomeventos.com.br"
-                />
+                <label htmlFor="email" className="block text-sm font-medium text-text-secondary">E-mail corporativo</label>
+                <input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1 block w-full rounded-md border border-surface bg-surface px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green sm:text-sm transition-colors" placeholder="seu.nome@cscomeventos.com.br" />
               </div>
-
               <div>
-                <label htmlFor="password" className="block text-sm font-medium text-text-secondary">
-                  Senha
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-surface bg-surface px-3 py-2 text-white placeholder-text-secondary focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green sm:text-sm transition-colors"
-                  placeholder="••••••••"
-                />
+                <label htmlFor="password" className="block text-sm font-medium text-text-secondary">Senha</label>
+                <input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1 block w-full rounded-md border border-surface bg-surface px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green sm:text-sm transition-colors" placeholder="••••••••" />
               </div>
             </div>
 
             <div className="flex items-center justify-between">
               <div className="flex items-center">
-                <input
-                  id="remember-me"
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-surface bg-surface text-cs-green focus:ring-cs-green"
-                />
-                <label htmlFor="remember-me" className="ml-2 block text-sm text-text-secondary">
-                  Lembrar de mim
-                </label>
+                <input id="remember-me" type="checkbox" className="h-4 w-4 rounded border-surface bg-background text-cs-green focus:ring-cs-green" />
+                <label htmlFor="remember-me" className="ml-2 block text-sm text-text-secondary">Lembrar de mim</label>
               </div>
-
               <div className="text-sm">
-                <a href="#" className="font-medium text-cs-gold hover:text-white transition-colors">
-                  Esqueceu a senha?
-                </a>
+                <a href="#" className="font-medium text-cs-gold hover:text-white transition-colors">Esqueceu a senha?</a>
               </div>
             </div>
 
@@ -109,12 +94,8 @@ export default function LoginPage() {
             )}
 
             <div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex w-full justify-center rounded-md border border-transparent bg-cs-green py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 focus:outline-none focus:ring-2 focus:ring-cs-green transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? "Autenticando..." : "Entrar no Sistema"}
+              <button type="submit" disabled={loading} className="flex w-full justify-center rounded-md bg-cs-green py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50">
+                {loading ? <Loader2 className="animate-spin" size={18} /> : "Entrar no Sistema"}
               </button>
             </div>
           </form>
@@ -124,14 +105,9 @@ export default function LoginPage() {
       <div className="hidden lg:flex lg:w-1/2 relative bg-surface border-l border-surface/50 items-center justify-center overflow-hidden">
         <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1492684223066-81342ee5ff30?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center opacity-20 mix-blend-luminosity"></div>
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/80 to-transparent"></div>
-        
         <div className="relative z-10 p-12 text-center max-w-2xl">
-          <h2 className="text-4xl font-bold text-white mb-4">
-            Excelência em Produção Técnica
-          </h2>
-          <p className="text-lg text-text-secondary">
-            Plataforma unificada para gestão de orçamentos, ordens de serviço, logística, treinamentos e suporte técnico de alto padrão.
-          </p>
+          <h2 className="text-4xl font-bold text-white mb-4">Excelência em Produção Técnica</h2>
+          <p className="text-lg text-text-secondary">Plataforma unificada para gestão de orçamentos, ordens de serviço, logística, treinamentos e suporte técnico.</p>
         </div>
       </div>
     </div>
