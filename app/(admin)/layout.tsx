@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "../lib/supabase";
-import { LayoutDashboard, FileText, Truck, Ticket, LogOut, Users, Package, Target, Wallet, Megaphone, CalendarDays } from "lucide-react";
+import { LayoutDashboard, FileText, Truck, Ticket, LogOut, Users, Package, Target, Wallet, Megaphone, CalendarDays, PlaySquare } from "lucide-react";
 import Link from "next/link";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -21,7 +21,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       }
     };
     checkUser();
-  }, [router]);
+  },[router]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -34,6 +34,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { name: "CRM / Vendas", href: "/crm", icon: Target },
     { name: "Financeiro", href: "/financeiro", icon: Wallet },
     { name: "Marketing", href: "/marketing", icon: Megaphone },
+    { name: "Treinamentos", href: "/treinamentos", icon: PlaySquare },
     { name: "Clientes", href: "/clientes", icon: Users },
     { name: "Inventário (LOC FIX)", href: "/inventario", icon: Package },
     { name: "Orçamentos", href: "/orcamentos", icon: FileText },
