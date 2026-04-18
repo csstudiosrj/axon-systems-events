@@ -5,23 +5,22 @@ import { supabase } from "../../lib/supabase";
 import { CalendarDays, ChevronLeft, ChevronRight, Loader2, Truck, Wallet, Megaphone, Ticket } from "lucide-react";
 
 export default function CalendarioPage() {
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const[events, setEvents] = useState<any[]>([]);
+  const[currentDate, setCurrentDate] = useState(new Date());
+  const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchAllEvents();
-  }, [currentDate]);
+  },[currentDate]);
 
   const fetchAllEvents = async () => {
     setLoading(true);
     
-    // Define o intervalo de busca para o mês atual (com margem para não perder eventos nas bordas)
     const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1).toISOString();
     const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 2, 0).toISOString();
 
     try {
-      const [osRes, finRes, mktRes, tktRes] = await Promise.all([
+      const[osRes, finRes, mktRes, tktRes] = await Promise.all([
         supabase.from("service_orders").select("id, event_start_date, status, quotes(title)").gte("event_start_date", startOfMonth).lte("event_start_date", endOfMonth),
         supabase.from("financial_transactions").select("id, due_date, description, type, status").gte("due_date", startOfMonth).lte("due_date", endOfMonth),
         supabase.from("marketing_posts").select("id, scheduled_for, title, status").gte("scheduled_for", startOfMonth).lte("scheduled_for", endOfMonth),
@@ -30,13 +29,16 @@ export default function CalendarioPage() {
 
       const normalizedEvents: any[] =[];
 
-      // 1. Normaliza Ordens de Serviço
+      // 1. Normaliza Ordens de Serviço (Adicionado ': any' para blindar o TypeScript)
       if (osRes.data) {
-        osRes.data.forEach(os => {
+        osRes.data.forEach((os: any) => {
+          // Tratamento extra caso o Supabase retorne como array
+          const quoteTitle = Array.isArray(os.quotes) ? os.quotes[0]?.title : os.quotes?.title;
+          
           normalizedEvents.push({
             id: `os-${os.id}`,
             date: new Date(os.event_start_date).toISOString().split('T')[0],
-            title: `OS: ${os.quotes?.title}`,
+            title: `OS: ${quoteTitle || 'Sem título'}`,
             type: 'os',
             icon: Truck,
             color: 'bg-blue-500/20 text-blue-400 border-blue-500/30'
@@ -46,7 +48,7 @@ export default function CalendarioPage() {
 
       // 2. Normaliza Financeiro
       if (finRes.data) {
-        finRes.data.forEach(fin => {
+        finRes.data.forEach((fin: any) => {
           normalizedEvents.push({
             id: `fin-${fin.id}`,
             date: new Date(fin.due_date).toISOString().split('T')[0],
@@ -60,7 +62,7 @@ export default function CalendarioPage() {
 
       // 3. Normaliza Marketing
       if (mktRes.data) {
-        mktRes.data.forEach(mkt => {
+        mktRes.data.forEach((mkt: any) => {
           normalizedEvents.push({
             id: `mkt-${mkt.id}`,
             date: new Date(mkt.scheduled_for).toISOString().split('T')[0],
@@ -74,7 +76,7 @@ export default function CalendarioPage() {
 
       // 4. Normaliza Tickets (SLA)
       if (tktRes.data) {
-        tktRes.data.forEach(tkt => {
+        tktRes.data.forEach((tkt: any) => {
           if (tkt.status !== 'resolved') {
             normalizedEvents.push({
               id: `tkt-${tkt.id}`,
@@ -100,7 +102,6 @@ export default function CalendarioPage() {
   const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   const goToToday = () => setCurrentDate(new Date());
 
-  // Lógica de construção da grade do calendário
   const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
   const getFirstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
 
@@ -115,7 +116,6 @@ export default function CalendarioPage() {
 
   return (
     <div className="space-y-6 h-full flex flex-col">
-      {/* Header do Calendário */}
       <div className="flex justify-between items-center bg-surface p-4 border border-surface/50 rounded-lg shrink-0">
         <div className="flex items-center gap-4">
           <div className="p-2 bg-cs-green/10 rounded-md text-cs-green">
@@ -144,7 +144,6 @@ export default function CalendarioPage() {
         </div>
       </div>
 
-      {/* Legenda */}
       <div className="flex flex-wrap gap-4 px-2 shrink-0">
         <div className="flex items-center gap-2 text-xs font-medium text-text-secondary"><span className="w-3 h-3 rounded-full bg-blue-500/50 border border-blue-500"></span> Ordens de Serviço</div>
         <div className="flex items-center gap-2 text-xs font-medium text-text-secondary"><span className="w-3 h-3 rounded-full bg-cs-green/50 border border-cs-green"></span> Receitas</div>
@@ -153,9 +152,7 @@ export default function CalendarioPage() {
         <div className="flex items-center gap-2 text-xs font-medium text-text-secondary"><span className="w-3 h-3 rounded-full bg-cs-gold/50 border border-cs-gold"></span> Tickets (SLA)</div>
       </div>
 
-      {/* Grade do Calendário */}
       <div className="flex-1 bg-surface border border-surface/50 rounded-lg overflow-hidden flex flex-col">
-        {/* Dias da Semana */}
         <div className="grid grid-cols-7 border-b border-surface/50 bg-background/50 shrink-0">
           {weekDays.map(day => (
             <div key={day} className="py-3 text-center text-xs font-bold text-text-secondary uppercase tracking-wider">
@@ -164,7 +161,6 @@ export default function CalendarioPage() {
           ))}
         </div>
 
-        {/* Células dos Dias */}
         {loading ? (
           <div className="flex-1 flex items-center justify-center">
             <Loader2 className="animate-spin text-cs-green" size={32} />
@@ -176,9 +172,7 @@ export default function CalendarioPage() {
             ))}
             
             {days.map(day => {
-              // Formata a data atual da célula para comparar com os eventos (YYYY-MM-DD)
               const cellDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
-              // Ajuste de fuso horário para evitar que o dia mude na conversão para ISO
               const cellDateString = new Date(cellDate.getTime() - cellDate.getTimezoneOffset() * 60000).toISOString().split('T')[0];
               
               const dayEvents = events.filter(e => e.date === cellDateString);
