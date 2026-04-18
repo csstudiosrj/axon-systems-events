@@ -63,7 +63,7 @@ export default function PortalHomePage() {
             <div className="h-14 w-14 bg-cs-green/20 rounded-xl flex items-center justify-center text-cs-green mb-6 relative z-10">
               <PlaySquare size={28} />
             </div>
-            <h2 className="text-2xl font-bold text-white mb-3 relative z-10">Academia AXON</h2>
+            <h2 className="text-2xl font-bold text-white mb-3 relative z-10">LOC FIX Academy</h2>
             <p className="text-text-secondary mb-8 flex-1 relative z-10">
               Acesse a plataforma de treinamentos em vídeo para capacitar sua equipe na operação dos sistemas.
             </p>
