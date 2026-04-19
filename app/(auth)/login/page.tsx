@@ -10,7 +10,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const[loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,14 +23,9 @@ export default function LoginPage() {
         password: password,
       });
 
-      if (authError) {
-        setError(`Erro: ${authError.message}`);
-        setLoading(false);
-        return;
-      }
+      if (authError) throw authError;
 
       if (authData.session) {
-        // Consulta o cargo (role) do usuário no banco de dados
         const { data: profile } = await supabase
           .from("profiles")
           .select("role")
@@ -39,7 +34,7 @@ export default function LoginPage() {
 
         const role = profile?.role || 'client';
 
-        // Roteamento Inteligente baseado no Cargo
+        // Roteamento Inteligente
         if (['client', 'student', 'subscriber'].includes(role)) {
           router.push("/portal");
         } else {
@@ -47,7 +42,8 @@ export default function LoginPage() {
         }
       }
     } catch (err: any) {
-      setError(`Erro de conexão: ${err.message}`);
+      setError(err.message === "Invalid login credentials" ? "E-mail ou senha incorretos." : err.message);
+    } finally {
       setLoading(false);
     }
   };
@@ -60,44 +56,26 @@ export default function LoginPage() {
             <h1 className="text-3xl font-bold tracking-tight text-white">
               AXON <span className="text-cs-green">systems</span>
             </h1>
-            <p className="mt-2 text-sm text-text-secondary">
-              Acesse o painel de controle do ecossistema CS com.
-            </p>
+            <p className="mt-2 text-sm text-text-secondary">Acesso restrito à equipe interna.</p>
           </div>
 
           <form onSubmit={handleLogin} className="mt-8 space-y-6">
             <div className="space-y-4">
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-text-secondary">E-mail corporativo</label>
-                <input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1 block w-full rounded-md border border-surface bg-surface px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green sm:text-sm transition-colors" placeholder="seu.nome@cscomeventos.com.br" />
+                <label className="block text-sm font-medium text-text-secondary">E-mail corporativo</label>
+                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1 block w-full rounded-md border border-surface bg-surface px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green sm:text-sm transition-colors" />
               </div>
               <div>
-                <label htmlFor="password" className="block text-sm font-medium text-text-secondary">Senha</label>
-                <input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1 block w-full rounded-md border border-surface bg-surface px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green sm:text-sm transition-colors" placeholder="••••••••" />
+                <label className="block text-sm font-medium text-text-secondary">Senha</label>
+                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1 block w-full rounded-md border border-surface bg-surface px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green sm:text-sm transition-colors" />
               </div>
             </div>
 
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <input id="remember-me" type="checkbox" className="h-4 w-4 rounded border-surface bg-background text-cs-green focus:ring-cs-green" />
-                <label htmlFor="remember-me" className="ml-2 block text-sm text-text-secondary">Lembrar de mim</label>
-              </div>
-              <div className="text-sm">
-                <a href="#" className="font-medium text-cs-gold hover:text-white transition-colors">Esqueceu a senha?</a>
-              </div>
-            </div>
+            {error && <div className="text-cs-gold text-sm font-medium bg-cs-gold/10 p-3 rounded-md border border-cs-gold/20 text-center">{error}</div>}
 
-            {error && (
-              <div className="text-cs-gold text-sm font-medium bg-cs-gold/10 p-3 rounded-md border border-cs-gold/20 break-words">
-                {error}
-              </div>
-            )}
-
-            <div>
-              <button type="submit" disabled={loading} className="flex w-full justify-center rounded-md bg-cs-green py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50">
-                {loading ? <Loader2 className="animate-spin" size={18} /> : "Entrar no Sistema"}
-              </button>
-            </div>
+            <button type="submit" disabled={loading} className="flex w-full justify-center rounded-md bg-cs-green py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50">
+              {loading ? <Loader2 className="animate-spin" size={18} /> : "Entrar no Sistema"}
+            </button>
           </form>
         </div>
       </div>
@@ -107,7 +85,6 @@ export default function LoginPage() {
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/80 to-transparent"></div>
         <div className="relative z-10 p-12 text-center max-w-2xl">
           <h2 className="text-4xl font-bold text-white mb-4">Excelência em Produção Técnica</h2>
-          <p className="text-lg text-text-secondary">Plataforma unificada para gestão de orçamentos, ordens de serviço, logística, treinamentos e suporte técnico.</p>
         </div>
       </div>
     </div>

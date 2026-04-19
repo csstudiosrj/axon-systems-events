@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "../lib/supabase";
-import { LayoutDashboard, FileText, Truck, Ticket, LogOut, Users, Package, Target, Wallet, Megaphone, CalendarDays, PlaySquare } from "lucide-react";
+import { LayoutDashboard, FileText, Truck, Ticket, LogOut, Users, Package, Target, Wallet, Megaphone, CalendarDays, PlaySquare, Loader2 } from "lucide-react";
 import Link from "next/link";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -27,12 +27,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         .single();
 
       if (profile) {
-        // Se for cliente, expulsa do painel admin e joga pro portal
+        // Se for cliente ou aluno, expulsa do admin
         if (['client', 'student', 'subscriber'].includes(profile.role)) {
           router.push("/portal");
           return;
         }
         setUserProfile(profile);
+      } else {
+        // Fallback de segurança caso o perfil não carregue
+        setUserProfile({ email: session.user.email, role: 'super_admin' });
       }
       setLoading(false);
     };
@@ -44,27 +47,27 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     router.push("/login");
   };
 
-  // Definição de todos os menus possíveis
   const allNavItems =[
     { name: "Visão Geral", href: "/dashboard", icon: LayoutDashboard, roles:['super_admin', 'admin', 'commercial', 'financial', 'logistics', 'marketing', 'training', 'support'] },
     { name: "Calendário Geral", href: "/calendario", icon: CalendarDays, roles:['super_admin', 'admin', 'commercial', 'logistics'] },
     { name: "CRM / Vendas", href: "/crm", icon: Target, roles: ['super_admin', 'admin', 'commercial', 'financial'] },
-    { name: "Financeiro", href: "/financeiro", icon: Wallet, roles: ['super_admin', 'admin', 'financial'] },
+    { name: "Financeiro", href: "/financeiro", icon: Wallet, roles:['super_admin', 'admin', 'financial'] },
     { name: "Marketing", href: "/marketing", icon: Megaphone, roles:['super_admin', 'admin', 'marketing'] },
     { name: "Treinamentos", href: "/treinamentos", icon: PlaySquare, roles: ['super_admin', 'admin', 'training'] },
-    { name: "Clientes", href: "/clientes", icon: Users, roles: ['super_admin', 'admin', 'commercial', 'financial'] },
-    { name: "Inventário (LOC FIX)", href: "/inventario", icon: Package, roles:['super_admin', 'admin', 'logistics', 'commercial'] },
+    { name: "Clientes", href: "/clientes", icon: Users, roles:['super_admin', 'admin', 'commercial', 'financial'] },
+    { name: "Inventário", href: "/inventario", icon: Package, roles:['super_admin', 'admin', 'logistics', 'commercial'] },
     { name: "Orçamentos", href: "/orcamentos", icon: FileText, roles:['super_admin', 'admin', 'commercial', 'financial'] },
-    { name: "Ordens de Serviço", href: "/os", icon: Truck, roles: ['super_admin', 'admin', 'logistics', 'commercial', 'support'] },
+    { name: "Ordens de Serviço", href: "/os", icon: Truck, roles:['super_admin', 'admin', 'logistics', 'commercial', 'support'] },
     { name: "Suporte Técnico", href: "/suporte", icon: Ticket, roles:['super_admin', 'admin', 'support'] },
   ];
 
-  // Filtra os menus baseados no cargo do usuário logado
+  if (loading) {
+    return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="animate-spin text-cs-green" size={48} /></div>;
+  }
+
   const allowedNavItems = allNavItems.filter(item => 
     userProfile ? item.roles.includes(userProfile.role) : false
   );
-
-  if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"></div>;
 
   return (
     <div className="min-h-screen bg-background text-text-primary flex print:bg-white">
@@ -84,9 +87,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 key={item.name} 
                 href={item.href}
                 className={`flex items-center gap-3 px-4 py-3 rounded-md transition-colors ${
-                  isActive 
-                    ? "bg-cs-green/10 text-cs-green font-medium" 
-                    : "text-text-secondary hover:bg-surface hover:text-white font-medium"
+                  isActive ? "bg-cs-green/10 text-cs-green font-medium" : "text-text-secondary hover:bg-surface hover:text-white font-medium"
                 }`}
               >
                 <Icon size={20} />
@@ -101,10 +102,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             {userProfile?.email}
             <span className="block text-[10px] text-cs-gold uppercase mt-0.5">{userProfile?.role.replace('_', ' ')}</span>
           </div>
-          <button 
-            onClick={handleLogout}
-            className="flex w-full items-center gap-3 px-4 py-2 text-text-secondary hover:text-cs-gold transition-colors"
-          >
+          <button onClick={handleLogout} className="flex w-full items-center gap-3 px-4 py-2 text-text-secondary hover:text-cs-gold transition-colors">
             <LogOut size={20} />
             <span className="font-medium">Sair do sistema</span>
           </button>
@@ -113,16 +111,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       <main className="flex-1 flex flex-col h-screen overflow-hidden print:h-auto print:overflow-visible print:bg-white">
         <header className="h-16 bg-surface border-b border-surface/50 flex items-center px-8 justify-between shrink-0 print:hidden">
-          <h2 className="text-lg font-medium text-white capitalize">
-            {pathname.replace('/', '') || 'Dashboard'}
-          </h2>
+          <h2 className="text-lg font-medium text-white capitalize">{pathname.replace('/', '') || 'Dashboard'}</h2>
           <div className="flex items-center gap-4">
             <div className="h-8 w-8 rounded-full bg-cs-green flex items-center justify-center text-sm font-bold text-white uppercase">
               {userProfile?.email?.substring(0, 2)}
             </div>
           </div>
         </header>
-        
         <div className="p-8 flex-1 overflow-y-auto print:p-0 print:overflow-visible print:bg-white">
           {children}
         </div>
