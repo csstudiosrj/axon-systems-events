@@ -26,15 +26,15 @@ export default function LoginPage() {
       if (authError) throw authError;
 
       if (authData.session) {
-        const { data: profile } = await supabase
+        const { data: profile, error: profileError } = await supabase
           .from("profiles")
           .select("role")
           .eq("id", authData.session.user.id)
           .single();
 
+        // Se não achar o perfil, assume que é cliente por segurança máxima
         const role = profile?.role || 'client';
 
-        // Roteamento Inteligente
         if (['client', 'student', 'subscriber'].includes(role)) {
           router.push("/portal");
         } else {
@@ -43,7 +43,6 @@ export default function LoginPage() {
       }
     } catch (err: any) {
       setError(err.message === "Invalid login credentials" ? "E-mail ou senha incorretos." : err.message);
-    } finally {
       setLoading(false);
     }
   };

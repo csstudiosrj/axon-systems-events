@@ -11,36 +11,45 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname();
   const [userProfile, setUserProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [authorized, setAuthorized] = useState(false);
 
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
+      
       if (!session) {
         router.push("/login");
         return;
       }
 
-      const { data: profile } = await supabase
+      // Busca o perfil real no banco de dados
+      const { data: profile, error } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", session.user.id)
         .single();
 
-      if (profile) {
-        // Se for cliente ou aluno, expulsa do admin
-        if (['client', 'student', 'subscriber'].includes(profile.role)) {
-          router.push("/portal");
-          return;
-        }
-        setUserProfile(profile);
-      } else {
-        // Fallback de segurança caso o perfil não carregue
-        setUserProfile({ email: session.user.email, role: 'super_admin' });
+      // Se der erro ou não achar o perfil, expulsa por segurança (NUNCA dar acesso admin por padrão)
+      if (error || !profile) {
+        await supabase.auth.signOut();
+        router.push("/login");
+        return;
       }
+
+      // Se for cliente, aluno ou assinante, expulsa pro portal
+      if (['client', 'student', 'subscriber'].includes(profile.role)) {
+        router.push("/portal");
+        return;
+      }
+
+      // Se passou por todas as travas, autoriza o acesso
+      setUserProfile(profile);
+      setAuthorized(true);
       setLoading(false);
     };
+
     checkUser();
-  }, [router]);
+  },[router]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -50,7 +59,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const allNavItems =[
     { name: "Visão Geral", href: "/dashboard", icon: LayoutDashboard, roles:['super_admin', 'admin', 'commercial', 'financial', 'logistics', 'marketing', 'training', 'support'] },
     { name: "Calendário Geral", href: "/calendario", icon: CalendarDays, roles:['super_admin', 'admin', 'commercial', 'logistics'] },
-    { name: "CRM / Vendas", href: "/crm", icon: Target, roles: ['super_admin', 'admin', 'commercial', 'financial'] },
+    { name: "CRM / Vendas", href: "/crm", icon: Target, roles:['super_admin', 'admin', 'commercial', 'financial'] },
     { name: "Financeiro", href: "/financeiro", icon: Wallet, roles:['super_admin', 'admin', 'financial'] },
     { name: "Marketing", href: "/marketing", icon: Megaphone, roles:['super_admin', 'admin', 'marketing'] },
     { name: "Treinamentos", href: "/treinamentos", icon: PlaySquare, roles: ['super_admin', 'admin', 'training'] },
@@ -61,9 +70,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { name: "Suporte Técnico", href: "/suporte", icon: Ticket, roles:['super_admin', 'admin', 'support'] },
   ];
 
+  // Tela de carregamento enquanto verifica a segurança
   if (loading) {
-    return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="animate-spin text-cs-green" size={48} /></div>;
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="animate-spin text-cs-green" size={48} />
+      </div>
+    );
   }
+
+  // Se não estiver autorizado, não renderiza absolutamente nada (evita piscar a tela)
+  if (!authorized) return null;
 
   const allowedNavItems = allNavItems.filter(item => 
     userProfile ? item.roles.includes(userProfile.role) : false
