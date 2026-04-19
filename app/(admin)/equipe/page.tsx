@@ -5,7 +5,7 @@ import { supabase } from "../../lib/supabase";
 import { ShieldCheck, Loader2, Search, UserCheck, Mail, Building2, Briefcase } from "lucide-react";
 
 export default function EquipePage() {
-  const[profiles, setProfiles] = useState<any[]>([]);
+  const [profiles, setProfiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [currentUserRole, setCurrentUserRole] = useState("");
@@ -25,7 +25,6 @@ export default function EquipePage() {
 
   const fetchProfiles = async () => {
     setLoading(true);
-    // Busca os perfis e traz o nome da empresa caso estejam vinculados a um cliente
     const { data, error } = await supabase
       .from("profiles")
       .select("*, clients(company_name)")
@@ -36,14 +35,11 @@ export default function EquipePage() {
   };
 
   const handleRoleChange = async (userId: string, newRole: string, currentRole: string) => {
-    // Trava de Segurança 1: Confirmação
     if (!window.confirm("ATENÇÃO: Alterar o nível de acesso modificará imediatamente o que este usuário pode ver e editar no sistema. Deseja confirmar a alteração?")) {
-      // Força a re-renderização para voltar o select ao valor original caso o usuário cancele
       fetchProfiles();
       return;
     }
 
-    // Trava de Segurança 2: Proteção do Super Admin
     if (currentRole === 'super_admin' && currentUserRole !== 'super_admin') {
       alert("Acesso Negado: Apenas um Super Administrador pode alterar os privilégios de outro Super Administrador.");
       fetchProfiles();
@@ -86,18 +82,15 @@ export default function EquipePage() {
     );
   };
 
-  // Filtro de Busca
   const filteredProfiles = profiles.filter(profile => 
     profile.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (profile.full_name && profile.full_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
     (profile.clients?.company_name && profile.clients.company_name.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  // Separação em Grupos (Interno vs Externo)
   const internalTeam = filteredProfiles.filter(p => !['client', 'student', 'subscriber'].includes(p.role));
   const externalUsers = filteredProfiles.filter(p =>['client', 'student', 'subscriber'].includes(p.role));
 
-  // Agrupamento dos Externos por Empresa
   const groupedExternal = externalUsers.reduce((acc, curr) => {
     const company = curr.clients?.company_name || "Usuários Avulsos / Sem Empresa Vinculada";
     if (!acc[company]) acc[company] = [];
@@ -105,7 +98,6 @@ export default function EquipePage() {
     return acc;
   }, {} as Record<string, any[]>);
 
-  // Componente de Tabela Reutilizável
   const UserTable = ({ users }: { users: any[] }) => (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm text-text-secondary">
@@ -206,7 +198,6 @@ export default function EquipePage() {
         </div>
       ) : (
         <>
-          {/* Seção 1: Equipe Interna */}
           <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
             <div className="p-4 border-b border-surface/50 bg-background/30">
               <h3 className="text-sm font-bold text-white flex items-center gap-2 uppercase tracking-wider">
@@ -221,7 +212,6 @@ export default function EquipePage() {
             )}
           </div>
 
-          {/* Seção 2: Clientes e Externos (Agrupados por Empresa) */}
           <div className="space-y-6">
             <h3 className="text-lg font-bold text-white flex items-center gap-2 px-2">
               <Building2 className="text-cs-gold" size={20} />
@@ -229,7 +219,8 @@ export default function EquipePage() {
             </h3>
             
             {Object.keys(groupedExternal).length > 0 ? (
-              Object.entries(groupedExternal).map(([company, users]) => (
+              /* AQUI ESTÁ A CORREÇÃO DO TYPESCRIPT: Adicionada a tipagem explícita [string, any[]] */
+              Object.entries(groupedExternal).map(([company, users]: [string, any[]]) => (
                 <div key={company} className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
                   <div className="p-4 border-b border-surface/50 bg-background/30 flex justify-between items-center">
                     <h4 className="text-sm font-bold text-white">{company}</h4>
