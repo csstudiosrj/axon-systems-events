@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "../lib/supabase";
-import { LayoutDashboard, FileText, Truck, Ticket, LogOut, Users, Package, Target, Wallet, Megaphone, CalendarDays, PlaySquare, Loader2 } from "lucide-react";
+import { LayoutDashboard, FileText, Truck, Ticket, LogOut, Users, Package, Target, Wallet, Megaphone, CalendarDays, PlaySquare, Loader2, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -22,34 +22,30 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         return;
       }
 
-      // Busca o perfil real no banco de dados
       const { data: profile, error } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", session.user.id)
         .single();
 
-      // Se der erro ou não achar o perfil, expulsa por segurança (NUNCA dar acesso admin por padrão)
       if (error || !profile) {
         await supabase.auth.signOut();
         router.push("/login");
         return;
       }
 
-      // Se for cliente, aluno ou assinante, expulsa pro portal
       if (['client', 'student', 'subscriber'].includes(profile.role)) {
         router.push("/portal");
         return;
       }
 
-      // Se passou por todas as travas, autoriza o acesso
       setUserProfile(profile);
       setAuthorized(true);
       setLoading(false);
     };
 
     checkUser();
-  },[router]);
+  }, [router]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -62,15 +58,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { name: "CRM / Vendas", href: "/crm", icon: Target, roles:['super_admin', 'admin', 'commercial', 'financial'] },
     { name: "Financeiro", href: "/financeiro", icon: Wallet, roles:['super_admin', 'admin', 'financial'] },
     { name: "Marketing", href: "/marketing", icon: Megaphone, roles:['super_admin', 'admin', 'marketing'] },
-    { name: "Treinamentos", href: "/treinamentos", icon: PlaySquare, roles: ['super_admin', 'admin', 'training'] },
+    { name: "Treinamentos", href: "/treinamentos", icon: PlaySquare, roles:['super_admin', 'admin', 'training'] },
     { name: "Clientes", href: "/clientes", icon: Users, roles:['super_admin', 'admin', 'commercial', 'financial'] },
     { name: "Inventário", href: "/inventario", icon: Package, roles:['super_admin', 'admin', 'logistics', 'commercial'] },
     { name: "Orçamentos", href: "/orcamentos", icon: FileText, roles:['super_admin', 'admin', 'commercial', 'financial'] },
     { name: "Ordens de Serviço", href: "/os", icon: Truck, roles:['super_admin', 'admin', 'logistics', 'commercial', 'support'] },
     { name: "Suporte Técnico", href: "/suporte", icon: Ticket, roles:['super_admin', 'admin', 'support'] },
+    { name: "Equipe e Acessos", href: "/equipe", icon: ShieldCheck, roles:['super_admin', 'admin'] },
   ];
 
-  // Tela de carregamento enquanto verifica a segurança
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -79,7 +75,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     );
   }
 
-  // Se não estiver autorizado, não renderiza absolutamente nada (evita piscar a tela)
   if (!authorized) return null;
 
   const allowedNavItems = allNavItems.filter(item => 
