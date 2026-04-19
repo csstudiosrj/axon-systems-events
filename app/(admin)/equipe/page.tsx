@@ -7,7 +7,7 @@ import { ShieldCheck, Loader2, Search, UserCheck, Mail, Building2, Briefcase } f
 export default function EquipePage() {
   const [profiles, setProfiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState("");
+  const[searchTerm, setSearchTerm] = useState("");
   const [currentUserRole, setCurrentUserRole] = useState("");
 
   useEffect(() => {
@@ -89,7 +89,7 @@ export default function EquipePage() {
   );
 
   const internalTeam = filteredProfiles.filter(p => !['client', 'student', 'subscriber'].includes(p.role));
-  const externalUsers = filteredProfiles.filter(p =>['client', 'student', 'subscriber'].includes(p.role));
+  const externalUsers = filteredProfiles.filter(p => ['client', 'student', 'subscriber'].includes(p.role));
 
   const groupedExternal = externalUsers.reduce((acc, curr) => {
     const company = curr.clients?.company_name || "Usuários Avulsos / Sem Empresa Vinculada";
@@ -219,18 +219,20 @@ export default function EquipePage() {
             </h3>
             
             {Object.keys(groupedExternal).length > 0 ? (
-              /* AQUI ESTÁ A CORREÇÃO DO TYPESCRIPT: Adicionada a tipagem explícita [string, any[]] */
-              Object.entries(groupedExternal).map(([company, users]: [string, any[]]) => (
-                <div key={company} className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
-                  <div className="p-4 border-b border-surface/50 bg-background/30 flex justify-between items-center">
-                    <h4 className="text-sm font-bold text-white">{company}</h4>
-                    <span className="text-xs font-medium text-text-secondary bg-background px-2 py-1 rounded-full border border-surface/50">
-                      {users.length} usuário(s)
-                    </span>
+              Object.keys(groupedExternal).map((company) => {
+                const users = groupedExternal[company];
+                return (
+                  <div key={company} className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
+                    <div className="p-4 border-b border-surface/50 bg-background/30 flex justify-between items-center">
+                      <h4 className="text-sm font-bold text-white">{company}</h4>
+                      <span className="text-xs font-medium text-text-secondary bg-background px-2 py-1 rounded-full border border-surface/50">
+                        {users.length} usuário(s)
+                      </span>
+                    </div>
+                    <UserTable users={users} />
                   </div>
-                  <UserTable users={users} />
-                </div>
-              ))
+                );
+              })
             ) : (
               <div className="bg-surface border border-surface/50 rounded-lg p-6 text-center text-sm text-text-secondary">
                 Nenhum cliente ou usuário externo encontrado.
