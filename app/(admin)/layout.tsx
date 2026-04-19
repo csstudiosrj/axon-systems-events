@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "../lib/supabase";
-import { LayoutDashboard, FileText, Truck, Ticket, LogOut, Users, Package, Target, Wallet, Megaphone, CalendarDays, PlaySquare, Loader2, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, FileText, Truck, Ticket, LogOut, Users, Package, Target, Wallet, Megaphone, CalendarDays, PlaySquare, Loader2, ShieldCheck, Settings, User } from "lucide-react";
 import Link from "next/link";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -11,7 +11,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname();
   const [userProfile, setUserProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [authorized, setAuthorized] = useState(false);
+  const[authorized, setAuthorized] = useState(false);
+  
+  // Estado para controlar o menu suspenso do Avatar
+  const[isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const checkUser = async () => {
@@ -47,11 +51,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     checkUser();
   }, [router]);
 
+  // Fecha o dropdown ao clicar fora dele
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  },[]);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push("/login");
   };
 
+  // Removido "Equipe e Acessos" da lista principal
   const allNavItems =[
     { name: "Visão Geral", href: "/dashboard", icon: LayoutDashboard, roles:['super_admin', 'admin', 'commercial', 'financial', 'logistics', 'marketing', 'training', 'support'] },
     { name: "Calendário Geral", href: "/calendario", icon: CalendarDays, roles:['super_admin', 'admin', 'commercial', 'logistics'] },
@@ -64,7 +80,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { name: "Orçamentos", href: "/orcamentos", icon: FileText, roles:['super_admin', 'admin', 'commercial', 'financial'] },
     { name: "Ordens de Serviço", href: "/os", icon: Truck, roles:['super_admin', 'admin', 'logistics', 'commercial', 'support'] },
     { name: "Suporte Técnico", href: "/suporte", icon: Ticket, roles:['super_admin', 'admin', 'support'] },
-    { name: "Equipe e Acessos", href: "/equipe", icon: ShieldCheck, roles:['super_admin', 'admin'] },
   ];
 
   if (loading) {
@@ -83,8 +98,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="min-h-screen bg-background text-text-primary flex print:bg-white">
+      {/* Sidebar Limpa (Apenas Operação) */}
       <aside className="w-64 bg-surface border-r border-surface/50 flex flex-col print:hidden">
-        <div className="h-16 flex items-center px-6 border-b border-surface/50">
+        <div className="h-16 flex items-center px-6 border-b border-surface/50 shrink-0">
           <h1 className="text-xl font-bold text-white">
             AXON <span className="text-cs-green">systems</span>
           </h1>
@@ -108,28 +124,65 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             );
           })}
         </nav>
-
-        <div className="p-4 border-t border-surface/50">
-          <div className="px-4 py-2 mb-2 text-xs text-text-secondary truncate">
-            {userProfile?.email}
-            <span className="block text-[10px] text-cs-gold uppercase mt-0.5">{userProfile?.role.replace('_', ' ')}</span>
-          </div>
-          <button onClick={handleLogout} className="flex w-full items-center gap-3 px-4 py-2 text-text-secondary hover:text-cs-gold transition-colors">
-            <LogOut size={20} />
-            <span className="font-medium">Sair do sistema</span>
-          </button>
-        </div>
       </aside>
 
       <main className="flex-1 flex flex-col h-screen overflow-hidden print:h-auto print:overflow-visible print:bg-white">
+        {/* Header com Menu do Avatar */}
         <header className="h-16 bg-surface border-b border-surface/50 flex items-center px-8 justify-between shrink-0 print:hidden">
           <h2 className="text-lg font-medium text-white capitalize">{pathname.replace('/', '') || 'Dashboard'}</h2>
-          <div className="flex items-center gap-4">
-            <div className="h-8 w-8 rounded-full bg-cs-green flex items-center justify-center text-sm font-bold text-white uppercase">
+          
+          <div className="flex items-center gap-4" ref={dropdownRef}>
+            <button 
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className="h-9 w-9 rounded-full bg-cs-green/20 border border-cs-green/50 flex items-center justify-center text-sm font-bold text-cs-green uppercase hover:bg-cs-green hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-cs-gold focus:ring-offset-2 focus:ring-offset-surface"
+            >
               {userProfile?.email?.substring(0, 2)}
-            </div>
+            </button>
+
+            {/* Dropdown Menu */}
+            {isDropdownOpen && (
+              <div className="absolute top-14 right-8 w-64 bg-surface border border-surface/50 rounded-lg shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
+                <div className="px-4 py-3 border-b border-surface/50 mb-2">
+                  <p className="text-sm font-bold text-white truncate">{userProfile?.full_name || 'Usuário AXON'}</p>
+                  <p className="text-xs text-text-secondary truncate mt-0.5">{userProfile?.email}</p>
+                  <span className="inline-block mt-2 px-2 py-0.5 bg-cs-gold/10 border border-cs-gold/20 text-cs-gold text-[10px] font-bold uppercase rounded">
+                    {userProfile?.role.replace('_', ' ')}
+                  </span>
+                </div>
+                
+                <div className="px-2 space-y-1">
+                  <button className="w-full flex items-center gap-3 px-3 py-2 text-sm text-text-secondary hover:bg-background hover:text-white rounded-md transition-colors">
+                    <User size={16} /> Meu Perfil
+                  </button>
+                  <button className="w-full flex items-center gap-3 px-3 py-2 text-sm text-text-secondary hover:bg-background hover:text-white rounded-md transition-colors">
+                    <Settings size={16} /> Configurações
+                  </button>
+                  
+                  {/* Acesso restrito à Gestão de Equipe */}
+                  {['super_admin', 'admin'].includes(userProfile?.role) && (
+                    <Link 
+                      href="/equipe" 
+                      onClick={() => setIsDropdownOpen(false)}
+                      className="w-full flex items-center gap-3 px-3 py-2 text-sm text-text-secondary hover:bg-background hover:text-white rounded-md transition-colors"
+                    >
+                      <ShieldCheck size={16} /> Equipe e Acessos
+                    </Link>
+                  )}
+                </div>
+
+                <div className="px-2 mt-2 pt-2 border-t border-surface/50">
+                  <button 
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 rounded-md transition-colors"
+                  >
+                    <LogOut size={16} /> Sair do Sistema
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </header>
+        
         <div className="p-8 flex-1 overflow-y-auto print:p-0 print:overflow-visible print:bg-white">
           {children}
         </div>
