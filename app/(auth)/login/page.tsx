@@ -5,11 +5,11 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { Loader2 } from "lucide-react";
 
-export default function LoginPage() {
+export default function AdminLoginPage() {
   const router = useRouter();
-  const[email, setEmail] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const[error, setError] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -26,19 +26,18 @@ export default function LoginPage() {
       if (authError) throw authError;
 
       if (authData.session) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", authData.session.user.id)
-          .single();
-
+        const { data: profile } = await supabase.from("profiles").select("role").eq("id", authData.session.user.id).single();
         const role = profile?.role || 'client';
 
+        // TOLERÂNCIA ZERO: Se for cliente ou aluno, desloga imediatamente e bloqueia.
         if (['client', 'student', 'subscriber'].includes(role)) {
-          router.push("/portal");
-        } else {
-          router.push("/dashboard");
+          await supabase.auth.signOut();
+          setError("Acesso negado. Por favor, utilize o portal correspondente ao seu perfil.");
+          setLoading(false);
+          return;
         }
+
+        router.push("/dashboard");
       }
     } catch (err: any) {
       setError(err.message === "Invalid login credentials" ? "E-mail ou senha incorretos." : err.message);
@@ -50,9 +49,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex bg-background text-text-primary relative">
       <div className="w-full lg:w-1/2 flex flex-col justify-center items-center p-8 sm:p-12 relative z-10">
         <div className="w-full max-w-md space-y-8">
-          
           <div className="text-left">
-            {/* <img src="/logo-axon.png" alt="AXON" className="h-10 mb-4" /> */}
             <h1 className="text-3xl font-bold tracking-tight text-white">
               AXON <span className="text-cs-green">Core</span>
             </h1>
@@ -62,27 +59,26 @@ export default function LoginPage() {
           <form onSubmit={handleLogin} className="mt-8 space-y-6">
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-text-secondary mb-1">E-mail corporativo</label>
-                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="block w-full rounded-md border border-surface bg-surface px-4 py-3 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                <label className="block text-sm font-medium text-text-secondary">E-mail corporativo</label>
+                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1 block w-full rounded-md border border-surface bg-surface px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-text-secondary mb-1">Senha</label>
-                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="block w-full rounded-md border border-surface bg-surface px-4 py-3 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                <label className="block text-sm font-medium text-text-secondary">Senha</label>
+                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1 block w-full rounded-md border border-surface bg-surface px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
               </div>
             </div>
 
-            {/* Lembrar de mim e Esqueci a senha restaurados */}
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <input id="remember-me-admin" type="checkbox" className="h-4 w-4 rounded border-surface bg-surface text-cs-green focus:ring-cs-green" />
                 <label htmlFor="remember-me-admin" className="ml-2 block text-sm text-text-secondary">Lembrar de mim</label>
               </div>
               <div className="text-sm">
-                <a href="#" onClick={(e) => { e.preventDefault(); alert("A recuperação de senha será ativada na próxima fase."); }} className="font-medium text-cs-gold hover:text-white transition-colors">Esqueceu a senha?</a>
+                <a href="#" className="font-medium text-cs-gold hover:text-white transition-colors">Esqueceu a senha?</a>
               </div>
             </div>
 
-            {error && <div className="text-cs-gold text-sm font-medium bg-cs-gold/10 p-3 rounded-md border border-cs-gold/20 text-center">{error}</div>}
+            {error && <div className="text-red-400 text-sm font-medium bg-red-500/10 p-3 rounded-md border border-red-500/20 text-center">{error}</div>}
 
             <button type="submit" disabled={loading} className="flex w-full justify-center rounded-md bg-cs-green py-3 px-4 text-sm font-bold text-white shadow-lg hover:bg-opacity-90 transition-all disabled:opacity-50">
               {loading ? <Loader2 className="animate-spin" size={20} /> : "Entrar no Sistema"}
@@ -90,14 +86,9 @@ export default function LoginPage() {
           </form>
         </div>
 
-        {/* RODAPÉ DE DIREITOS AUTORAIS E DESENVOLVEDOR */}
         <div className="absolute bottom-6 w-full text-center px-4">
-          <p className="text-xs text-text-secondary">
-            &copy; {new Date().getFullYear()} AXON Group. Todos os direitos reservados.
-          </p>
-          <p className="text-xs text-text-secondary mt-1">
-            Desenvolvido por <a href="https://www.csstudios.site" target="_blank" rel="noopener noreferrer" className="text-cs-green hover:underline font-medium">CS studios</a>
-          </p>
+          <p className="text-xs text-text-secondary">&copy; {new Date().getFullYear()} AXON Group. Todos os direitos reservados.</p>
+          <p className="text-xs text-text-secondary mt-1">Desenvolvido por <a href="https://www.csstudios.site" target="_blank" className="text-cs-green hover:underline font-medium">CS studios</a></p>
         </div>
       </div>
 
