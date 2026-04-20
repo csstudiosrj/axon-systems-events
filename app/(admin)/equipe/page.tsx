@@ -11,11 +11,11 @@ export default function EquipePage() {
   
   // Estados do Usuário Atual
   const [currentUserRole, setCurrentUserRole] = useState("");
-  const [currentUserId, setCurrentUserId] = useState("");
+  const[currentUserId, setCurrentUserId] = useState("");
 
   // Estados do Modal de Convite
   const[isInviteModalOpen, setIsInviteModalOpen] = useState(false);
-  const[inviteEmail, setInviteEmail] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("client");
   const[isInviting, setIsInviting] = useState(false);
   const [inviteMessage, setInviteMessage] = useState({ type: "", text: "" });
@@ -89,7 +89,7 @@ export default function EquipePage() {
 
       setInviteMessage({ type: "success", text: "Convite enviado com sucesso! O usuário receberá um e-mail para definir a senha." });
       setInviteEmail("");
-      fetchProfiles(); // Atualiza a lista para mostrar o usuário pendente
+      fetchProfiles();
 
     } catch (error: any) {
       setInviteMessage({ type: "error", text: error.message });
@@ -264,9 +264,11 @@ export default function EquipePage() {
                   <div className="p-4 border-b border-surface/50 bg-background/30 flex justify-between items-center">
                     <h4 className="text-sm font-bold text-white">{company}</h4>
                     <span className="text-xs font-medium text-text-secondary bg-background px-2 py-1 rounded-full border border-surface/50">
-                      {users.length} usuário(s)
+                      {/* BLINDAGEM DO TYPESCRIPT APLICADA AQUI */}
+                      {(users as any[]).length} usuário(s)
                     </span>
                   </div>
+                  {/* BLINDAGEM DO TYPESCRIPT APLICADA AQUI */}
                   <UserTable users={users as any[]} />
                 </div>
               ))
@@ -308,7 +310,6 @@ export default function EquipePage() {
                 <div>
                   <label className="block text-sm font-medium text-text-secondary mb-1">Nível de Acesso Inicial *</label>
                   <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors">
-                    {/* Comercial só pode convidar clientes/alunos. Admin/SuperAdmin pode convidar todos. */}
                     {['super_admin', 'admin'].includes(currentUserRole) && (
                       <>
                         <optgroup label="Operação Interna">
