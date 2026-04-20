@@ -6,27 +6,25 @@ import { FileText, Plus, Loader2, ArrowLeft, Trash2, Save, Printer, Edit, Calend
 import Link from "next/link";
 
 export default function OrcamentosPage() {
-  const[view, setView] = useState<"list" | "create">("list");
-  const[quotes, setQuotes] = useState<any[]>([]);
+  const [view, setView] = useState<"list" | "create">("list");
+  const [quotes, setQuotes] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
-  const [inventory, setInventory] = useState<any[]>([]);
-  const[salesTeam, setSalesTeam] = useState<any[]>([]);
+  const[inventory, setInventory] = useState<any[]>([]);
+  const [salesTeam, setSalesTeam] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const[isSubmitting, setIsSubmitting] = useState(false);
 
-  // Estados do Formulário
   const [editQuoteId, setEditQuoteId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [clientId, setClientId] = useState("");
-  const[salespersonId, setSalespersonId] = useState("");
+  const [salespersonId, setSalespersonId] = useState("");
   
-  // Datas do Evento
-  const[setupStart, setSetupStart] = useState("");
+  const [setupStart, setSetupStart] = useState("");
   const [setupEnd, setSetupEnd] = useState("");
   const [eventStart, setEventStart] = useState("");
   const [eventEnd, setEventEnd] = useState("");
   const[teardownStart, setTeardownStart] = useState("");
-  const[teardownEnd, setTeardownEnd] = useState("");
+  const [teardownEnd, setTeardownEnd] = useState("");
 
   const [items, setItems] = useState<any[]>([]);
   const itemsEndRef = useRef<HTMLDivElement>(null);
@@ -89,7 +87,6 @@ export default function OrcamentosPage() {
     setClientId(quote.client_id || "");
     setSalespersonId(quote.salesperson_id || "");
     
-    // Formata as datas para o input datetime-local (YYYY-MM-DDThh:mm)
     const formatDate = (isoString: string) => {
       if (!isoString) return "";
       const d = new Date(isoString);
@@ -161,23 +158,31 @@ export default function OrcamentosPage() {
 
     setIsSubmitting(true);
 
-    const payload = {
-      title,
-      client_id: clientId,
-      salesperson_id: salespersonId,
-      setup_start_date: setupStart ? new Date(setupStart).toISOString() : null,
-      setup_end_date: setupEnd ? new Date(setupEnd).toISOString() : null,
-      event_start_date: eventStart ? new Date(eventStart).toISOString() : null,
-      event_end_date: eventEnd ? new Date(eventEnd).toISOString() : null,
-      teardown_start_date: teardownStart ? new Date(teardownStart).toISOString() : null,
-      teardown_end_date: teardownEnd ? new Date(teardownEnd).toISOString() : null,
-      total_equipment_cost: totals.equipment,
-      total_labor_cost: totals.labor,
-      total_logistics_cost: totals.logistics,
-      final_amount: totals.final
-    };
-
     try {
+      // Validação de datas movida para DENTRO do try/catch para evitar travamento
+      const validateDate = (dateStr: string) => {
+        if (!dateStr) return null;
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) throw new Error(`Data inválida inserida no cronograma.`);
+        return d.toISOString();
+      };
+
+      const payload = {
+        title,
+        client_id: clientId,
+        salesperson_id: salespersonId,
+        setup_start_date: validateDate(setupStart),
+        setup_end_date: validateDate(setupEnd),
+        event_start_date: validateDate(eventStart),
+        event_end_date: validateDate(eventEnd),
+        teardown_start_date: validateDate(teardownStart),
+        teardown_end_date: validateDate(teardownEnd),
+        total_equipment_cost: totals.equipment,
+        total_labor_cost: totals.labor,
+        total_logistics_cost: totals.logistics,
+        final_amount: totals.final
+      };
+
       let currentQuoteId = editQuoteId;
 
       if (editQuoteId) {
@@ -236,7 +241,6 @@ export default function OrcamentosPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Coluna Esquerda: Dados Gerais e Datas */}
           <div className="lg:col-span-1 space-y-6">
             <div className="bg-surface border border-surface/50 p-6 rounded-lg space-y-4">
               <h3 className="text-md font-bold text-white border-b border-surface/50 pb-2 flex items-center gap-2">
@@ -272,11 +276,11 @@ export default function OrcamentosPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[10px] text-text-secondary mb-1">Início</label>
-                    <input type="datetime-local" value={setupStart} onChange={(e) => setSetupStart(e.target.value)} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
+                    <input type="datetime-local" max="2099-12-31T23:59" value={setupStart} onChange={(e) => { if (e.target.value.length <= 16) setSetupStart(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
                   </div>
                   <div>
                     <label className="block text-[10px] text-text-secondary mb-1">Término</label>
-                    <input type="datetime-local" value={setupEnd} onChange={(e) => setSetupEnd(e.target.value)} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
+                    <input type="datetime-local" max="2099-12-31T23:59" value={setupEnd} onChange={(e) => { if (e.target.value.length <= 16) setSetupEnd(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
                   </div>
                 </div>
               </div>
@@ -286,11 +290,11 @@ export default function OrcamentosPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[10px] text-text-secondary mb-1">Início</label>
-                    <input type="datetime-local" value={eventStart} onChange={(e) => setEventStart(e.target.value)} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
+                    <input type="datetime-local" max="2099-12-31T23:59" value={eventStart} onChange={(e) => { if (e.target.value.length <= 16) setEventStart(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
                   </div>
                   <div>
                     <label className="block text-[10px] text-text-secondary mb-1">Término</label>
-                    <input type="datetime-local" value={eventEnd} onChange={(e) => setEventEnd(e.target.value)} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
+                    <input type="datetime-local" max="2099-12-31T23:59" value={eventEnd} onChange={(e) => { if (e.target.value.length <= 16) setEventEnd(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
                   </div>
                 </div>
               </div>
@@ -300,18 +304,17 @@ export default function OrcamentosPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[10px] text-text-secondary mb-1">Início</label>
-                    <input type="datetime-local" value={teardownStart} onChange={(e) => setTeardownStart(e.target.value)} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
+                    <input type="datetime-local" max="2099-12-31T23:59" value={teardownStart} onChange={(e) => { if (e.target.value.length <= 16) setTeardownStart(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
                   </div>
                   <div>
                     <label className="block text-[10px] text-text-secondary mb-1">Término</label>
-                    <input type="datetime-local" value={teardownEnd} onChange={(e) => setTeardownEnd(e.target.value)} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
+                    <input type="datetime-local" max="2099-12-31T23:59" value={teardownEnd} onChange={(e) => { if (e.target.value.length <= 16) setTeardownEnd(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Coluna Direita: Planilha de Custos */}
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-surface border border-surface/50 p-6 rounded-lg space-y-6">
               <div className="flex items-center justify-between border-b border-surface/50 pb-2">

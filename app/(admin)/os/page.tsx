@@ -5,31 +5,26 @@ import { supabase } from "../../lib/supabase";
 import { Truck, Plus, Loader2, ArrowLeft, Calendar, Clock, Play, CheckCircle, AlertCircle, User, FileText, PackagePlus, Trash2, Save, Eye, Building2, AlertTriangle } from "lucide-react";
 
 export default function OSPage() {
-  const[view, setView] = useState<"list" | "create" | "details">("list");
+  const [view, setView] = useState<"list" | "create" | "details">("list");
   const [orders, setOrders] = useState<any[]>([]);
   const[availableQuotes, setAvailableQuotes] = useState<any[]>([]);
   const [internalTeam, setInternalTeam] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const[isSubmitting, setIsSubmitting] = useState(false);
 
-  // Sistema Customizado de Notificações (Toasts e Modais)
   const [feedbackMsg, setFeedbackMsg] = useState({ type: "", text: "" });
   const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void } | null>(null);
 
-  // Estados da OS Ativa (Detalhes)
-  const [activeOS, setActiveOS] = useState<any>(null);
-  const[quoteItems, setQuoteItems] = useState<any[]>([]);
+  const[activeOS, setActiveOS] = useState<any>(null);
+  const [quoteItems, setQuoteItems] = useState<any[]>([]);
   const [extraItems, setExtraItems] = useState<any[]>([]);
   
-  // Estados de Edição da OS
   const[logisticsNotes, setLogisticsNotes] = useState("");
   const [producerId, setProducerId] = useState("");
   
-  // Estado para Novo Item Extra
   const [newItemName, setNewItemName] = useState("");
   const [newItemQty, setNewItemQty] = useState("1");
 
-  // Estados do Formulário de Criação
   const [quoteId, setQuoteId] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -40,17 +35,13 @@ export default function OSPage() {
     fetchInternalTeam();
   }, [view]);
 
-  // Função auxiliar para disparar Toasts
   const showToast = (type: "success" | "error", text: string) => {
     setFeedbackMsg({ type, text });
     setTimeout(() => setFeedbackMsg({ type: "", text: "" }), 4000);
   };
 
   const fetchInternalTeam = async () => {
-    const { data } = await supabase
-      .from("profiles")
-      .select("id, full_name, email, role")
-      .not("role", "in", "('client', 'student', 'subscriber')");
+    const { data } = await supabase.from("profiles").select("id, full_name, email, role").not("role", "in", "('client', 'student', 'subscriber')");
     if (data) setInternalTeam(data);
   };
 
@@ -58,27 +49,37 @@ export default function OSPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from("service_orders")
-      .select(`
-        *,
-        producer:profiles!service_orders_producer_id_fkey(full_name),
-        quotes (
-          title,
-          clients (company_name, contact_name, phone)
-        )
-      `)
+      .select(`*, producer:profiles!service_orders_producer_id_fkey(full_name), quotes (title, clients (company_name, contact_name, phone))`)
       .order("event_start_date", { ascending: true });
-      
     if (!error && data) setOrders(data);
     setLoading(false);
   };
 
   const fetchAvailableQuotes = async () => {
+    // Busca os orçamentos aprovados trazendo as datas do evento
     const { data } = await supabase
       .from("quotes")
-      .select("id, title, clients(company_name)")
+      .select("id, title, event_start_date, event_end_date, clients(company_name)")
       .eq("status", "approved")
       .order("created_at", { ascending: false });
     if (data) setAvailableQuotes(data);
+  };
+
+  // Função que preenche as datas automaticamente ao selecionar o orçamento
+  const handleQuoteSelection = (selectedId: string) => {
+    setQuoteId(selectedId);
+    const selectedQuote = availableQuotes.find(q => q.id === selectedId);
+    
+    if (selectedQuote) {
+      if (selectedQuote.event_start_date) {
+        const d = new Date(selectedQuote.event_start_date);
+        setStartDate(new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16));
+      }
+      if (selectedQuote.event_end_date) {
+        const d = new Date(selectedQuote.event_end_date);
+        setEndDate(new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16));
+      }
+    }
   };
 
   const openOSDetails = async (os: any) => {
@@ -108,7 +109,6 @@ export default function OSPage() {
 
       if (isNaN(start.getTime()) || isNaN(end.getTime())) {
         showToast("error", "Por favor, insira datas válidas.");
-        setIsSubmitting(false);
         return;
       }
 
@@ -124,7 +124,7 @@ export default function OSPage() {
         showToast("success", "Ordem de Serviço gerada com sucesso!");
         setView("list");
       } else {
-        showToast("error", "Erro ao criar OS. Verifique se já existe uma OS para este orçamento.");
+        showToast("error", "Erro ao criar OS: " + error.message);
       }
     } finally {
       setIsSubmitting(false);
@@ -133,11 +133,7 @@ export default function OSPage() {
 
   const handleUpdateOSInfo = async () => {
     setIsSubmitting(true);
-    const { error } = await supabase
-      .from("service_orders")
-      .update({ logistics_notes: logisticsNotes, producer_id: producerId || null })
-      .eq("id", activeOS.id);
-
+    const { error } = await supabase.from("service_orders").update({ logistics_notes: logisticsNotes, producer_id: producerId || null }).eq("id", activeOS.id);
     if (!error) {
       showToast("success", "Briefing e responsabilidade atualizados!");
       fetchOrders();
@@ -151,12 +147,7 @@ export default function OSPage() {
     e.preventDefault();
     if (!newItemName || !activeOS) return;
 
-    const { data, error } = await supabase
-      .from("os_extra_items")
-      .insert([{ service_order_id: activeOS.id, item_name: newItemName, quantity: Number(newItemQty) }])
-      .select()
-      .single();
-
+    const { data, error } = await supabase.from("os_extra_items").insert([{ service_order_id: activeOS.id, item_name: newItemName, quantity: Number(newItemQty) }]).select().single();
     if (!error && data) {
       setExtraItems([...extraItems, data]);
       setNewItemName("");
@@ -186,9 +177,7 @@ export default function OSPage() {
   const updateOrderStatus = async (id: string, newStatus: string) => {
     const { error } = await supabase.from("service_orders").update({ status: newStatus }).eq("id", id);
     if (!error) {
-      if (activeOS && activeOS.id === id) {
-        setActiveOS({ ...activeOS, status: newStatus });
-      }
+      if (activeOS && activeOS.id === id) setActiveOS({ ...activeOS, status: newStatus });
       fetchOrders();
       showToast("success", "Status operacional atualizado.");
     }
@@ -210,14 +199,12 @@ export default function OSPage() {
   return (
     <div className="space-y-6 relative pb-12">
       
-      {/* TOAST DE NOTIFICAÇÃO GLOBAL */}
       {feedbackMsg.text && (
         <div className={`fixed top-6 right-6 z-50 p-4 rounded-md shadow-2xl text-sm font-bold border animate-in slide-in-from-right-8 ${feedbackMsg.type === 'error' ? 'bg-red-500/90 text-white border-red-400' : 'bg-cs-green/90 text-white border-cs-green'}`}>
           {feedbackMsg.text}
         </div>
       )}
 
-      {/* MODAL DE CONFIRMAÇÃO CUSTOMIZADO */}
       {confirmModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200 text-center">
@@ -238,7 +225,6 @@ export default function OSPage() {
         </div>
       )}
 
-      {/* VISÃO: DETALHES DA OS */}
       {view === "details" && activeOS && (
         <div className="space-y-6 max-w-6xl mx-auto">
           <div className="flex items-center justify-between">
@@ -426,7 +412,6 @@ export default function OSPage() {
         </div>
       )}
 
-      {/* VISÃO: CRIAÇÃO DE NOVA OS */}
       {view === "create" && (
         <div className="space-y-6 max-w-3xl mx-auto">
           <div className="flex items-center justify-between">
@@ -444,7 +429,7 @@ export default function OSPage() {
             <form onSubmit={handleCreateOS} className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-text-secondary mb-1">Vincular ao Orçamento Aprovado *</label>
-                <select required value={quoteId} onChange={(e) => setQuoteId(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors cursor-pointer">
+                <select required value={quoteId} onChange={(e) => handleQuoteSelection(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors cursor-pointer">
                   <option value="">Selecione o orçamento...</option>
                   {availableQuotes.map(q => (
                     <option key={q.id} value={q.id}>{q.title} - {q.clients?.company_name}</option>
@@ -456,11 +441,11 @@ export default function OSPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-text-secondary mb-1 flex items-center gap-2"><Calendar size={14} /> Início do Evento (Load-in) *</label>
-                  <input type="datetime-local" required max="2099-12-31T23:59" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  <input type="datetime-local" required max="2099-12-31T23:59" value={startDate} onChange={(e) => { if (e.target.value.length <= 16) setStartDate(e.target.value); }} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-text-secondary mb-1 flex items-center gap-2"><Calendar size={14} /> Fim do Evento (Load-out) *</label>
-                  <input type="datetime-local" required max="2099-12-31T23:59" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  <input type="datetime-local" required max="2099-12-31T23:59" value={endDate} onChange={(e) => { if (e.target.value.length <= 16) setEndDate(e.target.value); }} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
                 </div>
               </div>
 
@@ -474,7 +459,6 @@ export default function OSPage() {
         </div>
       )}
 
-      {/* VISÃO: LISTA GERAL DE OS */}
       {view === "list" && (
         <div className="space-y-6">
           <div className="flex justify-between items-center bg-surface p-4 border border-surface/50 rounded-lg">
