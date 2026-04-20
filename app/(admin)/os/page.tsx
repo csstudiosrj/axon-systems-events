@@ -2,28 +2,28 @@
 
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
-import { Truck, Plus, Loader2, ArrowLeft, Calendar, Clock, Play, CheckCircle, AlertCircle, User, FileText, PackagePlus, Trash2, Save, Eye } from "lucide-react";
+import { Truck, Plus, Loader2, ArrowLeft, Calendar, Clock, Play, CheckCircle, AlertCircle, User, FileText, PackagePlus, Trash2, Save, Eye, Building2 } from "lucide-react";
 
 export default function OSPage() {
   const [view, setView] = useState<"list" | "create" | "details">("list");
   const [orders, setOrders] = useState<any[]>([]);
-  const [availableQuotes, setAvailableQuotes] = useState<any[]>([]);
-  const[internalTeam, setInternalTeam] = useState<any[]>([]);
+  const[availableQuotes, setAvailableQuotes] = useState<any[]>([]);
+  const [internalTeam, setInternalTeam] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Estados da OS Ativa (Detalhes)
-  const [activeOS, setActiveOS] = useState<any>(null);
-  const[quoteItems, setQuoteItems] = useState<any[]>([]);
+  const[activeOS, setActiveOS] = useState<any>(null);
+  const [quoteItems, setQuoteItems] = useState<any[]>([]);
   const [extraItems, setExtraItems] = useState<any[]>([]);
   
   // Estados de Edição da OS
-  const[logisticsNotes, setLogisticsNotes] = useState("");
+  const [logisticsNotes, setLogisticsNotes] = useState("");
   const [producerId, setProducerId] = useState("");
   
   // Estado para Novo Item Extra
   const [newItemName, setNewItemName] = useState("");
-  const[newItemQty, setNewItemQty] = useState("1");
+  const [newItemQty, setNewItemQty] = useState("1");
 
   // Estados do Formulário de Criação
   const [quoteId, setQuoteId] = useState("");
@@ -37,7 +37,6 @@ export default function OSPage() {
   }, [view]);
 
   const fetchInternalTeam = async () => {
-    // Busca a equipe interna para poder atribuir um Produtor/Técnico à OS
     const { data } = await supabase
       .from("profiles")
       .select("id, full_name, email, role")
@@ -67,7 +66,7 @@ export default function OSPage() {
     const { data } = await supabase
       .from("quotes")
       .select("id, title, clients(company_name)")
-      .eq("status", "approved") // Regra: Só gera OS de orçamento aprovado
+      .eq("status", "approved")
       .order("created_at", { ascending: false });
     if (data) setAvailableQuotes(data);
   };
@@ -78,7 +77,6 @@ export default function OSPage() {
     setLogisticsNotes(os.logistics_notes || "");
     setProducerId(os.producer_id || "");
 
-    // Busca os equipamentos vendidos no orçamento
     const { data: qItems } = await supabase
       .from("quote_items")
       .select("*")
@@ -86,7 +84,6 @@ export default function OSPage() {
       .eq("category", "equipment");
     if (qItems) setQuoteItems(qItems);
 
-    // Busca os itens extras adicionados pelo galpão
     const { data: eItems } = await supabase
       .from("os_extra_items")
       .select("*")
@@ -143,7 +140,7 @@ export default function OSPage() {
 
     if (!error) {
       alert("Informações da OS atualizadas com sucesso!");
-      fetchOrders(); // Atualiza a lista por trás
+      fetchOrders();
     } else {
       alert("Erro ao atualizar: " + error.message);
     }
@@ -201,9 +198,6 @@ export default function OSPage() {
     return <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${config.color}`}><Icon size={12} />{config.label}</span>;
   };
 
-  // ---------------------------------------------------------------------------
-  // VISÃO: DETALHES DA OS (PAINEL DE COMANDO DO GALPÃO)
-  // ---------------------------------------------------------------------------
   if (view === "details" && activeOS) {
     return (
       <div className="space-y-6 max-w-6xl mx-auto pb-12">
@@ -227,7 +221,6 @@ export default function OSPage() {
           </div>
         </div>
 
-        {/* Cabeçalho da OS */}
         <div className="bg-surface border border-surface/50 p-6 rounded-lg shadow-lg">
           <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
             <div>
@@ -261,7 +254,6 @@ export default function OSPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
-          {/* Coluna Esquerda: Briefing e Equipe */}
           <div className="lg:col-span-1 space-y-6">
             <div className="bg-surface border border-surface/50 p-6 rounded-lg">
               <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2">
@@ -311,10 +303,8 @@ export default function OSPage() {
             </div>
           </div>
 
-          {/* Coluna Direita: Picklist (Lista de Separação) */}
           <div className="lg:col-span-2 space-y-6">
             
-            {/* Itens do Orçamento (Base) */}
             <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
               <div className="p-4 border-b border-surface/50 bg-background/30">
                 <h3 className="text-md font-bold text-white flex items-center gap-2">
@@ -338,7 +328,6 @@ export default function OSPage() {
               </div>
             </div>
 
-            {/* Itens Extras do Galpão */}
             <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
               <div className="p-4 border-b border-surface/50 bg-background/30 flex justify-between items-center">
                 <h3 className="text-md font-bold text-white flex items-center gap-2">
@@ -401,9 +390,6 @@ export default function OSPage() {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // VISÃO: CRIAÇÃO DE NOVA OS
-  // ---------------------------------------------------------------------------
   if (view === "create") {
     return (
       <div className="space-y-6 max-w-3xl mx-auto">
@@ -453,9 +439,6 @@ export default function OSPage() {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // VISÃO: LISTA GERAL DE OS
-  // ---------------------------------------------------------------------------
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center bg-surface p-4 border border-surface/50 rounded-lg">
