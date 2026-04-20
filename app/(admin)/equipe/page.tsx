@@ -2,13 +2,23 @@
 
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
-import { ShieldCheck, Loader2, Search, UserCheck, Mail, Building2, Briefcase } from "lucide-react";
+import { ShieldCheck, Loader2, Search, UserCheck, Mail, Building2, Briefcase, X, Send } from "lucide-react";
 
 export default function EquipePage() {
   const [profiles, setProfiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const[searchTerm, setSearchTerm] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  
+  // Estados do Usuário Atual
   const [currentUserRole, setCurrentUserRole] = useState("");
+  const [currentUserId, setCurrentUserId] = useState("");
+
+  // Estados do Modal de Convite
+  const[isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const[inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("client");
+  const[isInviting, setIsInviting] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState({ type: "", text: "" });
 
   useEffect(() => {
     fetchProfiles();
@@ -18,6 +28,7 @@ export default function EquipePage() {
   const checkCurrentUser = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
+      setCurrentUserId(session.user.id);
       const { data } = await supabase.from("profiles").select("role").eq("id", session.user.id).single();
       if (data) setCurrentUserRole(data.role);
     }
@@ -46,15 +57,44 @@ export default function EquipePage() {
       return;
     }
 
-    const { error } = await supabase
-      .from("profiles")
-      .update({ role: newRole })
-      .eq("id", userId);
+    const { error } = await supabase.from("profiles").update({ role: newRole }).eq("id", userId);
 
     if (!error) {
       fetchProfiles();
     } else {
       alert("Erro ao atualizar permissão: " + error.message);
+    }
+  };
+
+  const handleSendInvite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsInviting(true);
+    setInviteMessage({ type: "", text: "" });
+
+    try {
+      const response = await fetch("/api/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: inviteEmail,
+          role: inviteRole,
+          inviterId: currentUserId,
+          inviterRole: currentUserRole
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) throw new Error(data.error || "Erro ao enviar convite.");
+
+      setInviteMessage({ type: "success", text: "Convite enviado com sucesso! O usuário receberá um e-mail para definir a senha." });
+      setInviteEmail("");
+      fetchProfiles(); // Atualiza a lista para mostrar o usuário pendente
+
+    } catch (error: any) {
+      setInviteMessage({ type: "error", text: error.message });
+    } finally {
+      setIsInviting(false);
     }
   };
 
@@ -89,7 +129,7 @@ export default function EquipePage() {
   );
 
   const internalTeam = filteredProfiles.filter(p => !['client', 'student', 'subscriber'].includes(p.role));
-  const externalUsers = filteredProfiles.filter(p => ['client', 'student', 'subscriber'].includes(p.role));
+  const externalUsers = filteredProfiles.filter(p =>['client', 'student', 'subscriber'].includes(p.role));
 
   const groupedExternal = externalUsers.reduce((acc, curr) => {
     const company = curr.clients?.company_name || "Usuários Avulsos / Sem Empresa Vinculada";
@@ -118,7 +158,7 @@ export default function EquipePage() {
                     {profile.email.substring(0, 2)}
                   </div>
                   <div>
-                    <p className="font-medium text-white">{profile.full_name || 'Usuário sem nome'}</p>
+                    <p className="font-medium text-white">{profile.full_name || 'Convite Pendente / Sem Nome'}</p>
                     <p className="text-xs mt-0.5">{profile.email}</p>
                   </div>
                 </div>
@@ -133,7 +173,7 @@ export default function EquipePage() {
                 <select
                   value={profile.role}
                   onChange={(e) => handleRoleChange(profile.id, e.target.value, profile.role)}
-                  disabled={profile.role === 'super_admin' && currentUserRole !== 'super_admin'}
+                  disabled={(profile.role === 'super_admin' && currentUserRole !== 'super_admin') || (currentUserRole === 'commercial')}
                   className="bg-background border border-surface/50 text-white text-xs rounded px-3 py-2 focus:border-cs-green focus:outline-none disabled:opacity-50 cursor-pointer"
                 >
                   <optgroup label="Gestão">
@@ -163,7 +203,7 @@ export default function EquipePage() {
   );
 
   return (
-    <div className="space-y-8 pb-12">
+    <div className="space-y-8 pb-12 relative">
       <div className="flex justify-between items-center bg-surface p-4 border border-surface/50 rounded-lg">
         <div>
           <h3 className="text-lg font-medium text-white flex items-center gap-2">
@@ -184,7 +224,7 @@ export default function EquipePage() {
             />
           </div>
           <button 
-            onClick={() => alert("Na próxima fase, este botão enviará um e-mail de convite oficial com link de cadastro.")}
+            onClick={() => setIsInviteModalOpen(true)}
             className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all"
           >
             <Mail size={18} /> Convidar
@@ -219,20 +259,17 @@ export default function EquipePage() {
             </h3>
             
             {Object.keys(groupedExternal).length > 0 ? (
-              Object.keys(groupedExternal).map((company) => {
-                const users = groupedExternal[company];
-                return (
-                  <div key={company} className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
-                    <div className="p-4 border-b border-surface/50 bg-background/30 flex justify-between items-center">
-                      <h4 className="text-sm font-bold text-white">{company}</h4>
-                      <span className="text-xs font-medium text-text-secondary bg-background px-2 py-1 rounded-full border border-surface/50">
-                        {users.length} usuário(s)
-                      </span>
-                    </div>
-                    <UserTable users={users} />
+              Object.entries(groupedExternal).map(([company, users]) => (
+                <div key={company} className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
+                  <div className="p-4 border-b border-surface/50 bg-background/30 flex justify-between items-center">
+                    <h4 className="text-sm font-bold text-white">{company}</h4>
+                    <span className="text-xs font-medium text-text-secondary bg-background px-2 py-1 rounded-full border border-surface/50">
+                      {users.length} usuário(s)
+                    </span>
                   </div>
-                );
-              })
+                  <UserTable users={users as any[]} />
+                </div>
+              ))
             ) : (
               <div className="bg-surface border border-surface/50 rounded-lg p-6 text-center text-sm text-text-secondary">
                 Nenhum cliente ou usuário externo encontrado.
@@ -240,6 +277,69 @@ export default function EquipePage() {
             )}
           </div>
         </>
+      )}
+
+      {/* MODAL DE CONVITE */}
+      {isInviteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center p-6 border-b border-surface/50 bg-background/50">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Mail className="text-cs-green" size={20} /> Enviar Convite de Acesso
+              </h2>
+              <button onClick={() => { setIsInviteModalOpen(false); setInviteMessage({ type: "", text: "" }); }} className="text-text-secondary hover:text-white transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="p-6">
+              {inviteMessage.text && (
+                <div className={`p-4 rounded-md mb-6 text-sm font-medium border ${inviteMessage.type === 'error' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-cs-green/10 text-cs-green border-cs-green/20'}`}>
+                  {inviteMessage.text}
+                </div>
+              )}
+
+              <form onSubmit={handleSendInvite} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-text-secondary mb-1">E-mail do Convidado *</label>
+                  <input type="email" required value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" placeholder="email@empresa.com.br" />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-text-secondary mb-1">Nível de Acesso Inicial *</label>
+                  <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors">
+                    {/* Comercial só pode convidar clientes/alunos. Admin/SuperAdmin pode convidar todos. */}
+                    {['super_admin', 'admin'].includes(currentUserRole) && (
+                      <>
+                        <optgroup label="Operação Interna">
+                          <option value="admin">Administrador</option>
+                          <option value="commercial">Comercial / Vendas</option>
+                          <option value="financial">Financeiro</option>
+                          <option value="logistics">Logística / Almoxarifado</option>
+                          <option value="marketing">Marketing</option>
+                          <option value="training">Treinamentos (Instrutor)</option>
+                          <option value="support">Suporte Técnico</option>
+                        </optgroup>
+                      </>
+                    )}
+                    <optgroup label="Acesso Externo">
+                      <option value="client">Cliente (Portal)</option>
+                      <option value="student">Aluno (Academy)</option>
+                      <option value="subscriber">Assinante Avulso</option>
+                    </optgroup>
+                  </select>
+                </div>
+
+                <div className="pt-4 mt-2 border-t border-surface/50 flex justify-end">
+                  <button type="submit" disabled={isInviting} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50">
+                    {isInviting ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
+                    Disparar Convite
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
