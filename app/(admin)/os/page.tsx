@@ -5,29 +5,29 @@ import { supabase } from "../../lib/supabase";
 import { Truck, Plus, Loader2, ArrowLeft, Calendar, Clock, Play, CheckCircle, AlertCircle, User, FileText, PackagePlus, Trash2, Save, Eye, Building2, AlertTriangle } from "lucide-react";
 
 export default function OSPage() {
-  const [view, setView] = useState<"list" | "create" | "details">("list");
-  const [orders, setOrders] = useState<any[]>([]);
-  const[availableQuotes, setAvailableQuotes] = useState<any[]>([]);
+  const[view, setView] = useState<"list" | "create" | "details">("list");
+  const[orders, setOrders] = useState<any[]>([]);
+  const [availableQuotes, setAvailableQuotes] = useState<any[]>([]);
   const [internalTeam, setInternalTeam] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const[isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [feedbackMsg, setFeedbackMsg] = useState({ type: "", text: "" });
-  const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void } | null>(null);
+  const[confirmModal, setConfirmModal] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void } | null>(null);
 
-  const[activeOS, setActiveOS] = useState<any>(null);
+  const [activeOS, setActiveOS] = useState<any>(null);
   const [quoteItems, setQuoteItems] = useState<any[]>([]);
-  const [extraItems, setExtraItems] = useState<any[]>([]);
+  const[extraItems, setExtraItems] = useState<any[]>([]);
   
-  const[logisticsNotes, setLogisticsNotes] = useState("");
+  const [logisticsNotes, setLogisticsNotes] = useState("");
   const [producerId, setProducerId] = useState("");
   
-  const [newItemName, setNewItemName] = useState("");
+  const[newItemName, setNewItemName] = useState("");
   const [newItemQty, setNewItemQty] = useState("1");
 
   const [quoteId, setQuoteId] = useState("");
   const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const[endDate, setEndDate] = useState("");
 
   useEffect(() => {
     if (view === "list") fetchOrders();
@@ -47,16 +47,24 @@ export default function OSPage() {
 
   const fetchOrders = async () => {
     setLoading(true);
+    // CORREÇÃO APLICADA AQUI: producer:profiles(full_name)
     const { data, error } = await supabase
       .from("service_orders")
-      .select(`*, producer:profiles!service_orders_producer_id_fkey(full_name), quotes (title, clients (company_name, contact_name, phone))`)
+      .select(`
+        *,
+        producer:profiles(full_name),
+        quotes (
+          title,
+          clients (company_name, contact_name, phone)
+        )
+      `)
       .order("event_start_date", { ascending: true });
+      
     if (!error && data) setOrders(data);
     setLoading(false);
   };
 
   const fetchAvailableQuotes = async () => {
-    // Busca os orçamentos aprovados trazendo as datas do evento
     const { data } = await supabase
       .from("quotes")
       .select("id, title, event_start_date, event_end_date, clients(company_name)")
@@ -65,7 +73,6 @@ export default function OSPage() {
     if (data) setAvailableQuotes(data);
   };
 
-  // Função que preenche as datas automaticamente ao selecionar o orçamento
   const handleQuoteSelection = (selectedId: string) => {
     setQuoteId(selectedId);
     const selectedQuote = availableQuotes.find(q => q.id === selectedId);

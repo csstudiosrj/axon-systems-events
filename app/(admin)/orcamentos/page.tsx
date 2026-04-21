@@ -7,25 +7,22 @@ import Link from "next/link";
 
 export default function OrcamentosPage() {
   const [view, setView] = useState<"list" | "create">("list");
-  const [quotes, setQuotes] = useState<any[]>([]);
-  const[clients, setClients] = useState<any[]>([]);
+  const[quotes, setQuotes] = useState<any[]>([]);
+  const [clients, setClients] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
-  const [salesTeam, setSalesTeam] = useState<any[]>([]);
-  const[loading, setLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const[salesTeam, setSalesTeam] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const[isSubmitting, setIsSubmitting] = useState(false);
 
-  // Estados do Formulário
-  const [editQuoteId, setEditQuoteId] = useState<string | null>(null);
+  const[editQuoteId, setEditQuoteId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [salespersonId, setSalespersonId] = useState("");
   
-  // Estados da Busca Inteligente de Clientes
-  const [clientId, setClientId] = useState("");
+  const[clientId, setClientId] = useState("");
   const [clientSearchTerm, setClientSearchTerm] = useState("");
   const[isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const clientDropdownRef = useRef<HTMLDivElement>(null);
   
-  // Datas do Evento
   const [setupStart, setSetupStart] = useState("");
   const [setupEnd, setSetupEnd] = useState("");
   const [eventStart, setEventStart] = useState("");
@@ -47,7 +44,6 @@ export default function OrcamentosPage() {
     }
   }, [view]);
 
-  // Fecha o dropdown de clientes ao clicar fora
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (clientDropdownRef.current && !clientDropdownRef.current.contains(event.target as Node)) {
@@ -72,9 +68,10 @@ export default function OrcamentosPage() {
 
   const fetchQuotes = async () => {
     setLoading(true);
+    // CORREÇÃO APLICADA AQUI: salesperson:profiles(full_name)
     const { data, error } = await supabase
       .from("quotes")
-      .select("*, clients(company_name), salesperson:profiles!quotes_salesperson_id_fkey(full_name)")
+      .select("*, clients(company_name), salesperson:profiles(full_name)")
       .order("created_at", { ascending: false });
     if (!error && data) setQuotes(data);
     setLoading(false);
@@ -137,7 +134,6 @@ export default function OrcamentosPage() {
   };
 
   const addItem = (category: "equipment" | "labor" | "logistics") => {
-    // Adiciona o item sem forçar o scroll da tela
     setItems([...items, { id: Date.now().toString(), category, description: "", quantity: 1, daily_rate: 0, days: 1 }]);
   };
 
@@ -156,7 +152,6 @@ export default function OrcamentosPage() {
     }
   };
 
-  // Cálculo Inteligente de Dias
   const calculateDaysDiff = (startStr: string, endStr: string) => {
     if (!startStr || !endStr) return 1;
     const start = new Date(startStr);
@@ -275,7 +270,6 @@ export default function OrcamentosPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Coluna Esquerda: Dados Gerais e Datas */}
           <div className="lg:col-span-1 space-y-6">
             <div className="bg-surface border border-surface/50 p-6 rounded-lg space-y-4">
               <h3 className="text-md font-bold text-white border-b border-surface/50 pb-2 flex items-center gap-2">
@@ -286,7 +280,6 @@ export default function OrcamentosPage() {
                 <input type="text" required value={title} onChange={(e) => setTitle(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm" />
               </div>
               
-              {/* Busca Inteligente de Clientes */}
               <div ref={clientDropdownRef} className="relative">
                 <label className="block text-xs font-medium text-text-secondary mb-1">Cliente *</label>
                 <div className="flex items-center border border-surface bg-background rounded-md px-3 py-2 focus-within:border-cs-green focus-within:ring-1 focus-within:ring-cs-green transition-colors">
@@ -334,7 +327,6 @@ export default function OrcamentosPage() {
                 <Calendar size={18} className="text-cs-gold" /> Cronograma
               </h3>
               
-              {/* Force color-scheme dark para os ícones de calendário aparecerem brancos */}
               <style dangerouslySetInnerHTML={{__html: `input[type="datetime-local"] { color-scheme: dark; }`}} />
 
               <div className="space-y-3 border-b border-surface/50 pb-4">
@@ -381,7 +373,6 @@ export default function OrcamentosPage() {
             </div>
           </div>
 
-          {/* Coluna Direita: Planilha de Custos */}
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-surface border border-surface/50 p-6 rounded-lg space-y-6">
               <div className="flex items-center justify-between border-b border-surface/50 pb-2">
@@ -430,7 +421,6 @@ export default function OrcamentosPage() {
                         <input type="number" min="0" value={item.daily_rate} onChange={(e) => updateItem(item.id, "daily_rate", e.target.value)} className="w-full bg-surface border border-surface/50 rounded px-2 py-1 text-white focus:outline-none focus:border-cs-green text-sm text-right" />
                       </div>
                       
-                      {/* Botões Inteligentes de Dias */}
                       <div className="w-20 shrink-0">
                         <div className="flex justify-between items-center mb-1">
                           <label className="text-[10px] text-text-secondary">Dias</label>
@@ -451,7 +441,6 @@ export default function OrcamentosPage() {
                         </span>
                       </div>
                       
-                      {/* Lixeira Alinhada */}
                       <div className="shrink-0 flex items-end pb-1 ml-2">
                         <button onClick={() => removeItem(item.id)} className="text-surface hover:text-red-500 transition-colors p-1 rounded hover:bg-red-500/10">
                           <Trash2 size={18} />
