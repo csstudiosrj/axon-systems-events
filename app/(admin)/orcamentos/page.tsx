@@ -2,35 +2,89 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../../lib/supabase";
-import { FileText, Plus, Loader2, ArrowLeft, Trash2, Save, Printer, Edit, Calendar, User, Search, Check } from "lucide-react";
+import { 
+  FileText, Plus, Loader2, ArrowLeft, Trash2, Save, Printer, 
+  Edit, Calendar, User, Search, Check, X, DollarSign, CreditCard 
+} from "lucide-react";
 import Link from "next/link";
+
+// --- TIPAGENS (BLINDAGEM TYPESCRIPT) ---
+interface Client {
+  id: string;
+  company_name: string;
+}
+
+interface Profile {
+  id: string;
+  full_name: string;
+  email: string;
+}
+
+interface Quote {
+  id: string;
+  title: string;
+  status: string;
+  final_amount: number;
+  client_id: string;
+  salesperson_id: string;
+  setup_start_date: string;
+  setup_end_date: string;
+  event_start_date: string;
+  event_end_date: string;
+  teardown_start_date: string;
+  teardown_end_date: string;
+  clients?: Client;
+  salesperson?: Profile;
+}
+
+interface QuoteItem {
+  id: string;
+  category: "equipment" | "labor" | "logistics";
+  description: string;
+  quantity: number | string;
+  daily_rate: number | string;
+  days: number | string;
+}
+
+interface Toast {
+  message: string;
+  type: "success" | "error";
+}
 
 export default function OrcamentosPage() {
   const [view, setView] = useState<"list" | "create">("list");
-  const [quotes, setQuotes] = useState<any[]>([]);
-  const[clients, setClients] = useState<any[]>([]);
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const[clients, setClients] = useState<Client[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
-  const [salesTeam, setSalesTeam] = useState<any[]>([]);
+  const [salesTeam, setSalesTeam] = useState<Profile[]>([]);
   const[loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [toast, setToast] = useState<Toast | null>(null);
 
+  // Estados do Formulário
   const [editQuoteId, setEditQuoteId] = useState<string | null>(null);
   const[title, setTitle] = useState("");
   const [salespersonId, setSalespersonId] = useState("");
-  
   const [clientId, setClientId] = useState("");
-  const[clientSearchTerm, setClientSearchTerm] = useState("");
+  const [clientSearchTerm, setClientSearchTerm] = useState("");
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const clientDropdownRef = useRef<HTMLDivElement>(null);
   
-  const[setupStart, setSetupStart] = useState("");
+  const [setupStart, setSetupStart] = useState("");
   const [setupEnd, setSetupEnd] = useState("");
   const[eventStart, setEventStart] = useState("");
   const [eventEnd, setEventEnd] = useState("");
-  const[teardownStart, setTeardownStart] = useState("");
+  const [teardownStart, setTeardownStart] = useState("");
   const[teardownEnd, setTeardownEnd] = useState("");
 
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<QuoteItem[]>([]);
+
+  // Estados do Modal de Aprovação (Financeiro)
+  const[approvalModalOpen, setApprovalModalOpen] = useState(false);
+  const [selectedQuoteForApproval, setSelectedQuoteForApproval] = useState<Quote | null>(null);
+  const [installments, setInstallments] = useState<number>(1);
+  const [firstDueDate, setFirstDueDate] = useState<string>("");
+  const[paymentMethod, setPaymentMethod] = useState<string>("pix");
 
   useEffect(() => {
     if (view === "list") {
@@ -54,6 +108,11 @@ export default function OrcamentosPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   },[]);
 
+  const showToast = (message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
   const resetForm = () => {
     setEditQuoteId(null);
     setTitle("");
@@ -72,13 +131,16 @@ export default function OrcamentosPage() {
       .from("quotes")
       .select("*, clients(company_name), salesperson:profiles(full_name)")
       .order("created_at", { ascending: false });
-    if (!error && data) setQuotes(data);
+    
+    if (!error && data) {
+      setQuotes(data as Quote[]);
+    }
     setLoading(false);
   };
 
   const fetchClients = async () => {
     const { data } = await supabase.from("clients").select("id, company_name").order("company_name");
-    if (data) setClients(data);
+    if (data) setClients(data as Client[]);
   };
 
   const fetchInventory = async () => {
@@ -91,10 +153,10 @@ export default function OrcamentosPage() {
       .from("profiles")
       .select("id, full_name, email")
       .in("role", ["super_admin", "admin", "commercial"]);
-    if (data) setSalesTeam(data);
+    if (data) setSalesTeam(data as Profile[]);
   };
 
-  const handleEditQuote = async (quote: any) => {
+  const handleEditQuote = async (quote: Quote) => {
     setLoading(true);
     setEditQuoteId(quote.id);
     setTitle(quote.title);
@@ -127,9 +189,78 @@ export default function OrcamentosPage() {
     setLoading(false);
   };
 
+  // --- MOTOR DE APROVAÇÃO E FINANCEIRO ---
+  const handleStatusChange = (quote: Quote, newStatus: string) => {
+    if (newStatus === "approved") {
+      setSelectedQuoteForApproval(quote);
+      // Sugere a data do evento ou hoje + 7 dias como primeiro vencimento
+      const defaultDate = quote.event_start_date 
+        ? quote.event_start_date.split('T')[0] 
+        : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      
+      setFirstDueDate(defaultDate);
+      setInstallments(1);
+      setPaymentMethod("pix");
+      setApprovalModalOpen(true);
+    } else {
+      updateQuoteStatus(quote.id, newStatus);
+    }
+  };
+
+  const processApprovalAndFinance = async () => {
+    if (!selectedQuoteForApproval) return;
+    setIsSubmitting(true);
+
+    try {
+      const amountPerInstallment = selectedQuoteForApproval.final_amount / installments;
+      const transactions =[];
+
+      for (let i = 0; i < installments; i++) {
+        const dueDate = new Date(firstDueDate);
+        dueDate.setMonth(dueDate.getMonth() + i); // Adiciona meses para as próximas parcelas
+
+        transactions.push({
+          description: `Fatura: ${selectedQuoteForApproval.title} - Parcela ${i + 1}/${installments}`,
+          type: 'income',
+          category: 'Venda de Serviços', // Categoria padrão agnóstica
+          amount: amountPerInstallment,
+          status: 'pending',
+          due_date: dueDate.toISOString().split('T')[0],
+          client_id: selectedQuoteForApproval.client_id,
+          quote_id: selectedQuoteForApproval.id,
+          installment_number: i + 1,
+          total_installments: installments,
+          payment_method: paymentMethod,
+          source: 'quote_approval'
+        });
+      }
+
+      // 1. Injeta as contas a receber
+      const { error: financeError } = await supabase.from('financial_transactions').insert(transactions);
+      if (financeError) throw financeError;
+
+      // 2. Atualiza o status do orçamento
+      const { error: quoteError } = await supabase.from('quotes').update({ status: 'approved' }).eq('id', selectedQuoteForApproval.id);
+      if (quoteError) throw quoteError;
+
+      showToast("Orçamento aprovado e financeiro gerado com sucesso.", "success");
+      setApprovalModalOpen(false);
+      fetchQuotes();
+    } catch (error: any) {
+      showToast(`Erro ao processar financeiro: ${error.message}`, "error");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const updateQuoteStatus = async (id: string, newStatus: string) => {
     const { error } = await supabase.from("quotes").update({ status: newStatus }).eq("id", id);
-    if (!error) fetchQuotes();
+    if (!error) {
+      showToast("Status atualizado com sucesso.", "success");
+      fetchQuotes();
+    } else {
+      showToast("Erro ao atualizar status.", "error");
+    }
   };
 
   const addItem = (category: "equipment" | "labor" | "logistics") => {
@@ -179,7 +310,7 @@ export default function OrcamentosPage() {
 
   const handleSaveQuote = async () => {
     if (!title || !clientId || !salespersonId || items.length === 0) {
-      alert("Preencha o título, cliente, vendedor responsável e adicione pelo menos um item.");
+      showToast("Preencha título, cliente, vendedor e adicione itens.", "error");
       return;
     }
 
@@ -233,9 +364,10 @@ export default function OrcamentosPage() {
       const { error: itemsError } = await supabase.from("quote_items").insert(itemsToInsert);
       if (itemsError) throw itemsError;
 
+      showToast("Orçamento salvo com sucesso.", "success");
       setView("list");
     } catch (error: any) {
-      alert("Erro ao salvar orçamento: " + error.message);
+      showToast(`Erro ao salvar: ${error.message}`, "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -245,321 +377,415 @@ export default function OrcamentosPage() {
 
   const filteredClients = clients.filter(c => c.company_name.toLowerCase().includes(clientSearchTerm.toLowerCase()));
 
-  if (view === "create") {
-    return (
-      <div className="space-y-6 max-w-6xl mx-auto pb-12">
-        <datalist id="inventory-equipment">
-          {inventory.filter(eq => !['logistics', 'labor'].includes(eq.category)).map(eq => <option key={eq.id} value={eq.name} />)}
-        </datalist>
-        <datalist id="inventory-labor">
-          {inventory.filter(eq => eq.category === 'labor').map(eq => <option key={eq.id} value={eq.name} />)}
-        </datalist>
-        <datalist id="inventory-logistics">
-          {inventory.filter(eq => eq.category === 'logistics').map(eq => <option key={eq.id} value={eq.name} />)}
-        </datalist>
-
-        <div className="flex items-center justify-between">
-          <button onClick={() => setView("list")} className="flex items-center gap-2 text-text-secondary hover:text-white transition-colors">
-            <ArrowLeft size={20} /> Voltar para lista
-          </button>
-          <button onClick={handleSaveQuote} disabled={isSubmitting} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50">
-            {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-            {editQuoteId ? "Atualizar Orçamento" : "Salvar Orçamento"}
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-1 space-y-6">
-            <div className="bg-surface border border-surface/50 p-6 rounded-lg space-y-4">
-              <h3 className="text-md font-bold text-white border-b border-surface/50 pb-2 flex items-center gap-2">
-                <FileText size={18} className="text-cs-green" /> Dados Gerais
-              </h3>
-              <div>
-                <label className="block text-xs font-medium text-text-secondary mb-1">Nome do Evento / Proposta *</label>
-                <input type="text" required value={title} onChange={(e) => setTitle(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm" />
-              </div>
-              
-              <div ref={clientDropdownRef} className="relative">
-                <label className="block text-xs font-medium text-text-secondary mb-1">Cliente *</label>
-                <div className="flex items-center border border-surface bg-background rounded-md px-3 py-2 focus-within:border-cs-green focus-within:ring-1 focus-within:ring-cs-green transition-colors">
-                  <Search size={14} className="text-text-secondary mr-2 shrink-0" />
-                  <input
-                    type="text"
-                    placeholder="Buscar cliente..."
-                    value={clientSearchTerm}
-                    onChange={(e) => { setClientSearchTerm(e.target.value); setIsClientDropdownOpen(true); setClientId(""); }}
-                    onFocus={() => setIsClientDropdownOpen(true)}
-                    className="bg-transparent border-none outline-none text-white text-sm w-full"
-                  />
-                  {clientId && <Check size={14} className="text-cs-green shrink-0 ml-2" />}
-                </div>
-                {isClientDropdownOpen && (
-                  <div className="absolute z-50 w-full mt-1 bg-surface border border-surface/50 rounded-md shadow-2xl max-h-60 overflow-y-auto custom-scrollbar">
-                    {filteredClients.length === 0 ? (
-                      <div className="px-4 py-3 text-sm text-text-secondary text-center">Nenhum cliente encontrado.</div>
-                    ) : (
-                      filteredClients.map(c => (
-                        <div
-                          key={c.id}
-                          onClick={() => { setClientId(c.id); setClientSearchTerm(c.company_name); setIsClientDropdownOpen(false); }}
-                          className="px-4 py-2.5 text-sm text-white hover:bg-cs-green/20 hover:text-cs-green cursor-pointer border-b border-surface/50 last:border-0 transition-colors"
-                        >
-                          {c.company_name}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-text-secondary mb-1 flex items-center gap-2"><User size={14}/> Vendedor Responsável *</label>
-                <select required value={salespersonId} onChange={(e) => setSalespersonId(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm cursor-pointer">
-                  <option value="">Selecione...</option>
-                  {salesTeam.map(s => <option key={s.id} value={s.id}>{s.full_name || s.email}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div className="bg-surface border border-surface/50 p-6 rounded-lg space-y-4">
-              <h3 className="text-md font-bold text-white border-b border-surface/50 pb-2 flex items-center gap-2">
-                <Calendar size={18} className="text-cs-gold" /> Cronograma
-              </h3>
-              
-              <style dangerouslySetInnerHTML={{__html: `input[type="datetime-local"] { color-scheme: dark; }`}} />
-
-              <div className="space-y-3 border-b border-surface/50 pb-4">
-                <p className="text-xs font-bold text-cs-gold uppercase tracking-wider">1. Montagem (Load-in)</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] text-text-secondary mb-1">Início</label>
-                    <input type="datetime-local" max="2099-12-31T23:59" value={setupStart} onChange={(e) => { if (e.target.value.length <= 16) setSetupStart(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-text-secondary mb-1">Término</label>
-                    <input type="datetime-local" max="2099-12-31T23:59" value={setupEnd} onChange={(e) => { if (e.target.value.length <= 16) setSetupEnd(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-3 border-b border-surface/50 pb-4">
-                <p className="text-xs font-bold text-cs-green uppercase tracking-wider">2. Evento</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] text-text-secondary mb-1">Início</label>
-                    <input type="datetime-local" max="2099-12-31T23:59" value={eventStart} onChange={(e) => { if (e.target.value.length <= 16) setEventStart(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-text-secondary mb-1">Término</label>
-                    <input type="datetime-local" max="2099-12-31T23:59" value={eventEnd} onChange={(e) => { if (e.target.value.length <= 16) setEventEnd(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <p className="text-xs font-bold text-blue-400 uppercase tracking-wider">3. Desmontagem (Load-out)</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] text-text-secondary mb-1">Início</label>
-                    <input type="datetime-local" max="2099-12-31T23:59" value={teardownStart} onChange={(e) => { if (e.target.value.length <= 16) setTeardownStart(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-text-secondary mb-1">Término</label>
-                    <input type="datetime-local" max="2099-12-31T23:59" value={teardownEnd} onChange={(e) => { if (e.target.value.length <= 16) setTeardownEnd(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-surface border border-surface/50 p-6 rounded-lg space-y-6">
-              <div className="flex items-center justify-between border-b border-surface/50 pb-2">
-                <h3 className="text-lg font-medium text-white">Planilha de Custos</h3>
-                <div className="flex gap-2">
-                  <button onClick={() => addItem("equipment")} className="text-xs bg-cs-green/10 text-cs-green px-3 py-1.5 rounded hover:bg-cs-green/20 transition-colors">+ Equipamento</button>
-                  <button onClick={() => addItem("labor")} className="text-xs bg-cs-gold/10 text-cs-gold px-3 py-1.5 rounded hover:bg-cs-gold/20 transition-colors">+ Equipe</button>
-                  <button onClick={() => addItem("logistics")} className="text-xs bg-blue-500/10 text-blue-500 px-3 py-1.5 rounded hover:bg-blue-500/20 transition-colors">+ Logística</button>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {items.length === 0 ? (
-                  <p className="text-center text-text-secondary py-8 text-sm">Nenhum item adicionado. Use os botões acima para começar.</p>
-                ) : (
-                  items.map((item) => (
-                    <div key={item.id} className="flex items-center gap-3 bg-background p-3 rounded-md border border-surface/50">
-                      <div className="w-16 shrink-0">
-                        <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider ${
-                          item.category === 'equipment' ? 'bg-cs-green/10 text-cs-green' : 
-                          item.category === 'labor' ? 'bg-cs-gold/10 text-cs-gold' : 'bg-blue-500/10 text-blue-500'
-                        }`}>
-                          {item.category === 'equipment' ? 'Equip' : item.category === 'labor' ? 'Equipe' : 'Log'}
-                        </span>
-                      </div>
-                      
-                      <div className="flex-1">
-                        <label className="text-[10px] text-text-secondary block mb-1">Descrição</label>
-                        <input
-                          type="text"
-                          list={`inventory-${item.category}`}
-                          placeholder="Buscar ou digitar..."
-                          value={item.description}
-                          onChange={(e) => handleDescriptionChange(item.id, e.target.value)}
-                          className="w-full bg-transparent border-b border-surface text-white focus:border-cs-green focus:outline-none px-1 py-1 text-sm"
-                        />
-                      </div>
-                      
-                      <div className="w-16 shrink-0">
-                        <label className="text-[10px] text-text-secondary block mb-1">Qtd</label>
-                        <input type="number" min="1" value={item.quantity} onChange={(e) => updateItem(item.id, "quantity", e.target.value)} className="w-full bg-surface border border-surface/50 rounded px-2 py-1 text-white focus:outline-none focus:border-cs-green text-sm text-center" />
-                      </div>
-                      
-                      <div className="w-24 shrink-0">
-                        <label className="text-[10px] text-text-secondary block mb-1">Diária (R$)</label>
-                        <input type="number" min="0" value={item.daily_rate} onChange={(e) => updateItem(item.id, "daily_rate", e.target.value)} className="w-full bg-surface border border-surface/50 rounded px-2 py-1 text-white focus:outline-none focus:border-cs-green text-sm text-right" />
-                      </div>
-                      
-                      <div className="w-20 shrink-0">
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-[10px] text-text-secondary">Dias</label>
-                          {(eventStart && eventEnd) && (
-                            <div className="flex gap-1">
-                              <button type="button" onClick={() => updateItem(item.id, "days", eventDays)} className="text-[8px] bg-cs-green/20 text-cs-green px-1 rounded hover:bg-cs-green hover:text-white transition-colors" title={`${eventDays} Dias de Evento`}>E</button>
-                              <button type="button" onClick={() => updateItem(item.id, "days", totalDays)} className="text-[8px] bg-cs-gold/20 text-cs-gold px-1 rounded hover:bg-cs-gold hover:text-white transition-colors" title={`${totalDays} Dias Totais (Montagem a Desmontagem)`}>T</button>
-                            </div>
-                          )}
-                        </div>
-                        <input type="number" min="1" value={item.days} onChange={(e) => updateItem(item.id, "days", e.target.value)} className="w-full bg-surface border border-surface/50 rounded px-2 py-1 text-white focus:outline-none focus:border-cs-green text-sm text-center" />
-                      </div>
-                      
-                      <div className="w-28 text-right shrink-0">
-                        <label className="text-[10px] text-text-secondary block mb-1">Total</label>
-                        <span className="font-bold text-white text-sm block py-1">
-                          {formatCurrency((Number(item.quantity) || 0) * (Number(item.daily_rate) || 0) * (Number(item.days) || 0))}
-                        </span>
-                      </div>
-                      
-                      <div className="shrink-0 flex items-end pb-1 ml-2">
-                        <button onClick={() => removeItem(item.id)} className="text-surface hover:text-red-500 transition-colors p-1 rounded hover:bg-red-500/10">
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="bg-surface border border-surface/50 p-6 rounded-lg flex justify-end">
-              <div className="w-72 space-y-3">
-                <div className="flex justify-between text-sm text-text-secondary">
-                  <span>Equipamentos:</span>
-                  <span>{formatCurrency(totals.equipment)}</span>
-                </div>
-                <div className="flex justify-between text-sm text-text-secondary">
-                  <span>Equipe:</span>
-                  <span>{formatCurrency(totals.labor)}</span>
-                </div>
-                <div className="flex justify-between text-sm text-text-secondary border-b border-surface/50 pb-3">
-                  <span>Logística:</span>
-                  <span>{formatCurrency(totals.logistics)}</span>
-                </div>
-                <div className="flex justify-between text-xl font-extrabold text-white pt-2">
-                  <span>Total:</span>
-                  <span className="text-cs-green">{formatCurrency(totals.final)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center bg-surface p-4 border border-surface/50 rounded-lg">
-        <div>
-          <h3 className="text-lg font-medium text-white flex items-center gap-2">
-            <FileText className="text-cs-green" size={20} />
-            Gestão de Orçamentos
-          </h3>
-          <p className="text-xs text-text-secondary mt-1">Crie propostas, gerencie status e comissões.</p>
+    <div className="space-y-6 relative">
+      {/* Sistema de Toasts */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-md shadow-lg flex items-center gap-2 border ${toast.type === 'success' ? 'bg-cs-green/10 border-cs-green/20 text-cs-green' : 'bg-red-500/10 border-red-500/20 text-red-500'}`}>
+          {toast.type === 'success' ? <Check size={18} /> : <X size={18} />}
+          <span className="text-sm font-medium">{toast.message}</span>
         </div>
-        <button onClick={() => setView("create")} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all">
-          <Plus size={18} /> Novo Orçamento
-        </button>
-      </div>
+      )}
 
-      <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-text-secondary">
-            <thead className="bg-background/50 text-xs uppercase text-text-secondary">
-              <tr>
-                <th className="px-6 py-3 font-medium">Proposta / Evento</th>
-                <th className="px-6 py-3 font-medium">Vendedor Responsável</th>
-                <th className="px-6 py-3 font-medium">Status</th>
-                <th className="px-6 py-3 font-medium">Valor Total</th>
-                <th className="px-6 py-3 font-medium text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-surface/50">
-              {loading ? (
-                <tr><td colSpan={5} className="px-6 py-8 text-center"><Loader2 className="animate-spin mx-auto mb-2 text-cs-green" size={24} /></td></tr>
-              ) : quotes.length === 0 ? (
-                <tr><td colSpan={5} className="px-6 py-8 text-center text-text-secondary">Nenhum orçamento gerado.</td></tr>
-              ) : (
-                quotes.map((quote) => (
-                  <tr key={quote.id} className="hover:bg-background/50 transition-colors">
-                    <td className="px-6 py-4">
-                      <p className="font-bold text-white">{quote.title}</p>
-                      <p className="text-xs mt-1">{quote.clients?.company_name}</p>
-                    </td>
-                    <td className="px-6 py-4">
-                      {quote.salesperson ? (
-                        <span className="flex items-center gap-1.5 text-xs font-medium text-white"><User size={14} className="text-cs-gold"/> {quote.salesperson.full_name}</span>
-                      ) : (
-                        <span className="text-xs text-text-secondary">Não atribuído</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <select
-                        value={quote.status}
-                        onChange={(e) => updateQuoteStatus(quote.id, e.target.value)}
-                        className={`text-xs rounded-full px-2.5 py-1 font-bold uppercase tracking-wider border focus:outline-none cursor-pointer ${
-                          quote.status === 'approved' ? 'bg-cs-green/10 text-cs-green border-cs-green/20' :
-                          quote.status === 'rejected' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                          quote.status === 'postponed' ? 'bg-gray-500/10 text-gray-400 border-gray-500/20' :
-                          quote.status === 'pending_approval' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
-                          'bg-cs-gold/10 text-cs-gold border-cs-gold/20'
-                        }`}
-                      >
-                        <option value="draft">Rascunho</option>
-                        <option value="pending_approval">Aguardando</option>
-                        <option value="approved">Aprovado</option>
-                        <option value="postponed">Adiado</option>
-                        <option value="rejected">Recusado</option>
-                      </select>
-                    </td>
-                    <td className="px-6 py-4 font-bold text-cs-green">{formatCurrency(quote.final_amount)}</td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-4">
-                        <button onClick={() => handleEditQuote(quote)} className="inline-flex items-center gap-1 text-text-secondary hover:text-white transition-colors text-xs font-medium">
-                          <Edit size={14} /> Editar
-                        </button>
-                        <Link href={`/orcamentos/${quote.id}`} className="inline-flex items-center gap-1 text-cs-gold hover:text-white transition-colors text-xs font-medium">
-                          <Printer size={14} /> PDF
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      {/* Modal de Aprovação e Financeiro */}
+      {approvalModalOpen && selectedQuoteForApproval && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div className="bg-surface border border-surface/50 rounded-xl w-full max-w-md overflow-hidden shadow-2xl">
+            <div className="bg-background p-4 border-b border-surface/50 flex justify-between items-center">
+              <h3 className="text-white font-bold flex items-center gap-2">
+                <DollarSign className="text-cs-green" size={18} />
+                Condições de Pagamento
+              </h3>
+              <button onClick={() => setApprovalModalOpen(false)} className="text-text-secondary hover:text-white transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-5">
+              <div className="bg-cs-green/10 border border-cs-green/20 rounded-lg p-4 text-center">
+                <p className="text-xs text-text-secondary uppercase tracking-wider mb-1">Valor Total Aprovado</p>
+                <p className="text-2xl font-extrabold text-cs-green">{formatCurrency(selectedQuoteForApproval.final_amount)}</p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Forma de Pagamento</label>
+                  <div className="relative">
+                    <CreditCard size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" />
+                    <select 
+                      value={paymentMethod} 
+                      onChange={(e) => setPaymentMethod(e.target.value)}
+                      className="block w-full rounded-md border border-surface bg-background pl-10 pr-3 py-2.5 text-white focus:border-cs-green focus:outline-none text-sm cursor-pointer"
+                    >
+                      <option value="pix">PIX</option>
+                      <option value="boleto">Boleto Bancário</option>
+                      <option value="transfer">Transferência (TED/DOC)</option>
+                      <option value="credit_card">Cartão de Crédito</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-text-secondary mb-1">Parcelamento</label>
+                    <select 
+                      value={installments} 
+                      onChange={(e) => setInstallments(Number(e.target.value))}
+                      className="block w-full rounded-md border border-surface bg-background px-3 py-2.5 text-white focus:border-cs-green focus:outline-none text-sm cursor-pointer"
+                    >
+                      {[1, 2, 3, 4, 5, 6, 10, 12].map(num => (
+                        <option key={num} value={num}>{num}x de {formatCurrency(selectedQuoteForApproval.final_amount / num)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-text-secondary mb-1">1º Vencimento</label>
+                    <input 
+                      type="date" 
+                      value={firstDueDate}
+                      onChange={(e) => setFirstDueDate(e.target.value)}
+                      className="block w-full rounded-md border border-surface bg-background px-3 py-2.5 text-white focus:border-cs-green focus:outline-none text-sm cursor-pointer"
+                      style={{ colorScheme: 'dark' }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-background p-4 border-t border-surface/50 flex justify-end gap-3">
+              <button 
+                onClick={() => setApprovalModalOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-text-secondary hover:text-white transition-colors"
+                disabled={isSubmitting}
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={processApprovalAndFinance}
+                disabled={isSubmitting}
+                className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50"
+              >
+                {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
+                Confirmar e Gerar Faturas
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+
+      {view === "create" ? (
+        <div className="space-y-6 max-w-6xl mx-auto pb-12">
+          <datalist id="inventory-equipment">
+            {inventory.filter(eq => !['logistics', 'labor'].includes(eq.category)).map(eq => <option key={eq.id} value={eq.name} />)}
+          </datalist>
+          <datalist id="inventory-labor">
+            {inventory.filter(eq => eq.category === 'labor').map(eq => <option key={eq.id} value={eq.name} />)}
+          </datalist>
+          <datalist id="inventory-logistics">
+            {inventory.filter(eq => eq.category === 'logistics').map(eq => <option key={eq.id} value={eq.name} />)}
+          </datalist>
+
+          <div className="flex items-center justify-between">
+            <button onClick={() => setView("list")} className="flex items-center gap-2 text-text-secondary hover:text-white transition-colors">
+              <ArrowLeft size={20} /> Voltar para lista
+            </button>
+            <button onClick={handleSaveQuote} disabled={isSubmitting} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50">
+              {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+              {editQuoteId ? "Atualizar Orçamento" : "Salvar Orçamento"}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-1 space-y-6">
+              <div className="bg-surface border border-surface/50 p-6 rounded-lg space-y-4">
+                <h3 className="text-md font-bold text-white border-b border-surface/50 pb-2 flex items-center gap-2">
+                  <FileText size={18} className="text-cs-green" /> Dados Gerais
+                </h3>
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Nome do Evento / Proposta *</label>
+                  <input type="text" required value={title} onChange={(e) => setTitle(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm" />
+                </div>
+                
+                <div ref={clientDropdownRef} className="relative">
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Cliente *</label>
+                  <div className="flex items-center border border-surface bg-background rounded-md px-3 py-2 focus-within:border-cs-green focus-within:ring-1 focus-within:ring-cs-green transition-colors">
+                    <Search size={14} className="text-text-secondary mr-2 shrink-0" />
+                    <input
+                      type="text"
+                      placeholder="Buscar cliente..."
+                      value={clientSearchTerm}
+                      onChange={(e) => { setClientSearchTerm(e.target.value); setIsClientDropdownOpen(true); setClientId(""); }}
+                      onFocus={() => setIsClientDropdownOpen(true)}
+                      className="bg-transparent border-none outline-none text-white text-sm w-full"
+                    />
+                    {clientId && <Check size={14} className="text-cs-green shrink-0 ml-2" />}
+                  </div>
+                  {isClientDropdownOpen && (
+                    <div className="absolute z-50 w-full mt-1 bg-surface border border-surface/50 rounded-md shadow-2xl max-h-60 overflow-y-auto custom-scrollbar">
+                      {filteredClients.length === 0 ? (
+                        <div className="px-4 py-3 text-sm text-text-secondary text-center">Nenhum cliente encontrado.</div>
+                      ) : (
+                        filteredClients.map(c => (
+                          <div
+                            key={c.id}
+                            onClick={() => { setClientId(c.id); setClientSearchTerm(c.company_name); setIsClientDropdownOpen(false); }}
+                            className="px-4 py-2.5 text-sm text-white hover:bg-cs-green/20 hover:text-cs-green cursor-pointer border-b border-surface/50 last:border-0 transition-colors"
+                          >
+                            {c.company_name}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1 flex items-center gap-2"><User size={14}/> Vendedor Responsável *</label>
+                  <select required value={salespersonId} onChange={(e) => setSalespersonId(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm cursor-pointer">
+                    <option value="">Selecione...</option>
+                    {salesTeam.map(s => <option key={s.id} value={s.id}>{s.full_name || s.email}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="bg-surface border border-surface/50 p-6 rounded-lg space-y-4">
+                <h3 className="text-md font-bold text-white border-b border-surface/50 pb-2 flex items-center gap-2">
+                  <Calendar size={18} className="text-cs-gold" /> Cronograma
+                </h3>
+                
+                <style dangerouslySetInnerHTML={{__html: `input[type="datetime-local"] { color-scheme: dark; }`}} />
+
+                <div className="space-y-3 border-b border-surface/50 pb-4">
+                  <p className="text-xs font-bold text-cs-gold uppercase tracking-wider">1. Montagem (Load-in)</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] text-text-secondary mb-1">Início</label>
+                      <input type="datetime-local" max="2099-12-31T23:59" value={setupStart} onChange={(e) => { if (e.target.value.length <= 16) setSetupStart(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-text-secondary mb-1">Término</label>
+                      <input type="datetime-local" max="2099-12-31T23:59" value={setupEnd} onChange={(e) => { if (e.target.value.length <= 16) setSetupEnd(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3 border-b border-surface/50 pb-4">
+                  <p className="text-xs font-bold text-cs-green uppercase tracking-wider">2. Evento</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] text-text-secondary mb-1">Início</label>
+                      <input type="datetime-local" max="2099-12-31T23:59" value={eventStart} onChange={(e) => { if (e.target.value.length <= 16) setEventStart(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-text-secondary mb-1">Término</label>
+                      <input type="datetime-local" max="2099-12-31T23:59" value={eventEnd} onChange={(e) => { if (e.target.value.length <= 16) setEventEnd(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-xs font-bold text-blue-400 uppercase tracking-wider">3. Desmontagem (Load-out)</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] text-text-secondary mb-1">Início</label>
+                      <input type="datetime-local" max="2099-12-31T23:59" value={teardownStart} onChange={(e) => { if (e.target.value.length <= 16) setTeardownStart(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-text-secondary mb-1">Término</label>
+                      <input type="datetime-local" max="2099-12-31T23:59" value={teardownEnd} onChange={(e) => { if (e.target.value.length <= 16) setTeardownEnd(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-2 space-y-6">
+              <div className="bg-surface border border-surface/50 p-6 rounded-lg space-y-6">
+                <div className="flex items-center justify-between border-b border-surface/50 pb-2">
+                  <h3 className="text-lg font-medium text-white">Planilha de Custos</h3>
+                  <div className="flex gap-2">
+                    <button onClick={() => addItem("equipment")} className="text-xs bg-cs-green/10 text-cs-green px-3 py-1.5 rounded hover:bg-cs-green/20 transition-colors">+ Equipamento</button>
+                    <button onClick={() => addItem("labor")} className="text-xs bg-cs-gold/10 text-cs-gold px-3 py-1.5 rounded hover:bg-cs-gold/20 transition-colors">+ Equipe</button>
+                    <button onClick={() => addItem("logistics")} className="text-xs bg-blue-500/10 text-blue-500 px-3 py-1.5 rounded hover:bg-blue-500/20 transition-colors">+ Logística</button>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {items.length === 0 ? (
+                    <p className="text-center text-text-secondary py-8 text-sm">Nenhum item adicionado. Use os botões acima para começar.</p>
+                  ) : (
+                    items.map((item) => (
+                      <div key={item.id} className="flex items-center gap-3 bg-background p-3 rounded-md border border-surface/50">
+                        <div className="w-16 shrink-0">
+                          <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider ${
+                            item.category === 'equipment' ? 'bg-cs-green/10 text-cs-green' : 
+                            item.category === 'labor' ? 'bg-cs-gold/10 text-cs-gold' : 'bg-blue-500/10 text-blue-500'
+                          }`}>
+                            {item.category === 'equipment' ? 'Equip' : item.category === 'labor' ? 'Equipe' : 'Log'}
+                          </span>
+                        </div>
+                        
+                        <div className="flex-1">
+                          <label className="text-[10px] text-text-secondary block mb-1">Descrição</label>
+                          <input
+                            type="text"
+                            list={`inventory-${item.category}`}
+                            placeholder="Buscar ou digitar..."
+                            value={item.description}
+                            onChange={(e) => handleDescriptionChange(item.id, e.target.value)}
+                            className="w-full bg-transparent border-b border-surface text-white focus:border-cs-green focus:outline-none px-1 py-1 text-sm"
+                          />
+                        </div>
+                        
+                        <div className="w-16 shrink-0">
+                          <label className="text-[10px] text-text-secondary block mb-1">Qtd</label>
+                          <input type="number" min="1" value={item.quantity} onChange={(e) => updateItem(item.id, "quantity", e.target.value)} className="w-full bg-surface border border-surface/50 rounded px-2 py-1 text-white focus:outline-none focus:border-cs-green text-sm text-center" />
+                        </div>
+                        
+                        <div className="w-24 shrink-0">
+                          <label className="text-[10px] text-text-secondary block mb-1">Diária (R$)</label>
+                          <input type="number" min="0" value={item.daily_rate} onChange={(e) => updateItem(item.id, "daily_rate", e.target.value)} className="w-full bg-surface border border-surface/50 rounded px-2 py-1 text-white focus:outline-none focus:border-cs-green text-sm text-right" />
+                        </div>
+                        
+                        <div className="w-20 shrink-0">
+                          <div className="flex justify-between items-center mb-1">
+                            <label className="text-[10px] text-text-secondary">Dias</label>
+                            {(eventStart && eventEnd) && (
+                              <div className="flex gap-1">
+                                <button type="button" onClick={() => updateItem(item.id, "days", eventDays)} className="text-[8px] bg-cs-green/20 text-cs-green px-1 rounded hover:bg-cs-green hover:text-white transition-colors" title={`${eventDays} Dias de Evento`}>E</button>
+                                <button type="button" onClick={() => updateItem(item.id, "days", totalDays)} className="text-[8px] bg-cs-gold/20 text-cs-gold px-1 rounded hover:bg-cs-gold hover:text-white transition-colors" title={`${totalDays} Dias Totais (Montagem a Desmontagem)`}>T</button>
+                              </div>
+                            )}
+                          </div>
+                          <input type="number" min="1" value={item.days} onChange={(e) => updateItem(item.id, "days", e.target.value)} className="w-full bg-surface border border-surface/50 rounded px-2 py-1 text-white focus:outline-none focus:border-cs-green text-sm text-center" />
+                        </div>
+                        
+                        <div className="w-28 text-right shrink-0">
+                          <label className="text-[10px] text-text-secondary block mb-1">Total</label>
+                          <span className="font-bold text-white text-sm block py-1">
+                            {formatCurrency((Number(item.quantity) || 0) * (Number(item.daily_rate) || 0) * (Number(item.days) || 0))}
+                          </span>
+                        </div>
+                        
+                        <div className="shrink-0 flex items-end pb-1 ml-2">
+                          <button onClick={() => removeItem(item.id)} className="text-surface hover:text-red-500 transition-colors p-1 rounded hover:bg-red-500/10">
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-surface border border-surface/50 p-6 rounded-lg flex justify-end">
+                <div className="w-72 space-y-3">
+                  <div className="flex justify-between text-sm text-text-secondary">
+                    <span>Equipamentos:</span>
+                    <span>{formatCurrency(totals.equipment)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm text-text-secondary">
+                    <span>Equipe:</span>
+                    <span>{formatCurrency(totals.labor)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm text-text-secondary border-b border-surface/50 pb-3">
+                    <span>Logística:</span>
+                    <span>{formatCurrency(totals.logistics)}</span>
+                  </div>
+                  <div className="flex justify-between text-xl font-extrabold text-white pt-2">
+                    <span>Total:</span>
+                    <span className="text-cs-green">{formatCurrency(totals.final)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="flex justify-between items-center bg-surface p-4 border border-surface/50 rounded-lg">
+            <div>
+              <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                <FileText className="text-cs-green" size={20} />
+                Gestão de Orçamentos
+              </h3>
+              <p className="text-xs text-text-secondary mt-1">Crie propostas, gerencie status e comissões.</p>
+            </div>
+            <button onClick={() => setView("create")} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all">
+              <Plus size={18} /> Novo Orçamento
+            </button>
+          </div>
+
+          <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm text-text-secondary">
+                <thead className="bg-background/50 text-xs uppercase text-text-secondary">
+                  <tr>
+                    <th className="px-6 py-3 font-medium">Proposta / Evento</th>
+                    <th className="px-6 py-3 font-medium">Vendedor Responsável</th>
+                    <th className="px-6 py-3 font-medium">Status</th>
+                    <th className="px-6 py-3 font-medium">Valor Total</th>
+                    <th className="px-6 py-3 font-medium text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-surface/50">
+                  {loading ? (
+                    <tr><td colSpan={5} className="px-6 py-8 text-center"><Loader2 className="animate-spin mx-auto mb-2 text-cs-green" size={24} /></td></tr>
+                  ) : quotes.length === 0 ? (
+                    <tr><td colSpan={5} className="px-6 py-8 text-center text-text-secondary">Nenhum orçamento gerado.</td></tr>
+                  ) : (
+                    quotes.map((quote) => (
+                      <tr key={quote.id} className="hover:bg-background/50 transition-colors">
+                        <td className="px-6 py-4">
+                          <p className="font-bold text-white">{quote.title}</p>
+                          <p className="text-xs mt-1">{quote.clients?.company_name}</p>
+                        </td>
+                        <td className="px-6 py-4">
+                          {quote.salesperson ? (
+                            <span className="flex items-center gap-1.5 text-xs font-medium text-white"><User size={14} className="text-cs-gold"/> {quote.salesperson.full_name}</span>
+                          ) : (
+                            <span className="text-xs text-text-secondary">Não atribuído</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          <select
+                            value={quote.status}
+                            onChange={(e) => handleStatusChange(quote, e.target.value)}
+                            className={`text-xs rounded-full px-2.5 py-1 font-bold uppercase tracking-wider border focus:outline-none cursor-pointer ${
+                              quote.status === 'approved' ? 'bg-cs-green/10 text-cs-green border-cs-green/20' :
+                              quote.status === 'rejected' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                              quote.status === 'postponed' ? 'bg-gray-500/10 text-gray-400 border-gray-500/20' :
+                              quote.status === 'pending_approval' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                              'bg-cs-gold/10 text-cs-gold border-cs-gold/20'
+                            }`}
+                          >
+                            <option value="draft">Rascunho</option>
+                            <option value="pending_approval">Aguardando</option>
+                            <option value="approved">Aprovado</option>
+                            <option value="postponed">Adiado</option>
+                            <option value="rejected">Recusado</option>
+                          </select>
+                        </td>
+                        <td className="px-6 py-4 font-bold text-cs-green">{formatCurrency(quote.final_amount)}</td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-4">
+                            <button onClick={() => handleEditQuote(quote)} className="inline-flex items-center gap-1 text-text-secondary hover:text-white transition-colors text-xs font-medium">
+                              <Edit size={14} /> Editar
+                            </button>
+                            <Link href={`/orcamentos/${quote.id}`} className="inline-flex items-center gap-1 text-cs-gold hover:text-white transition-colors text-xs font-medium">
+                              <Printer size={14} /> PDF
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
