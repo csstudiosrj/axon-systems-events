@@ -1,34 +1,33 @@
+"use client";
 
-<<<<<<< HEAD
-=======
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
 import { Truck, Plus, Loader2, ArrowLeft, Calendar, Clock, Play, CheckCircle, AlertCircle, User, FileText, PackagePlus, Trash2, Save, Eye, Building2, AlertTriangle } from "lucide-react";
 
 export default function OSPage() {
-  const[view, setView] = useState<"list" | "create" | "details">("list");
-  const[orders, setOrders] = useState<any[]>([]);
+  const [view, setView] = useState<"list" | "create" | "details">("list");
+  const [orders, setOrders] = useState<any[]>([]);
   const [availableQuotes, setAvailableQuotes] = useState<any[]>([]);
-  const [internalTeam, setInternalTeam] = useState<any[]>([]);
+  const[internalTeam, setInternalTeam] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [feedbackMsg, setFeedbackMsg] = useState({ type: "", text: "" });
-  const[confirmModal, setConfirmModal] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void } | null>(null);
+  const[feedbackMsg, setFeedbackMsg] = useState({ type: "", text: "" });
+  const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void } | null>(null);
 
-  const [activeOS, setActiveOS] = useState<any>(null);
+  const[activeOS, setActiveOS] = useState<any>(null);
   const [quoteItems, setQuoteItems] = useState<any[]>([]);
-  const[extraItems, setExtraItems] = useState<any[]>([]);
+  const [extraItems, setExtraItems] = useState<any[]>([]);
   
-  const [logisticsNotes, setLogisticsNotes] = useState("");
+  const[logisticsNotes, setLogisticsNotes] = useState("");
   const [producerId, setProducerId] = useState("");
   
-  const[newItemName, setNewItemName] = useState("");
+  const [newItemName, setNewItemName] = useState("");
   const [newItemQty, setNewItemQty] = useState("1");
 
   const [quoteId, setQuoteId] = useState("");
   const [startDate, setStartDate] = useState("");
-  const[endDate, setEndDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   useEffect(() => {
     if (view === "list") fetchOrders();
@@ -48,7 +47,6 @@ export default function OSPage() {
 
   const fetchOrders = async () => {
     setLoading(true);
-    // CORREÇÃO APLICADA AQUI: producer:profiles(full_name)
     const { data, error } = await supabase
       .from("service_orders")
       .select(`
@@ -543,4 +541,3 @@ export default function OSPage() {
     </div>
   );
 }
->>>>>>> bf3e3e70892d81902d4b4a0bc649fc3e5ecfb120

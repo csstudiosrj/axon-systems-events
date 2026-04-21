@@ -1,6 +1,5 @@
+"use client";
 
-<<<<<<< HEAD
-=======
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../../lib/supabase";
 import { FileText, Plus, Loader2, ArrowLeft, Trash2, Save, Printer, Edit, Calendar, User, Search, Check } from "lucide-react";
@@ -8,28 +7,28 @@ import Link from "next/link";
 
 export default function OrcamentosPage() {
   const [view, setView] = useState<"list" | "create">("list");
-  const[quotes, setQuotes] = useState<any[]>([]);
-  const [clients, setClients] = useState<any[]>([]);
+  const [quotes, setQuotes] = useState<any[]>([]);
+  const[clients, setClients] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
-  const[salesTeam, setSalesTeam] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const[isSubmitting, setIsSubmitting] = useState(false);
+  const [salesTeam, setSalesTeam] = useState<any[]>([]);
+  const[loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const[editQuoteId, setEditQuoteId] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
+  const [editQuoteId, setEditQuoteId] = useState<string | null>(null);
+  const[title, setTitle] = useState("");
   const [salespersonId, setSalespersonId] = useState("");
   
-  const[clientId, setClientId] = useState("");
-  const [clientSearchTerm, setClientSearchTerm] = useState("");
-  const[isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
+  const [clientId, setClientId] = useState("");
+  const[clientSearchTerm, setClientSearchTerm] = useState("");
+  const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const clientDropdownRef = useRef<HTMLDivElement>(null);
   
-  const [setupStart, setSetupStart] = useState("");
+  const[setupStart, setSetupStart] = useState("");
   const [setupEnd, setSetupEnd] = useState("");
-  const [eventStart, setEventStart] = useState("");
-  const[eventEnd, setEventEnd] = useState("");
-  const [teardownStart, setTeardownStart] = useState("");
-  const [teardownEnd, setTeardownEnd] = useState("");
+  const[eventStart, setEventStart] = useState("");
+  const [eventEnd, setEventEnd] = useState("");
+  const[teardownStart, setTeardownStart] = useState("");
+  const[teardownEnd, setTeardownEnd] = useState("");
 
   const [items, setItems] = useState<any[]>([]);
 
@@ -69,7 +68,6 @@ export default function OrcamentosPage() {
 
   const fetchQuotes = async () => {
     setLoading(true);
-    // CORREÇÃO APLICADA AQUI: salesperson:profiles(full_name)
     const { data, error } = await supabase
       .from("quotes")
       .select("*, clients(company_name), salesperson:profiles(full_name)")
@@ -92,7 +90,7 @@ export default function OrcamentosPage() {
     const { data } = await supabase
       .from("profiles")
       .select("id, full_name, email")
-      .in("role",["super_admin", "admin", "commercial"]);
+      .in("role", ["super_admin", "admin", "commercial"]);
     if (data) setSalesTeam(data);
   };
 
@@ -565,4 +563,3 @@ export default function OrcamentosPage() {
     </div>
   );
 }
->>>>>>> bf3e3e70892d81902d4b4a0bc649fc3e5ecfb120
