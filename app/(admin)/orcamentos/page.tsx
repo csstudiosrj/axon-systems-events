@@ -2,32 +2,38 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../../lib/supabase";
-import { FileText, Plus, Loader2, ArrowLeft, Trash2, Save, Printer, Edit, Calendar, User } from "lucide-react";
+import { FileText, Plus, Loader2, ArrowLeft, Trash2, Save, Printer, Edit, Calendar, User, Search, Check } from "lucide-react";
 import Link from "next/link";
 
 export default function OrcamentosPage() {
   const [view, setView] = useState<"list" | "create">("list");
   const [quotes, setQuotes] = useState<any[]>([]);
-  const [clients, setClients] = useState<any[]>([]);
-  const[inventory, setInventory] = useState<any[]>([]);
+  const[clients, setClients] = useState<any[]>([]);
+  const [inventory, setInventory] = useState<any[]>([]);
   const [salesTeam, setSalesTeam] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const[isSubmitting, setIsSubmitting] = useState(false);
+  const[loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Estados do Formulário
   const [editQuoteId, setEditQuoteId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
-  const [clientId, setClientId] = useState("");
   const [salespersonId, setSalespersonId] = useState("");
   
+  // Estados da Busca Inteligente de Clientes
+  const [clientId, setClientId] = useState("");
+  const [clientSearchTerm, setClientSearchTerm] = useState("");
+  const[isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
+  const clientDropdownRef = useRef<HTMLDivElement>(null);
+  
+  // Datas do Evento
   const [setupStart, setSetupStart] = useState("");
   const [setupEnd, setSetupEnd] = useState("");
   const [eventStart, setEventStart] = useState("");
-  const [eventEnd, setEventEnd] = useState("");
-  const[teardownStart, setTeardownStart] = useState("");
+  const[eventEnd, setEventEnd] = useState("");
+  const [teardownStart, setTeardownStart] = useState("");
   const [teardownEnd, setTeardownEnd] = useState("");
 
   const [items, setItems] = useState<any[]>([]);
-  const itemsEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (view === "list") {
@@ -41,10 +47,22 @@ export default function OrcamentosPage() {
     }
   }, [view]);
 
+  // Fecha o dropdown de clientes ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (clientDropdownRef.current && !clientDropdownRef.current.contains(event.target as Node)) {
+        setIsClientDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  },[]);
+
   const resetForm = () => {
     setEditQuoteId(null);
     setTitle("");
     setClientId("");
+    setClientSearchTerm("");
     setSalespersonId("");
     setSetupStart(""); setSetupEnd("");
     setEventStart(""); setEventEnd("");
@@ -76,7 +94,7 @@ export default function OrcamentosPage() {
     const { data } = await supabase
       .from("profiles")
       .select("id, full_name, email")
-      .in("role", ["super_admin", "admin", "commercial"]);
+      .in("role",["super_admin", "admin", "commercial"]);
     if (data) setSalesTeam(data);
   };
 
@@ -85,6 +103,7 @@ export default function OrcamentosPage() {
     setEditQuoteId(quote.id);
     setTitle(quote.title);
     setClientId(quote.client_id || "");
+    setClientSearchTerm(quote.clients?.company_name || "");
     setSalespersonId(quote.salesperson_id || "");
     
     const formatDate = (isoString: string) => {
@@ -100,7 +119,7 @@ export default function OrcamentosPage() {
     setTeardownStart(formatDate(quote.teardown_start_date));
     setTeardownEnd(formatDate(quote.teardown_end_date));
     
-    const { data } = await supabase.from("quote_items").select("*").eq("quote_id", quote.id);
+    const { data } = await supabase.from("quote_items").select("*").eq("quote_id", quote.id).order("created_at", { ascending: true });
     if (data) {
       setItems(data.map(item => ({
         id: item.id, category: item.category, description: item.description,
@@ -118,8 +137,8 @@ export default function OrcamentosPage() {
   };
 
   const addItem = (category: "equipment" | "labor" | "logistics") => {
+    // Adiciona o item sem forçar o scroll da tela
     setItems([...items, { id: Date.now().toString(), category, description: "", quantity: 1, daily_rate: 0, days: 1 }]);
-    setTimeout(() => itemsEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
   };
 
   const removeItem = (id: string) => setItems(items.filter(item => item.id !== id));
@@ -136,6 +155,20 @@ export default function OrcamentosPage() {
       updateItem(id, "description", value);
     }
   };
+
+  // Cálculo Inteligente de Dias
+  const calculateDaysDiff = (startStr: string, endStr: string) => {
+    if (!startStr || !endStr) return 1;
+    const start = new Date(startStr);
+    const end = new Date(endStr);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return 1;
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays === 0 ? 1 : diffDays;
+  };
+
+  const eventDays = calculateDaysDiff(eventStart, eventEnd);
+  const totalDays = calculateDaysDiff(setupStart || eventStart, teardownEnd || eventEnd);
 
   const calculateTotals = () => {
     let equipment = 0, labor = 0, logistics = 0;
@@ -159,7 +192,6 @@ export default function OrcamentosPage() {
     setIsSubmitting(true);
 
     try {
-      // Validação de datas movida para DENTRO do try/catch para evitar travamento
       const validateDate = (dateStr: string) => {
         if (!dateStr) return null;
         const d = new Date(dateStr);
@@ -217,6 +249,8 @@ export default function OrcamentosPage() {
 
   const formatCurrency = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 
+  const filteredClients = clients.filter(c => c.company_name.toLowerCase().includes(clientSearchTerm.toLowerCase()));
+
   if (view === "create") {
     return (
       <div className="space-y-6 max-w-6xl mx-auto pb-12">
@@ -241,6 +275,7 @@ export default function OrcamentosPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Coluna Esquerda: Dados Gerais e Datas */}
           <div className="lg:col-span-1 space-y-6">
             <div className="bg-surface border border-surface/50 p-6 rounded-lg space-y-4">
               <h3 className="text-md font-bold text-white border-b border-surface/50 pb-2 flex items-center gap-2">
@@ -250,16 +285,44 @@ export default function OrcamentosPage() {
                 <label className="block text-xs font-medium text-text-secondary mb-1">Nome do Evento / Proposta *</label>
                 <input type="text" required value={title} onChange={(e) => setTitle(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm" />
               </div>
-              <div>
+              
+              {/* Busca Inteligente de Clientes */}
+              <div ref={clientDropdownRef} className="relative">
                 <label className="block text-xs font-medium text-text-secondary mb-1">Cliente *</label>
-                <select required value={clientId} onChange={(e) => setClientId(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm">
-                  <option value="">Selecione...</option>
-                  {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
-                </select>
+                <div className="flex items-center border border-surface bg-background rounded-md px-3 py-2 focus-within:border-cs-green focus-within:ring-1 focus-within:ring-cs-green transition-colors">
+                  <Search size={14} className="text-text-secondary mr-2 shrink-0" />
+                  <input
+                    type="text"
+                    placeholder="Buscar cliente..."
+                    value={clientSearchTerm}
+                    onChange={(e) => { setClientSearchTerm(e.target.value); setIsClientDropdownOpen(true); setClientId(""); }}
+                    onFocus={() => setIsClientDropdownOpen(true)}
+                    className="bg-transparent border-none outline-none text-white text-sm w-full"
+                  />
+                  {clientId && <Check size={14} className="text-cs-green shrink-0 ml-2" />}
+                </div>
+                {isClientDropdownOpen && (
+                  <div className="absolute z-50 w-full mt-1 bg-surface border border-surface/50 rounded-md shadow-2xl max-h-60 overflow-y-auto custom-scrollbar">
+                    {filteredClients.length === 0 ? (
+                      <div className="px-4 py-3 text-sm text-text-secondary text-center">Nenhum cliente encontrado.</div>
+                    ) : (
+                      filteredClients.map(c => (
+                        <div
+                          key={c.id}
+                          onClick={() => { setClientId(c.id); setClientSearchTerm(c.company_name); setIsClientDropdownOpen(false); }}
+                          className="px-4 py-2.5 text-sm text-white hover:bg-cs-green/20 hover:text-cs-green cursor-pointer border-b border-surface/50 last:border-0 transition-colors"
+                        >
+                          {c.company_name}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
+
               <div>
                 <label className="block text-xs font-medium text-text-secondary mb-1 flex items-center gap-2"><User size={14}/> Vendedor Responsável *</label>
-                <select required value={salespersonId} onChange={(e) => setSalespersonId(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm">
+                <select required value={salespersonId} onChange={(e) => setSalespersonId(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm cursor-pointer">
                   <option value="">Selecione...</option>
                   {salesTeam.map(s => <option key={s.id} value={s.id}>{s.full_name || s.email}</option>)}
                 </select>
@@ -271,16 +334,19 @@ export default function OrcamentosPage() {
                 <Calendar size={18} className="text-cs-gold" /> Cronograma
               </h3>
               
+              {/* Force color-scheme dark para os ícones de calendário aparecerem brancos */}
+              <style dangerouslySetInnerHTML={{__html: `input[type="datetime-local"] { color-scheme: dark; }`}} />
+
               <div className="space-y-3 border-b border-surface/50 pb-4">
                 <p className="text-xs font-bold text-cs-gold uppercase tracking-wider">1. Montagem (Load-in)</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[10px] text-text-secondary mb-1">Início</label>
-                    <input type="datetime-local" max="2099-12-31T23:59" value={setupStart} onChange={(e) => { if (e.target.value.length <= 16) setSetupStart(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
+                    <input type="datetime-local" max="2099-12-31T23:59" value={setupStart} onChange={(e) => { if (e.target.value.length <= 16) setSetupStart(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
                   </div>
                   <div>
                     <label className="block text-[10px] text-text-secondary mb-1">Término</label>
-                    <input type="datetime-local" max="2099-12-31T23:59" value={setupEnd} onChange={(e) => { if (e.target.value.length <= 16) setSetupEnd(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
+                    <input type="datetime-local" max="2099-12-31T23:59" value={setupEnd} onChange={(e) => { if (e.target.value.length <= 16) setSetupEnd(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
                   </div>
                 </div>
               </div>
@@ -290,11 +356,11 @@ export default function OrcamentosPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[10px] text-text-secondary mb-1">Início</label>
-                    <input type="datetime-local" max="2099-12-31T23:59" value={eventStart} onChange={(e) => { if (e.target.value.length <= 16) setEventStart(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
+                    <input type="datetime-local" max="2099-12-31T23:59" value={eventStart} onChange={(e) => { if (e.target.value.length <= 16) setEventStart(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
                   </div>
                   <div>
                     <label className="block text-[10px] text-text-secondary mb-1">Término</label>
-                    <input type="datetime-local" max="2099-12-31T23:59" value={eventEnd} onChange={(e) => { if (e.target.value.length <= 16) setEventEnd(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
+                    <input type="datetime-local" max="2099-12-31T23:59" value={eventEnd} onChange={(e) => { if (e.target.value.length <= 16) setEventEnd(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
                   </div>
                 </div>
               </div>
@@ -304,17 +370,18 @@ export default function OrcamentosPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[10px] text-text-secondary mb-1">Início</label>
-                    <input type="datetime-local" max="2099-12-31T23:59" value={teardownStart} onChange={(e) => { if (e.target.value.length <= 16) setTeardownStart(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
+                    <input type="datetime-local" max="2099-12-31T23:59" value={teardownStart} onChange={(e) => { if (e.target.value.length <= 16) setTeardownStart(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
                   </div>
                   <div>
                     <label className="block text-[10px] text-text-secondary mb-1">Término</label>
-                    <input type="datetime-local" max="2099-12-31T23:59" value={teardownEnd} onChange={(e) => { if (e.target.value.length <= 16) setTeardownEnd(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs" />
+                    <input type="datetime-local" max="2099-12-31T23:59" value={teardownEnd} onChange={(e) => { if (e.target.value.length <= 16) setTeardownEnd(e.target.value); }} className="block w-full rounded border border-surface bg-background px-2 py-1.5 text-white focus:border-cs-green focus:outline-none text-xs cursor-pointer" />
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
+          {/* Coluna Direita: Planilha de Custos */}
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-surface border border-surface/50 p-6 rounded-lg space-y-6">
               <div className="flex items-center justify-between border-b border-surface/50 pb-2">
@@ -331,8 +398,8 @@ export default function OrcamentosPage() {
                   <p className="text-center text-text-secondary py-8 text-sm">Nenhum item adicionado. Use os botões acima para começar.</p>
                 ) : (
                   items.map((item) => (
-                    <div key={item.id} className="flex items-center gap-4 bg-background p-3 rounded-md border border-surface/50">
-                      <div className="w-20 shrink-0">
+                    <div key={item.id} className="flex items-center gap-3 bg-background p-3 rounded-md border border-surface/50">
+                      <div className="w-16 shrink-0">
                         <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider ${
                           item.category === 'equipment' ? 'bg-cs-green/10 text-cs-green' : 
                           item.category === 'labor' ? 'bg-cs-gold/10 text-cs-gold' : 'bg-blue-500/10 text-blue-500'
@@ -341,40 +408,58 @@ export default function OrcamentosPage() {
                         </span>
                       </div>
                       
-                      <input
-                        type="text"
-                        list={`inventory-${item.category}`}
-                        placeholder="Buscar ou digitar..."
-                        value={item.description}
-                        onChange={(e) => handleDescriptionChange(item.id, e.target.value)}
-                        className="flex-1 bg-transparent border-b border-surface text-white focus:border-cs-green focus:outline-none px-2 py-1 text-sm"
-                      />
+                      <div className="flex-1">
+                        <label className="text-[10px] text-text-secondary block mb-1">Descrição</label>
+                        <input
+                          type="text"
+                          list={`inventory-${item.category}`}
+                          placeholder="Buscar ou digitar..."
+                          value={item.description}
+                          onChange={(e) => handleDescriptionChange(item.id, e.target.value)}
+                          className="w-full bg-transparent border-b border-surface text-white focus:border-cs-green focus:outline-none px-1 py-1 text-sm"
+                        />
+                      </div>
                       
                       <div className="w-16 shrink-0">
-                        <label className="text-[10px] text-text-secondary block">Qtd</label>
+                        <label className="text-[10px] text-text-secondary block mb-1">Qtd</label>
                         <input type="number" min="1" value={item.quantity} onChange={(e) => updateItem(item.id, "quantity", e.target.value)} className="w-full bg-surface border border-surface/50 rounded px-2 py-1 text-white focus:outline-none focus:border-cs-green text-sm text-center" />
                       </div>
+                      
                       <div className="w-24 shrink-0">
-                        <label className="text-[10px] text-text-secondary block">Diária (R$)</label>
+                        <label className="text-[10px] text-text-secondary block mb-1">Diária (R$)</label>
                         <input type="number" min="0" value={item.daily_rate} onChange={(e) => updateItem(item.id, "daily_rate", e.target.value)} className="w-full bg-surface border border-surface/50 rounded px-2 py-1 text-white focus:outline-none focus:border-cs-green text-sm text-right" />
                       </div>
-                      <div className="w-16 shrink-0">
-                        <label className="text-[10px] text-text-secondary block">Dias</label>
+                      
+                      {/* Botões Inteligentes de Dias */}
+                      <div className="w-20 shrink-0">
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="text-[10px] text-text-secondary">Dias</label>
+                          {(eventStart && eventEnd) && (
+                            <div className="flex gap-1">
+                              <button type="button" onClick={() => updateItem(item.id, "days", eventDays)} className="text-[8px] bg-cs-green/20 text-cs-green px-1 rounded hover:bg-cs-green hover:text-white transition-colors" title={`${eventDays} Dias de Evento`}>E</button>
+                              <button type="button" onClick={() => updateItem(item.id, "days", totalDays)} className="text-[8px] bg-cs-gold/20 text-cs-gold px-1 rounded hover:bg-cs-gold hover:text-white transition-colors" title={`${totalDays} Dias Totais (Montagem a Desmontagem)`}>T</button>
+                            </div>
+                          )}
+                        </div>
                         <input type="number" min="1" value={item.days} onChange={(e) => updateItem(item.id, "days", e.target.value)} className="w-full bg-surface border border-surface/50 rounded px-2 py-1 text-white focus:outline-none focus:border-cs-green text-sm text-center" />
                       </div>
+                      
                       <div className="w-28 text-right shrink-0">
-                        <label className="text-[10px] text-text-secondary block">Total</label>
-                        <span className="font-bold text-white text-sm">
+                        <label className="text-[10px] text-text-secondary block mb-1">Total</label>
+                        <span className="font-bold text-white text-sm block py-1">
                           {formatCurrency((Number(item.quantity) || 0) * (Number(item.daily_rate) || 0) * (Number(item.days) || 0))}
                         </span>
                       </div>
-                      <button onClick={() => removeItem(item.id)} className="text-text-secondary hover:text-red-500 transition-colors mt-4 shrink-0">
-                        <Trash2 size={16} />
-                      </button>
+                      
+                      {/* Lixeira Alinhada */}
+                      <div className="shrink-0 flex items-end pb-1 ml-2">
+                        <button onClick={() => removeItem(item.id)} className="text-surface hover:text-red-500 transition-colors p-1 rounded hover:bg-red-500/10">
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
-                <div ref={itemsEndRef} />
               </div>
             </div>
 
