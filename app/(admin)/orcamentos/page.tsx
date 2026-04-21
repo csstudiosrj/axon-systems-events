@@ -1,5 +1,6 @@
-"use client";
 
+<<<<<<< HEAD
+=======
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../../lib/supabase";
 import { FileText, Plus, Loader2, ArrowLeft, Trash2, Save, Printer, Edit, Calendar, User, Search, Check } from "lucide-react";
@@ -564,3 +565,4 @@ export default function OrcamentosPage() {
     </div>
   );
 }
+>>>>>>> bf3e3e70892d81902d4b4a0bc649fc3e5ecfb120

@@ -1,5 +1,6 @@
-"use client";
 
+<<<<<<< HEAD
+=======
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
 import { Truck, Plus, Loader2, ArrowLeft, Calendar, Clock, Play, CheckCircle, AlertCircle, User, FileText, PackagePlus, Trash2, Save, Eye, Building2, AlertTriangle } from "lucide-react";
@@ -542,3 +543,4 @@ export default function OSPage() {
     </div>
   );
 }
+>>>>>>> bf3e3e70892d81902d4b4a0bc649fc3e5ecfb120
