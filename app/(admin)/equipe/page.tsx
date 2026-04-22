@@ -2,31 +2,61 @@
 
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
-import { ShieldCheck, Loader2, Search, UserCheck, Mail, Building2, Briefcase, X, Send, UserPlus, AlertTriangle } from "lucide-react";
+import { 
+  ShieldCheck, Loader2, Search, UserCheck, Mail, Building2, 
+  Briefcase, X, Send, UserPlus, AlertTriangle, Edit, CheckCircle 
+} from "lucide-react";
+
+// --- BLINDAGEM TYPESCRIPT ---
+interface Client {
+  id: string;
+  company_name: string;
+}
+
+interface Profile {
+  id: string;
+  email: string;
+  full_name: string;
+  role: string;
+  client_id: string | null;
+  created_at: string;
+  clients?: {
+    company_name: string;
+  };
+}
+
+interface Toast {
+  type: "success" | "error";
+  text: string;
+}
 
 export default function EquipePage() {
-  const [profiles, setProfiles] = useState<any[]>([]);
+  const[profiles, setProfiles] = useState<Profile[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState("");
+  const[searchTerm, setSearchTerm] = useState("");
   
   const [currentUserRole, setCurrentUserRole] = useState("");
-  const[currentUserId, setCurrentUserId] = useState("");
+  const [currentUserId, setCurrentUserId] = useState("");
 
   // Estados do Modal de Adicionar/Convidar
-  const[isModalOpen, setIsModalOpen] = useState(false);
-  const [modalTab, setModalTab] = useState<"add" | "invite">("add");
-  const [userEmail, setUserEmail] = useState("");
-  const[userFullName, setUserFullName] = useState("");
-  const [userPassword, setUserPassword] = useState("");
-  const[userRole, setUserRole] = useState("client");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const[modalTab, setModalTab] = useState<"add" | "invite">("add");
+  const[userEmail, setUserEmail] = useState("");
+  const [userFullName, setUserFullName] = useState("");
+  const[userPassword, setUserPassword] = useState("");
+  const [userRole, setUserRole] = useState("client");
   const [isProcessing, setIsProcessing] = useState(false);
-  const[feedbackMsg, setFeedbackMsg] = useState({ type: "", text: "" });
+  const [feedbackMsg, setFeedbackMsg] = useState<Toast>({ type: "success", text: "" });
 
-  // Estados do Modal Customizado de Confirmação (Substitui o window.confirm)
-  const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean, userId: string, newRole: string, currentRole: string } | null>(null);
+  // Estados do Modal de Edição de Acessos e Vínculos
+  const [editModal, setEditModal] = useState<{ isOpen: boolean, user: Profile | null, newRole: string, newClientId: string }>({
+    isOpen: false, user: null, newRole: "", newClientId: ""
+  });
 
   useEffect(() => {
     fetchProfiles();
+    fetchClients();
     checkCurrentUser();
   },[]);
 
@@ -42,43 +72,63 @@ export default function EquipePage() {
   const fetchProfiles = async () => {
     setLoading(true);
     const { data, error } = await supabase.from("profiles").select("*, clients(company_name)").order("created_at", { ascending: false });
-    if (!error && data) setProfiles(data);
+    if (!error && data) setProfiles(data as Profile[]);
     setLoading(false);
   };
 
-  // Abre o modal customizado em vez do alert nativo
-  const requestRoleChange = (userId: string, newRole: string, currentRole: string) => {
-    if (currentRole === 'super_admin' && currentUserRole !== 'super_admin') {
-      setFeedbackMsg({ type: "error", text: "Acesso Negado: Apenas um Super Admin pode alterar outro Super Admin." });
-      setTimeout(() => setFeedbackMsg({ type: "", text: "" }), 4000);
-      fetchProfiles(); // Reseta o select
-      return;
-    }
-    setConfirmModal({ isOpen: true, userId, newRole, currentRole });
+  const fetchClients = async () => {
+    const { data } = await supabase.from("clients").select("id, company_name").order("company_name");
+    if (data) setClients(data as Client[]);
   };
 
-  // Executa a mudança após confirmação no modal
-  const confirmRoleChange = async () => {
-    if (!confirmModal) return;
-    
-    const { error } = await supabase.from("profiles").update({ role: confirmModal.newRole }).eq("id", confirmModal.userId);
+  const showToast = (text: string, type: "success" | "error") => {
+    setFeedbackMsg({ text, type });
+    setTimeout(() => setFeedbackMsg({ type: "success", text: "" }), 4000);
+  };
+
+  // Abre o modal de edição
+  const openEditModal = (user: Profile) => {
+    if (user.role === 'super_admin' && currentUserRole !== 'super_admin') {
+      showToast("Acesso Negado: Apenas um Super Admin pode editar outro Super Admin.", "error");
+      return;
+    }
+    setEditModal({
+      isOpen: true,
+      user: user,
+      newRole: user.role,
+      newClientId: user.client_id || ""
+    });
+  };
+
+  // Salva as alterações de permissão e vínculo
+  const saveUserEdits = async () => {
+    if (!editModal.user) return;
+    setIsProcessing(true);
+
+    const payload = {
+      role: editModal.newRole,
+      client_id: editModal.newClientId || null
+    };
+
+    const { error } = await supabase.from("profiles").update(payload).eq("id", editModal.user.id);
     
     if (!error) {
+      showToast("Acessos e vínculos atualizados com sucesso.", "success");
+      setEditModal({ isOpen: false, user: null, newRole: "", newClientId: "" });
       fetchProfiles();
     } else {
-      setFeedbackMsg({ type: "error", text: "Erro ao atualizar permissão: " + error.message });
-      setTimeout(() => setFeedbackMsg({ type: "", text: "" }), 4000);
+      showToast("Erro ao atualizar usuário: " + error.message, "error");
     }
-    setConfirmModal(null);
+    setIsProcessing(false);
   };
 
   const handleProcessUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsProcessing(true);
-    setFeedbackMsg({ type: "", text: "" });
+    setFeedbackMsg({ type: "success", text: "" });
 
     if (modalTab === "add" && userPassword.length < 6) {
-      setFeedbackMsg({ type: "error", text: "A senha deve ter no mínimo 6 caracteres." });
+      showToast("A senha deve ter no mínimo 6 caracteres.", "error");
       setIsProcessing(false);
       return;
     }
@@ -101,12 +151,13 @@ export default function EquipePage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Erro na operação.");
 
-      setFeedbackMsg({ type: "success", text: modalTab === 'add' ? "Usuário criado e liberado com sucesso!" : "Convite enviado com sucesso!" });
+      showToast(modalTab === 'add' ? "Usuário criado. Edite-o para vincular a uma empresa." : "Convite enviado com sucesso!", "success");
       setUserEmail(""); setUserFullName(""); setUserPassword("");
+      setIsModalOpen(false);
       fetchProfiles();
 
     } catch (error: any) {
-      setFeedbackMsg({ type: "error", text: error.message });
+      showToast(error.message, "error");
     } finally {
       setIsProcessing(false);
     }
@@ -144,17 +195,17 @@ export default function EquipePage() {
     if (!acc[company]) acc[company] = [];
     acc[company].push(curr);
     return acc;
-  }, {} as Record<string, any[]>);
+  }, {} as Record<string, Profile[]>);
 
-  const UserTable = ({ users }: { users: any[] }) => (
+  const UserTable = ({ users }: { users: Profile[] }) => (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm text-text-secondary">
         <thead className="bg-background/50 text-xs uppercase text-text-secondary">
           <tr>
             <th className="px-6 py-3 font-medium">Usuário / E-mail</th>
             <th className="px-6 py-3 font-medium">Nível de Acesso Atual</th>
-            <th className="px-6 py-3 font-medium">Data de Cadastro</th>
-            <th className="px-6 py-3 font-medium text-right">Alterar Permissão</th>
+            <th className="px-6 py-3 font-medium">Empresa Vinculada</th>
+            <th className="px-6 py-3 font-medium text-right">Ações</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-surface/50">
@@ -172,32 +223,21 @@ export default function EquipePage() {
                 </div>
               </td>
               <td className="px-6 py-4">{getRoleBadge(profile.role)}</td>
-              <td className="px-6 py-4 text-xs">{new Date(profile.created_at).toLocaleDateString('pt-BR')}</td>
+              <td className="px-6 py-4">
+                {profile.clients?.company_name ? (
+                  <span className="text-xs font-medium text-white flex items-center gap-1.5"><Building2 size={12} className="text-cs-gold"/> {profile.clients.company_name}</span>
+                ) : (
+                  <span className="text-xs text-text-secondary italic">Não vinculado</span>
+                )}
+              </td>
               <td className="px-6 py-4 text-right">
-                <select
-                  value={profile.role}
-                  onChange={(e) => requestRoleChange(profile.id, e.target.value, profile.role)}
-                  disabled={(profile.role === 'super_admin' && currentUserRole !== 'super_admin') || (currentUserRole === 'commercial')}
-                  className="bg-background border border-surface/50 text-white text-xs rounded px-3 py-2 focus:border-cs-green focus:outline-none disabled:opacity-50 cursor-pointer"
+                <button 
+                  onClick={() => openEditModal(profile)}
+                  disabled={currentUserRole === 'commercial'}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-surface border border-surface/50 rounded text-xs font-medium text-text-secondary hover:text-white hover:border-cs-green transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <optgroup label="Gestão">
-                    <option value="super_admin">Super Admin (Dono)</option>
-                    <option value="admin">Administrador Geral</option>
-                  </optgroup>
-                  <optgroup label="Operação Interna">
-                    <option value="commercial">Comercial / Vendas</option>
-                    <option value="financial">Financeiro</option>
-                    <option value="logistics">Logística / Almoxarifado</option>
-                    <option value="marketing">Marketing</option>
-                    <option value="training">Treinamentos (Instrutor)</option>
-                    <option value="support">Suporte Técnico</option>
-                  </optgroup>
-                  <optgroup label="Acesso Externo">
-                    <option value="client">Cliente (Portal)</option>
-                    <option value="student">Aluno (Academy)</option>
-                    <option value="subscriber">Assinante Avulso</option>
-                  </optgroup>
-                </select>
+                  <Edit size={14} /> Editar
+                </button>
               </td>
             </tr>
           ))}
@@ -210,9 +250,10 @@ export default function EquipePage() {
     <div className="space-y-8 pb-12 relative">
       
       {/* Toast de Feedback Global */}
-      {feedbackMsg.text && !isModalOpen && (
-        <div className={`fixed top-6 right-6 z-50 p-4 rounded-md shadow-2xl text-sm font-bold border animate-in slide-in-from-right-8 ${feedbackMsg.type === 'error' ? 'bg-red-500/90 text-white border-red-400' : 'bg-cs-green/90 text-white border-cs-green'}`}>
-          {feedbackMsg.text}
+      {feedbackMsg.text && (
+        <div className={`fixed bottom-6 right-6 z-[100] px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border ${feedbackMsg.type === 'success' ? 'bg-[#1a1413] border-cs-green text-cs-green' : 'bg-[#1a1413] border-red-500 text-red-500'}`}>
+          {feedbackMsg.type === 'success' ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
+          <span className="text-sm font-bold">{feedbackMsg.text}</span>
         </div>
       )}
 
@@ -229,7 +270,7 @@ export default function EquipePage() {
             <input type="text" placeholder="Buscar usuário..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-md border border-surface bg-background text-sm text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green" />
           </div>
           <button 
-            onClick={() => { setIsModalOpen(true); setFeedbackMsg({ type: "", text: "" }); }}
+            onClick={() => setIsModalOpen(true)}
             className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all"
           >
             <UserPlus size={18} /> Novo Usuário
@@ -259,9 +300,9 @@ export default function EquipePage() {
                 <div key={company} className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
                   <div className="p-4 border-b border-surface/50 bg-background/30 flex justify-between items-center">
                     <h4 className="text-sm font-bold text-white">{company}</h4>
-                    <span className="text-xs font-medium text-text-secondary bg-background px-2 py-1 rounded-full border border-surface/50">{(users as any[]).length} usuário(s)</span>
+                    <span className="text-xs font-medium text-text-secondary bg-background px-2 py-1 rounded-full border border-surface/50">{users.length} usuário(s)</span>
                   </div>
-                  <UserTable users={users as any[]} />
+                  <UserTable users={users} />
                 </div>
               ))
             ) : (
@@ -271,23 +312,89 @@ export default function EquipePage() {
         </>
       )}
 
-      {/* MODAL CUSTOMIZADO DE CONFIRMAÇÃO (Substitui o window.confirm) */}
-      {confirmModal && (
+      {/* MODAL DE EDIÇÃO DE ACESSOS E VÍNCULOS */}
+      {editModal.isOpen && editModal.user && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200 text-center">
-            <div className="w-16 h-16 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mx-auto mb-4">
-              <AlertTriangle size={32} />
+          <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center p-6 border-b border-surface/50 bg-background/50">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <ShieldCheck className="text-cs-green" size={20} /> Editar Acessos
+              </h2>
+              <button onClick={() => setEditModal({ isOpen: false, user: null, newRole: "", newClientId: "" })} className="text-text-secondary hover:text-white transition-colors">
+                <X size={24} />
+              </button>
             </div>
-            <h3 className="text-xl font-bold text-white mb-2">Alterar Permissão?</h3>
-            <p className="text-sm text-text-secondary mb-6">
-              Isso modificará imediatamente o que este usuário pode ver e editar no sistema. Tem certeza?
-            </p>
-            <div className="flex gap-3">
-              <button onClick={() => { setConfirmModal(null); fetchProfiles(); }} className="flex-1 py-2 rounded-md border border-surface text-text-secondary hover:text-white hover:bg-background transition-colors font-medium text-sm">
+
+            <div className="p-6 space-y-6">
+              <div className="bg-background border border-surface/50 rounded-lg p-4 flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-cs-green/20 border border-cs-green/30 flex items-center justify-center text-cs-green font-bold text-lg uppercase shrink-0">
+                  {editModal.user.email.substring(0, 2)}
+                </div>
+                <div>
+                  <p className="font-bold text-white">{editModal.user.full_name || 'Usuário sem nome'}</p>
+                  <p className="text-sm text-text-secondary">{editModal.user.email}</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-1">Nível de Acesso (Permissão)</label>
+                <select 
+                  value={editModal.newRole} 
+                  onChange={(e) => setEditModal({ ...editModal, newRole: e.target.value })}
+                  className="block w-full rounded-md border border-surface bg-background px-3 py-2.5 text-white focus:border-cs-green focus:outline-none text-sm cursor-pointer"
+                >
+                  <optgroup label="Gestão">
+                    <option value="super_admin">Super Admin (Dono)</option>
+                    <option value="admin">Administrador Geral</option>
+                  </optgroup>
+                  <optgroup label="Operação Interna">
+                    <option value="commercial">Comercial / Vendas</option>
+                    <option value="financial">Financeiro</option>
+                    <option value="logistics">Logística / Almoxarifado</option>
+                    <option value="marketing">Marketing</option>
+                    <option value="training">Treinamentos (Instrutor)</option>
+                    <option value="support">Suporte Técnico</option>
+                  </optgroup>
+                  <optgroup label="Acesso Externo">
+                    <option value="client">Cliente (Portal)</option>
+                    <option value="student">Aluno (Academy)</option>
+                    <option value="subscriber">Assinante Avulso</option>
+                  </optgroup>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-1">Vincular a uma Empresa (Cliente)</label>
+                <select 
+                  value={editModal.newClientId} 
+                  onChange={(e) => setEditModal({ ...editModal, newClientId: e.target.value })}
+                  className="block w-full rounded-md border border-surface bg-background px-3 py-2.5 text-white focus:border-cs-green focus:outline-none text-sm cursor-pointer"
+                >
+                  <option value="">Nenhuma (Usuário Avulso / Interno)</option>
+                  {clients.map(c => (
+                    <option key={c.id} value={c.id}>{c.company_name}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-text-secondary mt-1.5">
+                  Obrigatório para que o usuário (Cliente ou Aluno) consiga visualizar orçamentos, faturas e consumir licenças da empresa no Portal.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-surface/50 bg-background flex justify-end gap-3">
+              <button 
+                onClick={() => setEditModal({ isOpen: false, user: null, newRole: "", newClientId: "" })} 
+                className="px-4 py-2 text-sm font-bold text-text-secondary hover:text-white transition-colors"
+              >
                 Cancelar
               </button>
-              <button onClick={confirmRoleChange} className="flex-1 py-2 rounded-md bg-cs-green text-white font-medium text-sm hover:bg-opacity-90 transition-colors shadow-lg">
-                Sim, Alterar
+              <button 
+                onClick={saveUserEdits}
+                disabled={isProcessing}
+                className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-bold text-white shadow-lg hover:bg-opacity-90 transition-all disabled:opacity-50"
+              >
+                {isProcessing ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
+                Salvar Alterações
               </button>
             </div>
           </div>
@@ -302,13 +409,12 @@ export default function EquipePage() {
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 <UserPlus className="text-cs-green" size={20} /> Adicionar Usuário
               </h2>
-              <button onClick={() => { setIsModalOpen(false); setFeedbackMsg({ type: "", text: "" }); }} className="text-text-secondary hover:text-white transition-colors">
+              <button onClick={() => setIsModalOpen(false)} className="text-text-secondary hover:text-white transition-colors">
                 <X size={24} />
               </button>
             </div>
 
             <div className="p-6">
-              {/* Abas do Modal */}
               <div className="flex gap-2 p-1 bg-background rounded-md border border-surface/50 mb-6">
                 <button onClick={() => setModalTab("add")} className={`flex-1 py-2 rounded text-sm font-medium transition-colors ${modalTab === 'add' ? 'bg-cs-green text-white' : 'text-text-secondary hover:text-white'}`}>
                   Adicionar Manualmente
@@ -317,12 +423,6 @@ export default function EquipePage() {
                   Enviar Convite (E-mail)
                 </button>
               </div>
-
-              {feedbackMsg.text && (
-                <div className={`p-4 rounded-md mb-6 text-sm font-medium border ${feedbackMsg.type === 'error' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-cs-green/10 text-cs-green border-cs-green/20'}`}>
-                  {feedbackMsg.text}
-                </div>
-              )}
 
               <form onSubmit={handleProcessUser} className="space-y-4">
                 <div>
