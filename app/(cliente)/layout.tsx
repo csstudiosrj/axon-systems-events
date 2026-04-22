@@ -3,13 +3,13 @@
 import React, { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "../lib/supabase";
-import { PlaySquare, Ticket, LogOut, Home, CreditCard } from "lucide-react";
+import { PlaySquare, Ticket, LogOut, Home, CreditCard, Users } from "lucide-react";
 import Link from "next/link";
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [userProfile, setUserProfile] = useState<any>(null);
+  const[userProfile, setUserProfile] = useState<any>(null);
   const [authorized, setAuthorized] = useState(false);
 
   useEffect(() => {
@@ -52,6 +52,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     ?[
         { name: "Início", href: "/portal", icon: Home },
         { name: "Faturas", href: "/portal/faturas", icon: CreditCard },
+        { name: "Minha Equipe", href: "/portal/equipe", icon: Users },
         { name: "Treinamentos", href: "/portal/treinamentos", icon: PlaySquare },
         { name: "Suporte", href: "/portal/suporte", icon: Ticket },
       ]
