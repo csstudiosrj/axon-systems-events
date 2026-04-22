@@ -2,11 +2,11 @@
 
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
-import { PlaySquare, Ticket, Calendar, ArrowRight, Loader2, CreditCard, Clock } from "lucide-react";
+import { PlaySquare, Ticket, Clock, ArrowRight, Loader2, CreditCard } from "lucide-react";
 import Link from "next/link";
 
 export default function PortalHomePage() {
-  const[loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState("");
   const[recentTickets, setRecentTickets] = useState<any[]>([]);
 
@@ -16,7 +16,6 @@ export default function PortalHomePage() {
       if (session) {
         setUserName(session.user.email?.split('@')[0] || "Cliente");
         
-        // Busca os últimos 3 chamados abertos pelo cliente (Simulação por enquanto)
         const { data } = await supabase
           .from("tickets")
           .select("id, title, status, created_at")
@@ -40,7 +39,7 @@ export default function PortalHomePage() {
 
   return (
     <div className="flex-1 bg-background">
-      {/* Hero Section (Boas-vindas) */}
+      {/* Hero Section */}
       <div className="relative overflow-hidden bg-surface border-b border-surface/50">
         <div className="absolute inset-0 bg-gradient-to-r from-cs-green/20 to-transparent opacity-50"></div>
         <div className="max-w-7xl mx-auto px-8 py-16 relative z-10">
@@ -48,7 +47,7 @@ export default function PortalHomePage() {
             Olá, {userName}.
           </h1>
           <p className="text-lg text-text-secondary max-w-2xl">
-            Bem-vindo ao seu portal exclusivo da CS com. Acesse seus treinamentos, acompanhe seus eventos e fale com nosso suporte técnico.
+            Bem-vindo ao seu portal exclusivo da CS com. Acesse seus treinamentos, acompanhe seus eventos e gerencie suas faturas.
           </p>
         </div>
       </div>
@@ -57,7 +56,7 @@ export default function PortalHomePage() {
       <div className="max-w-7xl mx-auto px-8 py-12">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           
-          {/* Card 1: Treinamentos (Netflix) */}
+          {/* Card 1: Treinamentos */}
           <Link href="/portal/treinamentos" className="group relative bg-surface border border-surface/50 rounded-2xl p-8 hover:border-cs-green/50 transition-all hover:shadow-[0_0_30px_rgba(19,137,70,0.15)] overflow-hidden flex flex-col h-full">
             <div className="absolute top-0 right-0 w-32 h-32 bg-cs-green/10 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
             <div className="h-14 w-14 bg-cs-green/20 rounded-xl flex items-center justify-center text-cs-green mb-6 relative z-10">
@@ -87,20 +86,20 @@ export default function PortalHomePage() {
             </div>
           </Link>
 
-          {/* Card 3: Faturas / Eventos */}
-          <div className="group relative bg-surface border border-surface/50 rounded-2xl p-8 hover:border-blue-500/50 transition-all hover:shadow-[0_0_30px_rgba(59,130,246,0.15)] overflow-hidden flex flex-col h-full opacity-70 cursor-not-allowed">
+          {/* Card 3: Faturas / Financeiro (DESBLOQUEADO) */}
+          <Link href="/portal/faturas" className="group relative bg-surface border border-surface/50 rounded-2xl p-8 hover:border-blue-500/50 transition-all hover:shadow-[0_0_30px_rgba(59,130,246,0.15)] overflow-hidden flex flex-col h-full">
             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
             <div className="h-14 w-14 bg-blue-500/20 rounded-xl flex items-center justify-center text-blue-400 mb-6 relative z-10">
               <CreditCard size={28} />
             </div>
             <h2 className="text-2xl font-bold text-white mb-3 relative z-10">Faturas e Contratos</h2>
             <p className="text-text-secondary mb-8 flex-1 relative z-10">
-              Visualize seus contratos ativos, propostas comerciais e histórico de faturas.
+              Visualize seus contratos ativos, propostas comerciais e histórico de faturas e pagamentos.
             </p>
-            <div className="flex items-center text-text-secondary font-medium text-sm relative z-10">
-              Em breve <Clock size={14} className="ml-2" />
+            <div className="flex items-center text-blue-400 font-medium text-sm relative z-10 group-hover:translate-x-2 transition-transform">
+              Acessar Faturas <ArrowRight size={16} className="ml-2" />
             </div>
-          </div>
+          </Link>
 
         </div>
 

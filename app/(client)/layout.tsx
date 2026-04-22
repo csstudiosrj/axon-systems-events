@@ -2,15 +2,15 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { supabase } from "../lib/supabase";
-import { PlaySquare, Ticket, LogOut, User, Home } from "lucide-react";
+import { supabase } from "../../lib/supabase";
+import { PlaySquare, Ticket, LogOut, Home, CreditCard } from "lucide-react";
 import Link from "next/link";
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [userProfile, setUserProfile] = useState<any>(null);
-  const [authorized, setAuthorized] = useState(false);
+  const[authorized, setAuthorized] = useState(false);
 
   useEffect(() => {
     const checkUser = async () => {
@@ -47,10 +47,11 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   if (!authorized) return null;
 
-  // BLINDAGEM DO MENU: Aluno só vê a Academy
+  // BLINDAGEM DO MENU: Aluno só vê a Academy, Cliente vê o Portal completo
   const navItems = userProfile?.role === 'client' 
     ?[
         { name: "Início", href: "/portal", icon: Home },
+        { name: "Faturas", href: "/portal/faturas", icon: CreditCard },
         { name: "Treinamentos", href: "/portal/treinamentos", icon: PlaySquare },
         { name: "Suporte", href: "/portal/suporte", icon: Ticket },
       ]
