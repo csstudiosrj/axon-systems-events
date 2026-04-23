@@ -19,8 +19,10 @@ export async function POST(request: Request) {
 
     let userId = null;
 
+    // Captura a URL base dinamicamente para o redirecionamento (Vercel ou Localhost)
+    const origin = request.headers.get('origin') || process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+
     if (action === 'add') {
-      // Criação forçada (Usado pelo Super Admin interno)
       const { data, error } = await supabaseAdmin.auth.admin.createUser({
         email: email,
         password: password,
@@ -30,13 +32,14 @@ export async function POST(request: Request) {
       if (error) throw error;
       userId = data.user.id;
     } else {
-      // Fluxo Zero Trust: Dispara o e-mail de convite seguro
-      const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email);
+      // Fluxo Zero Trust: Dispara o e-mail instruindo o Supabase a redirecionar para a tela de Setup
+      const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+        redirectTo: `${origin}/setup`
+      });
       if (error) throw error;
       userId = data.user.id;
     }
 
-    // Atualiza o cargo, nome e o vínculo com a empresa (client_id) na tabela profiles
     if (userId) {
       const updatePayload: any = { role: role, full_name: fullName };
       if (clientId) {
