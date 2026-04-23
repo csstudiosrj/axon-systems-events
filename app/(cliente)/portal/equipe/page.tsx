@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../../lib/supabase";
-import { Users, UserPlus, Trash2, Loader2, AlertTriangle, CheckCircle, X, ShieldAlert } from "lucide-react";
+import { Users, UserPlus, Trash2, Loader2, AlertTriangle, CheckCircle, X, ShieldAlert, Mail } from "lucide-react";
 
 // --- BLINDAGEM TYPESCRIPT ---
 interface TeamMember {
@@ -25,18 +25,17 @@ interface ConfirmDialog {
 
 export default function EquipeClientePage() {
   const [loading, setLoading] = useState(true);
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const[teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [clientId, setClientId] = useState<string | null>(null);
-  const[allowedLicenses, setAllowedLicenses] = useState<number>(1); // Padrão de negócios atual: 1 licença
+  const [allowedLicenses, setAllowedLicenses] = useState<number>(1); 
   
   const [currentUser, setCurrentUser] = useState<{ id: string, role: string } | null>(null);
 
-  // Estados do Modal de Convite
-  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState("");
-  const[inviteName, setInviteName] = useState("");
-  const [invitePassword, setInvitePassword] = useState("");
-  const [isProcessing, setIsProcessing] = useState(false);
+  // Estados do Modal de Convite (Sem Senha)
+  const[isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const[inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const[isProcessing, setIsProcessing] = useState(false);
 
   // Estados de UI
   const[toast, setToast] = useState<Toast>({ type: "success", text: "" });
@@ -62,7 +61,6 @@ export default function EquipeClientePage() {
         setCurrentUser({ id: profile.id, role: profile.role });
         setClientId(profile.client_id);
 
-        // Busca o limite de licenças da empresa (Se for null, assume 1)
         const { data: clientData } = await supabase
           .from("clients")
           .select("allowed_training_licenses")
@@ -75,7 +73,6 @@ export default function EquipeClientePage() {
           setAllowedLicenses(1);
         }
 
-        // Busca os alunos vinculados a esta empresa
         const { data: membersData } = await supabase
           .from("profiles")
           .select("id, email, full_name, created_at")
@@ -99,29 +96,23 @@ export default function EquipeClientePage() {
 
   const handleInviteUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inviteEmail || !invitePassword) {
-      showToast("Preencha e-mail e senha.", "error");
-      return;
-    }
-    if (invitePassword.length < 6) {
-      showToast("A senha deve ter no mínimo 6 caracteres.", "error");
+    if (!inviteEmail) {
+      showToast("Preencha o e-mail do operador.", "error");
       return;
     }
 
     setIsProcessing(true);
 
     try {
-      // Chama a API de convite passando o clientId para vínculo automático
       const response = await fetch("/api/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "add", // Criando diretamente para facilitar o acesso do aluno
+          action: "invite", // Fluxo Zero Trust
           email: inviteEmail,
           fullName: inviteName,
-          password: invitePassword,
           role: "student",
-          clientId: clientId, // Importante: A API deve estar preparada para receber e gravar isso
+          clientId: clientId, 
           inviterId: currentUser?.id,
           inviterRole: currentUser?.role
         }),
@@ -130,14 +121,13 @@ export default function EquipeClientePage() {
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.error || "Erro ao criar operador.");
+        throw new Error(data.error || "Erro ao convidar operador.");
       }
 
-      showToast("Operador cadastrado com sucesso! Ele já pode acessar a Academy.", "success");
+      showToast("Convite enviado com sucesso! O operador receberá um e-mail para definir a senha.", "success");
       setIsInviteModalOpen(false);
       setInviteEmail("");
       setInviteName("");
-      setInvitePassword("");
       fetchData();
 
     } catch (error: any) {
@@ -151,7 +141,6 @@ export default function EquipeClientePage() {
     if (!confirmModal.userId) return;
     setIsProcessing(true);
 
-    // Revoga o acesso: Remove o vínculo com a empresa e rebaixa para subscriber (sem acesso aos cursos da empresa)
     const { error } = await supabase
       .from("profiles")
       .update({ client_id: null, role: "subscriber" })
@@ -225,13 +214,13 @@ export default function EquipeClientePage() {
         </div>
       )}
 
-      {/* Modal de Adicionar Operador */}
+      {/* Modal de Convidar Operador */}
       {isInviteModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden">
             <div className="flex justify-between items-center p-6 border-b border-surface/50 bg-background/50">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <UserPlus className="text-cs-green" size={20} /> Cadastrar Operador
+                <Mail className="text-cs-green" size={20} /> Convidar Operador
               </h2>
               <button onClick={() => setIsInviteModalOpen(false)} className="text-text-secondary hover:text-white transition-colors">
                 <X size={24} />
@@ -240,7 +229,7 @@ export default function EquipeClientePage() {
 
             <div className="p-6">
               <p className="text-sm text-text-secondary mb-6">
-                Crie o acesso para o seu operador. Ele poderá fazer login na plataforma LOC FIX Academy imediatamente.
+                Enviaremos um e-mail oficial com um link seguro. Seu operador poderá definir a própria senha e acessar a LOC FIX Academy.
               </p>
 
               <form onSubmit={handleInviteUser} className="space-y-4">
@@ -254,15 +243,10 @@ export default function EquipeClientePage() {
                   <input type="email" required value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2.5 text-white focus:border-cs-green focus:outline-none text-sm" placeholder="carlos@suaempresa.com.br" />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-text-secondary mb-1">Definir Senha Inicial *</label>
-                  <input type="text" required value={invitePassword} onChange={(e) => setInvitePassword(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2.5 text-white focus:border-cs-green focus:outline-none text-sm" placeholder="Mínimo 6 caracteres" />
-                </div>
-
                 <div className="pt-4 mt-2 border-t border-surface/50 flex justify-end">
                   <button type="submit" disabled={isProcessing} className="flex items-center gap-2 rounded-md bg-cs-green py-2.5 px-6 text-sm font-bold text-white shadow-lg hover:bg-opacity-90 transition-all disabled:opacity-50">
                     {isProcessing ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle size={18} />}
-                    Liberar Acesso
+                    Enviar Convite
                   </button>
                 </div>
               </form>
@@ -287,7 +271,7 @@ export default function EquipeClientePage() {
             disabled={isLimitReached}
             className={`flex items-center gap-2 rounded-md py-2.5 px-6 text-sm font-bold text-white shadow-lg transition-all ${isLimitReached ? 'bg-surface border border-surface/50 text-text-secondary cursor-not-allowed' : 'bg-cs-green hover:bg-opacity-90'}`}
           >
-            <UserPlus size={18} /> {isLimitReached ? 'Limite Atingido' : 'Cadastrar Operador'}
+            <UserPlus size={18} /> {isLimitReached ? 'Limite Atingido' : 'Convidar Operador'}
           </button>
         </div>
 
@@ -318,7 +302,7 @@ export default function EquipeClientePage() {
             <div className="p-12 text-center">
               <Users size={48} className="text-text-secondary mx-auto mb-4 opacity-50" />
               <p className="text-lg font-medium text-white">Nenhum operador cadastrado.</p>
-              <p className="text-text-secondary text-sm mt-1">Utilize o botão acima para liberar o acesso para sua equipe.</p>
+              <p className="text-text-secondary text-sm mt-1">Utilize o botão acima para convidar sua equipe.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -340,7 +324,7 @@ export default function EquipeClientePage() {
                             {member.email.substring(0, 2)}
                           </div>
                           <div>
-                            <p className="font-bold text-white">{member.full_name || 'Sem nome'}</p>
+                            <p className="font-bold text-white">{member.full_name || 'Convite Pendente / Sem nome'}</p>
                             <p className="text-xs mt-0.5">{member.email}</p>
                           </div>
                         </div>

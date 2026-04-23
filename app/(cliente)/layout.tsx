@@ -9,7 +9,7 @@ import Link from "next/link";
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const[userProfile, setUserProfile] = useState<any>(null);
+  const [userProfile, setUserProfile] = useState<any>(null);
   const [authorized, setAuthorized] = useState(false);
 
   useEffect(() => {
@@ -37,7 +37,6 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const handleLogout = async () => {
     const role = userProfile?.role;
     await supabase.auth.signOut();
-    // LOGOUT INTELIGENTE: Volta para a porta correta
     if (role === 'student' || role === 'subscriber') {
       router.push("/academy");
     } else {
@@ -47,7 +46,6 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   if (!authorized) return null;
 
-  // BLINDAGEM DO MENU: Aluno só vê a Academy, Cliente vê o Portal completo
   const navItems = userProfile?.role === 'client' 
     ?[
         { name: "Início", href: "/portal", icon: Home },
@@ -61,8 +59,8 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       ];
 
   return (
-    <div className="min-h-screen bg-background text-text-primary flex flex-col">
-      <header className="h-20 bg-surface/80 backdrop-blur-md border-b border-surface/50 sticky top-0 z-50 flex items-center justify-between px-8">
+    <div className="h-screen bg-background text-text-primary flex flex-col overflow-hidden">
+      <header className="h-20 shrink-0 bg-surface/80 backdrop-blur-md border-b border-surface/50 flex items-center justify-between px-8 z-50">
         <div className="flex items-center gap-12">
           {userProfile?.role === 'client' ? (
             <h1 className="text-2xl font-extrabold text-white tracking-tighter">
@@ -97,7 +95,11 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
           </button>
         </div>
       </header>
-      <main className="flex-1 flex flex-col">{children}</main>
+      
+      {/* AQUI ESTÁ A CORREÇÃO DO SCROLL */}
+      <main className="flex-1 overflow-y-auto custom-scrollbar">
+        {children}
+      </main>
     </div>
   );
 }
