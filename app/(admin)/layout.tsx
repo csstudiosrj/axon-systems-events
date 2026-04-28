@@ -5,17 +5,21 @@ import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "../lib/supabase";
 import { LayoutDashboard, FileText, Truck, Ticket, LogOut, Users, Package, Target, Wallet, Megaphone, CalendarDays, PlaySquare, Loader2, ShieldCheck, Settings, User, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
+import { useSettings } from "../../providers/SettingsProvider";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [userProfile, setUserProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const[authorized, setAuthorized] = useState(false);
-  
+  const [authorized, setAuthorized] = useState(false);
+
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); // Estado do Menu Retrátil
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Context White-Label
+  const { settings: settingsContext, loading: settingsLoading } = useSettings();
 
   useEffect(() => {
     const checkUser = async () => {
@@ -40,28 +44,31 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  },[]);
+  }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push("/login");
   };
 
-  const allNavItems =[
-    { name: "Visão Geral", href: "/dashboard", icon: LayoutDashboard, roles:['super_admin', 'admin', 'commercial', 'financial', 'logistics', 'marketing', 'training', 'support'] },
-    { name: "Calendário Geral", href: "/calendario", icon: CalendarDays, roles:['super_admin', 'admin', 'commercial', 'logistics'] },
-    { name: "CRM / Vendas", href: "/crm", icon: Target, roles:['super_admin', 'admin', 'commercial', 'financial'] },
-    { name: "Financeiro", href: "/financeiro", icon: Wallet, roles:['super_admin', 'admin', 'financial'] },
-    { name: "Marketing", href: "/marketing", icon: Megaphone, roles:['super_admin', 'admin', 'marketing'] },
-    { name: "Treinamentos", href: "/treinamentos", icon: PlaySquare, roles:['super_admin', 'admin', 'training'] },
-    { name: "Clientes", href: "/clientes", icon: Users, roles:['super_admin', 'admin', 'commercial', 'financial'] },
-    { name: "Inventário", href: "/inventario", icon: Package, roles:['super_admin', 'admin', 'logistics', 'commercial'] },
-    { name: "Orçamentos", href: "/orcamentos", icon: FileText, roles:['super_admin', 'admin', 'commercial', 'financial'] },
-    { name: "Ordens de Serviço", href: "/os", icon: Truck, roles:['super_admin', 'admin', 'logistics', 'commercial', 'support'] },
-    { name: "Suporte Técnico", href: "/suporte", icon: Ticket, roles:['super_admin', 'admin', 'support'] },
+  const allNavItems = [
+    { name: "Visão Geral", href: "/dashboard", icon: LayoutDashboard, roles: ['super_admin', 'admin', 'commercial', 'financial', 'logistics', 'marketing', 'training', 'support'] },
+    { name: "Calendário Geral", href: "/calendario", icon: CalendarDays, roles: ['super_admin', 'admin', 'commercial', 'logistics'] },
+    { name: "CRM / Vendas", href: "/crm", icon: Target, roles: ['super_admin', 'admin', 'commercial', 'financial'] },
+    { name: "Financeiro", href: "/financeiro", icon: Wallet, roles: ['super_admin', 'admin', 'financial'] },
+    { name: "Marketing", href: "/marketing", icon: Megaphone, roles: ['super_admin', 'admin', 'marketing'] },
+    // Treinamentos → settings.custom_labels.academy_name
+    { name: settingsContext.custom_labels.academy_name, href: "/treinamentos", icon: PlaySquare, roles: ['super_admin', 'admin', 'training'] },
+    // Clientes → settings.custom_labels.client_plural
+    { name: settingsContext.custom_labels.client_plural, href: "/clientes", icon: Users, roles: ['super_admin', 'admin', 'commercial', 'financial'] },
+    { name: "Inventário", href: "/inventario", icon: Package, roles: ['super_admin', 'admin', 'logistics', 'commercial'] },
+    // Orçamentos → settings.custom_labels.quote_plural
+    { name: settingsContext.custom_labels.quote_plural, href: "/orcamentos", icon: FileText, roles: ['super_admin', 'admin', 'commercial', 'financial'] },
+    { name: "Ordens de Serviço", href: "/os", icon: Truck, roles: ['super_admin', 'admin', 'logistics', 'commercial', 'support'] },
+    { name: "Suporte Técnico", href: "/suporte", icon: Ticket, roles: ['super_admin', 'admin', 'support'] },
   ];
 
-  if (loading) return <div className="h-screen w-full bg-background flex items-center justify-center"><Loader2 className="animate-spin text-cs-green" size={48} /></div>;
+  if (loading || settingsLoading) return <div className="h-screen w-full bg-background flex items-center justify-center"><Loader2 className="animate-spin text-cs-green" size={48} /></div>;
   if (!authorized) return null;
 
   const allowedNavItems = allNavItems.filter(item => userProfile ? item.roles.includes(userProfile.role) : false);
@@ -80,10 +87,20 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {isSidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
         </button>
 
+        {/* Header com logo ou nome da empresa */}
         <div className="h-16 flex items-center justify-center border-b border-surface/50 shrink-0 overflow-hidden">
-          <h1 className={`font-bold text-white whitespace-nowrap transition-all duration-300 ${isSidebarCollapsed ? 'text-sm' : 'text-xl px-6 w-full'}`}>
-            {isSidebarCollapsed ? "AX" : <>AXON <span className="text-cs-green">systems</span></>}
-          </h1>
+          <div className={`w-full px-3 transition-all duration-300 flex items-center justify-center ${isSidebarCollapsed ? '' : 'gap-2'}`}>
+            {settingsContext.logo_url ? (
+              <img
+                src={settingsContext.logo_url}
+                alt={`${settingsContext.company_name} logo`}
+                className={`max-h-[40px] w-auto object-contain transition-all duration-300 ${isSidebarCollapsed ? 'opacity-0 w-0' : 'opacity-100'}`}
+              />
+            ) : null}
+            <span className={`font-bold text-white whitespace-nowrap transition-all duration-300 ${isSidebarCollapsed ? 'text-sm opacity-100' : 'text-xl opacity-100 px-0'}`}>
+              {settingsContext.company_name}
+            </span>
+          </div>
         </div>
         
         <nav className="flex-1 py-4 space-y-2 overflow-y-auto overflow-x-hidden">
