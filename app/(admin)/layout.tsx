@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "../lib/supabase";
 import { LayoutDashboard, FileText, Truck, Ticket, LogOut, Users, Package, Target, Wallet, Megaphone, CalendarDays, PlaySquare, Loader2, ShieldCheck, Settings, User, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
-import { useSettings } from "../../providers/SettingsProvider";
+import { useSettings } from "../providers/SettingsProvider";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -15,7 +15,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [authorized, setAuthorized] = useState(false);
 
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); // Estado do Menu Retrátil
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Context White-Label
@@ -57,12 +57,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { name: "CRM / Vendas", href: "/crm", icon: Target, roles: ['super_admin', 'admin', 'commercial', 'financial'] },
     { name: "Financeiro", href: "/financeiro", icon: Wallet, roles: ['super_admin', 'admin', 'financial'] },
     { name: "Marketing", href: "/marketing", icon: Megaphone, roles: ['super_admin', 'admin', 'marketing'] },
-    // Treinamentos → settings.custom_labels.academy_name
     { name: settingsContext.custom_labels.academy_name, href: "/treinamentos", icon: PlaySquare, roles: ['super_admin', 'admin', 'training'] },
-    // Clientes → settings.custom_labels.client_plural
     { name: settingsContext.custom_labels.client_plural, href: "/clientes", icon: Users, roles: ['super_admin', 'admin', 'commercial', 'financial'] },
     { name: "Inventário", href: "/inventario", icon: Package, roles: ['super_admin', 'admin', 'logistics', 'commercial'] },
-    // Orçamentos → settings.custom_labels.quote_plural
     { name: settingsContext.custom_labels.quote_plural, href: "/orcamentos", icon: FileText, roles: ['super_admin', 'admin', 'commercial', 'financial'] },
     { name: "Ordens de Serviço", href: "/os", icon: Truck, roles: ['super_admin', 'admin', 'logistics', 'commercial', 'support'] },
     { name: "Suporte Técnico", href: "/suporte", icon: Ticket, roles: ['super_admin', 'admin', 'support'] },
@@ -76,10 +73,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <div className="h-screen w-full bg-background text-text-primary flex overflow-hidden print:bg-white">
       
-      {/* Sidebar Retrátil */}
       <aside className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-surface border-r border-surface/50 flex flex-col transition-all duration-300 ease-in-out shrink-0 print:hidden relative`}>
         
-        {/* Botão de Recolher/Expandir */}
         <button 
           onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
           className="absolute -right-3 top-6 bg-cs-green text-white rounded-full p-1 shadow-lg hover:scale-110 transition-transform z-50"
@@ -87,7 +82,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {isSidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
         </button>
 
-        {/* Header com logo ou nome da empresa */}
         <div className="h-16 flex items-center justify-center border-b border-surface/50 shrink-0 overflow-hidden">
           <div className={`w-full px-3 transition-all duration-300 flex items-center justify-center ${isSidebarCollapsed ? '' : 'gap-2'}`}>
             {settingsContext.logo_url ? (
@@ -166,7 +160,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         </header>
         
-        {/* Container que rola internamente */}
         <div className="p-8 flex-1 overflow-y-auto print:p-0 print:overflow-visible print:bg-white">
           {children}
         </div>
