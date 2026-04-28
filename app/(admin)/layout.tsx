@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "../lib/supabase";
+import Link from "next/link";
 import {
   LayoutDashboard,
   FileText,
@@ -23,24 +24,41 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import Link from "next/link";
 import { useSettings } from "../providers/SettingsProvider";
+
+interface UserProfile {
+  id: string;
+  email?: string;
+  full_name?: string;
+  role: string;
+}
+
+interface NavItem {
+  name: string;
+  href: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  roles: string[];
+  moduleKey?: string;
+  featureToggleKey?: string;
+}
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [userProfile, setUserProfile] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [authorized, setAuthorized] = useState(false);
 
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authorized, setAuthorized] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const {
     companyProfile,
     systemPreferences,
     loading: settingsLoading,
+    hasPermission,
   } = useSettings();
 
   useEffect(() => {
@@ -58,7 +76,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         .from("profiles")
         .select("*")
         .eq("id", session.user.id)
-        .single();
+        .single<UserProfile>();
 
       if (error || !profile) {
         await supabase.auth.signOut();
@@ -73,10 +91,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       setUserProfile(profile);
       setAuthorized(true);
-      setLoading(false);
+      setAuthLoading(false);
     };
 
-    checkUser();
+    void checkUser();
   }, [router]);
 
   useEffect(() => {
@@ -95,76 +113,97 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     router.push("/login");
   };
 
-  const allNavItems = [
-    {
-      name: "Visão Geral",
-      href: "/dashboard",
-      icon: LayoutDashboard,
-      roles: ["super_admin", "admin", "commercial", "financial", "logistics", "marketing", "training", "support"],
-    },
-    {
-      name: "Calendário Geral",
-      href: "/calendario",
-      icon: CalendarDays,
-      roles: ["super_admin", "admin", "commercial", "logistics"],
-    },
-    {
-      name: "CRM / Vendas",
-      href: "/crm",
-      icon: Target,
-      roles: ["super_admin", "admin", "commercial", "financial"],
-    },
-    {
-      name: "Financeiro",
-      href: "/financeiro",
-      icon: Wallet,
-      roles: ["super_admin", "admin", "financial"],
-    },
-    {
-      name: "Marketing",
-      href: "/marketing",
-      icon: Megaphone,
-      roles: ["super_admin", "admin", "marketing"],
-    },
-    {
-      name: systemPreferences.custom_labels.academy_name,
-      href: "/treinamentos",
-      icon: PlaySquare,
-      roles: ["super_admin", "admin", "training"],
-    },
-    {
-      name: systemPreferences.custom_labels.client_plural,
-      href: "/clientes",
-      icon: Users,
-      roles: ["super_admin", "admin", "commercial", "financial"],
-    },
-    {
-      name: "Inventário",
-      href: "/inventario",
-      icon: Package,
-      roles: ["super_admin", "admin", "logistics", "commercial"],
-    },
-    {
-      name: systemPreferences.custom_labels.quote_plural,
-      href: "/orcamentos",
-      icon: FileText,
-      roles: ["super_admin", "admin", "commercial", "financial"],
-    },
-    {
-      name: "Ordens de Serviço",
-      href: "/os",
-      icon: Truck,
-      roles: ["super_admin", "admin", "logistics", "commercial", "support"],
-    },
-    {
-      name: "Suporte Técnico",
-      href: "/suporte",
-      icon: Ticket,
-      roles: ["super_admin", "admin", "support"],
-    },
-  ];
+  const allNavItems: NavItem[] = useMemo(
+    () => [
+      {
+        name: "Visão Geral",
+        href: "/dashboard",
+        icon: LayoutDashboard,
+        roles: ["super_admin", "admin", "commercial", "financial", "logistics", "marketing", "training", "support"],
+      },
+      {
+        name: "Calendário Geral",
+        href: "/calendario",
+        icon: CalendarDays,
+        roles: ["super_admin", "admin", "commercial", "logistics"],
+        moduleKey: "calendar",
+        featureToggleKey: "enable_calendar",
+      },
+      {
+        name: "CRM / Vendas",
+        href: "/crm",
+        icon: Target,
+        roles: ["super_admin", "admin", "commercial", "financial"],
+        moduleKey: "crm",
+        featureToggleKey: "enable_crm",
+      },
+      {
+        name: "Financeiro",
+        href: "/financeiro",
+        icon: Wallet,
+        roles: ["super_admin", "admin", "financial"],
+        moduleKey: "financial",
+        featureToggleKey: "enable_financial",
+      },
+      {
+        name: "Marketing",
+        href: "/marketing",
+        icon: Megaphone,
+        roles: ["super_admin", "admin", "marketing"],
+        moduleKey: "marketing",
+        featureToggleKey: "enable_marketing",
+      },
+      {
+        name: systemPreferences.custom_labels.academy_name,
+        href: "/treinamentos",
+        icon: PlaySquare,
+        roles: ["super_admin", "admin", "training"],
+        moduleKey: "training",
+        featureToggleKey: "enable_training",
+      },
+      {
+        name: systemPreferences.custom_labels.client_plural,
+        href: "/clientes",
+        icon: Users,
+        roles: ["super_admin", "admin", "commercial", "financial"],
+        moduleKey: "clients",
+        featureToggleKey: "enable_crm",
+      },
+      {
+        name: "Inventário",
+        href: "/inventario",
+        icon: Package,
+        roles: ["super_admin", "admin", "logistics", "commercial"],
+        moduleKey: "inventory",
+        featureToggleKey: "enable_inventory",
+      },
+      {
+        name: systemPreferences.custom_labels.quote_plural,
+        href: "/orcamentos",
+        icon: FileText,
+        roles: ["super_admin", "admin", "commercial", "financial"],
+        moduleKey: "quotes",
+        featureToggleKey: "enable_crm",
+      },
+      {
+        name: "Ordens de Serviço",
+        href: "/os",
+        icon: Truck,
+        roles: ["super_admin", "admin", "logistics", "commercial", "support"],
+        moduleKey: "service_orders",
+        featureToggleKey: "enable_service_orders",
+      },
+      {
+        name: "Suporte Técnico",
+        href: "/suporte",
+        icon: Ticket,
+        roles: ["super_admin", "admin", "support"],
+      },
+    ],
+    [systemPreferences.custom_labels]
+  );
 
-  if (loading || settingsLoading) {
+  if (authLoading || settingsLoading) {
     return (
       <div className="h-screen w-full bg-background flex items-center justify-center">
         <Loader2 className="animate-spin text-cs-green" size={48} />
@@ -172,11 +211,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     );
   }
 
-  if (!authorized) return null;
+  if (!authorized || !userProfile) return null;
 
-  const allowedNavItems = allNavItems.filter((item) =>
-    userProfile ? item.roles.includes(userProfile.role) : false
-  );
+  const userRole = userProfile.role;
+
+  const allowedNavItems = allNavItems.filter((item) => {
+    const passesLegacyRoleGuard = item.roles.includes(userRole);
+
+    const passesFeatureToggle =
+      !item.featureToggleKey ||
+      Boolean(systemPreferences.feature_toggles[item.featureToggleKey]);
+
+    const passesPermission =
+      !item.moduleKey || hasPermission(item.moduleKey, userRole);
+
+    return passesLegacyRoleGuard && passesFeatureToggle && passesPermission;
+  });
 
   return (
     <div className="h-screen w-full bg-background text-text-primary flex overflow-hidden print:bg-white">
@@ -193,29 +243,25 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </button>
 
         <div className="h-16 flex items-center justify-center border-b border-surface/50 shrink-0 overflow-hidden">
-          <div
-            className={`w-full px-3 transition-all duration-300 flex items-center justify-center ${
-              isSidebarCollapsed ? "" : "gap-2"
-            }`}
-          >
-            {!isSidebarCollapsed && companyProfile.logo_url ? (
+          {companyProfile.logo_url && !isSidebarCollapsed ? (
+            <div className="px-4 w-full flex items-center justify-center">
               <img
                 src={companyProfile.logo_url}
-                alt={`${companyProfile.company_name} logo`}
+                alt={companyProfile.company_name || "Logo da empresa"}
                 className="max-h-[40px] w-auto object-contain"
               />
-            ) : (
-              <span
-                className={`font-bold text-white whitespace-nowrap transition-all duration-300 ${
-                  isSidebarCollapsed ? "text-sm" : "text-xl px-0"
-                }`}
-              >
-                {isSidebarCollapsed
-                  ? companyProfile.company_name?.slice(0, 2).toUpperCase() || "AX"
-                  : companyProfile.company_name}
-              </span>
-            )}
-          </div>
+            </div>
+          ) : (
+            <h1
+              className={`font-bold text-white whitespace-nowrap transition-all duration-300 ${
+                isSidebarCollapsed ? "text-sm" : "text-xl px-6 w-full text-center"
+              }`}
+            >
+              {isSidebarCollapsed
+                ? (companyProfile.company_name || "AX").slice(0, 2).toUpperCase()
+                : companyProfile.company_name || "AXON Systems"}
+            </h1>
+          )}
         </div>
 
         <nav className="flex-1 py-4 space-y-2 overflow-y-auto overflow-x-hidden">
@@ -225,7 +271,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
             return (
               <Link
-                key={item.name}
+                key={item.href}
                 href={item.href}
                 title={isSidebarCollapsed ? item.name : ""}
                 className={`flex items-center gap-3 mx-3 px-3 py-3 rounded-md transition-colors ${
@@ -274,9 +320,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   <button className="w-full flex items-center gap-3 px-3 py-2 text-sm text-text-secondary hover:bg-background hover:text-white rounded-md transition-colors">
                     <User size={16} /> Meu Perfil
                   </button>
-                  <button className="w-full flex items-center gap-3 px-3 py-2 text-sm text-text-secondary hover:bg-background hover:text-white rounded-md transition-colors">
-                    <Settings size={16} /> Configurações
-                  </button>
+
+                  {hasPermission("settings", userRole) && (
+                    <button className="w-full flex items-center gap-3 px-3 py-2 text-sm text-text-secondary hover:bg-background hover:text-white rounded-md transition-colors">
+                      <Settings size={16} /> Configurações
+                    </button>
+                  )}
+
                   {["super_admin", "admin"].includes(userProfile?.role) && (
                     <Link
                       href="/equipe"
