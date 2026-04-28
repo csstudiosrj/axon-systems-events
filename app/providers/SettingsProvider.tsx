@@ -3,13 +3,13 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
-// --- BLINDAGEM TYPESCRIPT ---
 interface CustomLabels {
   client_singular: string;
   client_plural: string;
   quote_singular: string;
   quote_plural: string;
-  academy_name: string;[key: string]: string; // Permite escalabilidade futura sem quebrar a tipagem
+  academy_name: string;
+  [key: string]: string;
 }
 
 interface SystemSettings {
@@ -21,7 +21,6 @@ interface SystemSettings {
   custom_labels: CustomLabels;
 }
 
-// Valores de fallback caso o banco falhe ou esteja carregando
 const defaultSettings: SystemSettings = {
   company_name: "CS com",
   cnpj: "",
@@ -37,7 +36,10 @@ const defaultSettings: SystemSettings = {
   }
 };
 
-const SettingsContext = createContext<{ settings: SystemSettings; loading: boolean }>({
+const SettingsContext = createContext<{
+  settings: SystemSettings;
+  loading: boolean;
+}>({
   settings: defaultSettings,
   loading: true,
 });
@@ -64,16 +66,22 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             logo_url: data.logo_url || defaultSettings.logo_url,
             primary_color: data.primary_color || defaultSettings.primary_color,
             default_contract_terms: data.default_contract_terms || defaultSettings.default_contract_terms,
-            // Mescla os labels do banco com os defaults para evitar undefined caso falte alguma chave
             custom_labels: { ...defaultSettings.custom_labels, ...(data.custom_labels || {}) }
           });
         }
       } catch (error) {
-        console.error("Erro ao carregar configurações white-label do sistema:", error);
+        console.error("Erro ao carregar configurações white-label:", error);
       } finally {
         setLoading(false);
       }
     };
 
     fetchSettings();
-  },
+  }, []); // <- fechamento do useEffect corrigido aqui
+
+  return (
+    <SettingsContext.Provider value={{ settings, loading }}>
+      {children}
+    </SettingsContext.Provider>
+  );
+}
