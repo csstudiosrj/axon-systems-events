@@ -1,90 +1,30 @@
+total 288
+drwxr-xr-x  5 user user   4096 Apr 29 17:26 .
+drwxr-xr-x 11 user user   4096 Apr 29 17:36 ..
+-rw-r--r--  1 user user    327 Apr 29 17:26 AGENTS.md
+drwxr-xr-x  8 user user   4096 Apr 29 17:26 app
+-rw-r--r--  1 user user     11 Apr 29 17:26 CLAUDE.md
+-rw-r--r--  1 user user    465 Apr 29 17:26 eslint.config.mjs
+-rw-r--r--  1 user user      0 Apr 29 20:36 file-tree.txt
+drwxr-xr-x  5 user user   4096 Apr 29 17:26 .git
+-rw-r--r--  1 user user    480 Apr 29 17:26 .gitignore
+-rw-r--r--  1 user user    133 Apr 29 17:26 next.config.ts
+-rw-r--r--  1 user user    696 Apr 29 17:26 package.json
+-rw-r--r--  1 user user 233897 Apr 29 17:26 package-lock.json
+-rw-r--r--  1 user user     94 Apr 29 17:26 postcss.config.mjs
+drwxr-xr-x  2 user user   4096 Apr 29 17:26 public
+-rw-r--r--  1 user user   1450 Apr 29 17:26 README.md
+-rw-r--r--  1 user user    666 Apr 29 17:26 tsconfig.json
 .
-├── app
-│   ├── (admin)
-│   │   ├── calendario
-│   │   │   └── page.tsx
-│   │   ├── clientes
-│   │   │   └── page.tsx
-│   │   ├── configuracoes
-│   │   │   └── page.tsx
-│   │   ├── crm
-│   │   │   └── page.tsx
-│   │   ├── dashboard
-│   │   │   └── page.tsx
-│   │   ├── equipe
-│   │   │   └── page.tsx
-│   │   ├── financeiro
-│   │   │   └── page.tsx
-│   │   ├── inventario
-│   │   │   └── page.tsx
-│   │   ├── marketing
-│   │   │   └── page.tsx
-│   │   ├── orcamentos
-│   │   │   ├── [id]
-│   │   │   │   └── page.tsx
-│   │   │   └── page.tsx
-│   │   ├── os
-│   │   │   └── page.tsx
-│   │   ├── perfil
-│   │   │   └── page.tsx
-│   │   ├── suporte
-│   │   │   └── page.tsx
-│   │   ├── treinamentos
-│   │   │   └── page.tsx
-│   │   └── layout.tsx
-│   ├── (auth)
-│   │   ├── academy
-│   │   │   └── page.tsx
-│   │   ├── acesso
-│   │   │   └── page.tsx
-│   │   ├── login
-│   │   │   └── page.tsx
-│   │   └── setup
-│   │       └── page.tsx
-│   ├── (cliente)
-│   │   ├── portal
-│   │   │   ├── equipe
-│   │   │   │   └── page.tsx
-│   │   │   ├── faturas
-│   │   │   │   └── page.tsx
-│   │   │   ├── perfil
-│   │   │   │   └── page.tsx
-│   │   │   ├── suporte
-│   │   │   │   └── page.tsx
-│   │   │   ├── treinamentos
-│   │   │   │   ├── [id]
-│   │   │   │   │   └── page.tsx
-│   │   │   │   └── page.tsx
-│   │   │   └── page.tsx
-│   │   └── layout.tsx
-│   ├── api
-│   │   ├── invite
-│   │   │   └── route.ts
-│   │   └── leads
-│   │       └── route.ts
-│   ├── lib
-│   │   └── supabase.ts
-│   ├── providers
-│   │   └── SettingsProvider.tsx
-│   ├── favicon.ico
-│   ├── globals.css
-│   ├── layout.tsx
-│   └── page.tsx
-├── public
-│   ├── file.svg
-│   ├── globe.svg
-│   ├── next.svg
-│   ├── vercel.svg
-│   └── window.svg
-├── .gitignore
-├── AGENTS.md
-├── CLAUDE.md
-├── README.md
-├── eslint.config.mjs
-├── file-tree.txt
-├── next.config.ts
-├── package.json
-├── postcss.config.mjs
-└── tsconfig.json
-
-37 directories, 51 files
+./public
+./app
+./app/(auth)
+./app/(cliente)
+./app/api
+./app/providers
+./app/lib
+./app/(admin)
+./.git
+./.git/refs
+./.git/logs
+./.git/objects
