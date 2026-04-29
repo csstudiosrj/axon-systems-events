@@ -1,8 +1,17 @@
 "use client";
 
-import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { supabase } from "@/app/lib/supabase";
 import { useSettings } from "@/app/providers/SettingsProvider";
+
+// ─── Tipos ────────────────────────────────────────────────────────────────────
 
 type SettingsTab = "perfil-corporativo" | "nomenclaturas" | "modulos" | "documentos";
 
@@ -14,6 +23,7 @@ type CompanyProfilePayload = {
   contract_terms: string;
 };
 
+/** Campos editáveis na aba Perfil Corporativo. */
 type CompanyForm = CompanyProfilePayload & {
   legal_name: string;
   trade_name: string;
@@ -62,24 +72,15 @@ type SettingsContextShape = {
   refreshSettings?: () => Promise<void> | void;
 };
 
-type IbgeState = {
-  id: number;
-  nome: string;
-  sigla: string;
-};
-
-type IbgeCity = {
-  id: number;
-  nome: string;
-};
+type IbgeState = { id: number; nome: string; sigla: string };
+type IbgeCity = { id: number; nome: string };
 
 type PresetGroup = {
   title: string;
-  options: Array<{
-    label: string;
-    values: Record<string, string>;
-  }>;
+  options: Array<{ label: string; values: Record<string, string> }>;
 };
+
+// ─── Valores padrão ───────────────────────────────────────────────────────────
 
 const DEFAULT_COMPANY_FORM: CompanyForm = {
   company_name: "",
@@ -115,7 +116,7 @@ const DEFAULT_CUSTOM_LABELS: CustomLabels = {
   menu_training: "Treinamentos",
   menu_patients: "Pacientes",
   menu_inventory: "Inventário",
-  menu_quotes: "Consultas",
+  menu_quotes: "Orçamentos",
   menu_service_orders: "Ordens de Serviço",
   menu_support: "Suporte Técnico",
   menu_team: "Equipe",
@@ -123,8 +124,8 @@ const DEFAULT_CUSTOM_LABELS: CustomLabels = {
   entity_client_plural: "Clientes",
   entity_lead_singular: "Lead",
   entity_lead_plural: "Leads",
-  entity_quote_singular: "Consulta",
-  entity_quote_plural: "Consultas",
+  entity_quote_singular: "Orçamento",
+  entity_quote_plural: "Orçamentos",
   entity_proposal_singular: "Proposta",
   entity_proposal_plural: "Propostas",
   entity_contract_singular: "Contrato",
@@ -187,6 +188,8 @@ const DEFAULT_COMMERCIAL_DOCUMENTS: CommercialDocuments = {
   proposal_footer: "",
   invoice_footer: "",
 };
+
+// ─── Configurações estáticas ──────────────────────────────────────────────────
 
 const TAB_OPTIONS: Array<{ key: SettingsTab; label: string }> = [
   { key: "perfil-corporativo", label: "Perfil Corporativo" },
@@ -252,15 +255,50 @@ const LABEL_GROUPS: Array<{ title: string; fields: string[] }> = [
   },
 ];
 
+const LABEL_MAP: Record<string, string> = {
+  menu_dashboard: "Menu: Visão Geral",
+  menu_calendar: "Menu: Calendário",
+  menu_crm: "Menu: CRM / Vendas",
+  menu_financial: "Menu: Financeiro",
+  menu_marketing: "Menu: Marketing",
+  menu_training: "Menu: Treinamentos",
+  menu_patients: "Menu: Pacientes",
+  menu_inventory: "Menu: Inventário",
+  menu_quotes: "Menu: Orçamentos / Consultas",
+  menu_service_orders: "Menu: Ordens de Serviço",
+  menu_support: "Menu: Suporte Técnico",
+  menu_team: "Menu: Equipe",
+  entity_client_singular: "Cliente (singular)",
+  entity_client_plural: "Cliente (plural)",
+  entity_lead_singular: "Lead (singular)",
+  entity_lead_plural: "Lead (plural)",
+  entity_quote_singular: "Orçamento / Consulta (singular)",
+  entity_quote_plural: "Orçamento / Consulta (plural)",
+  entity_proposal_singular: "Proposta (singular)",
+  entity_proposal_plural: "Proposta (plural)",
+  entity_contract_singular: "Contrato (singular)",
+  entity_contract_plural: "Contrato (plural)",
+  entity_invoice_singular: "Fatura (singular)",
+  entity_invoice_plural: "Fatura (plural)",
+  entity_service_order_singular: "Ordem de Serviço (singular)",
+  entity_service_order_plural: "Ordem de Serviço (plural)",
+  entity_equipment_singular: "Equipamento (singular)",
+  entity_equipment_plural: "Equipamento (plural)",
+  entity_course_singular: "Curso (singular)",
+  entity_course_plural: "Curso (plural)",
+  entity_lesson_singular: "Aula (singular)",
+  entity_lesson_plural: "Aula (plural)",
+  entity_salesperson_singular: "Responsável comercial (singular)",
+  entity_salesperson_plural: "Responsável comercial (plural)",
+};
+
 const NOMENCLATURE_PRESETS: PresetGroup[] = [
   {
-    title: "Pacote clássico CRM / serviços",
+    title: "CRM / Serviços",
     options: [
       {
-        label: "Padrão empresarial",
+        label: "Empresarial padrão",
         values: {
-          menu_dashboard: "Visão Geral",
-          menu_crm: "CRM / Vendas",
           menu_quotes: "Orçamentos",
           menu_service_orders: "Ordens de Serviço",
           entity_quote_singular: "Orçamento",
@@ -272,9 +310,10 @@ const NOMENCLATURE_PRESETS: PresetGroup[] = [
         },
       },
       {
-        label: "Padrão consultivo",
+        label: "Consultivo / Saúde",
         values: {
           menu_quotes: "Consultas",
+          menu_patients: "Pacientes",
           entity_quote_singular: "Consulta",
           entity_quote_plural: "Consultas",
           entity_client_singular: "Paciente",
@@ -286,13 +325,14 @@ const NOMENCLATURE_PRESETS: PresetGroup[] = [
     ],
   },
   {
-    title: "Pacote eventos / produção",
+    title: "Eventos / Produção",
     options: [
       {
         label: "Eventos corporativos",
         values: {
           menu_quotes: "Propostas",
           menu_inventory: "Estruturas",
+          menu_service_orders: "Operações",
           entity_quote_singular: "Proposta",
           entity_quote_plural: "Propostas",
           entity_service_order_singular: "Operação",
@@ -302,7 +342,7 @@ const NOMENCLATURE_PRESETS: PresetGroup[] = [
         },
       },
       {
-        label: "Eventos culturais",
+        label: "Produção cultural",
         values: {
           menu_quotes: "Projetos",
           menu_service_orders: "Produções",
@@ -316,31 +356,107 @@ const NOMENCLATURE_PRESETS: PresetGroup[] = [
       },
     ],
   },
+  {
+    title: "Educação / Treinamento",
+    options: [
+      {
+        label: "EAD / Escola",
+        values: {
+          menu_quotes: "Matrículas",
+          menu_training: "Cursos",
+          entity_quote_singular: "Matrícula",
+          entity_quote_plural: "Matrículas",
+          entity_client_singular: "Aluno",
+          entity_client_plural: "Alunos",
+          entity_salesperson_singular: "Tutor",
+          entity_salesperson_plural: "Tutores",
+          entity_course_singular: "Curso",
+          entity_course_plural: "Cursos",
+          entity_lesson_singular: "Aula",
+          entity_lesson_plural: "Aulas",
+        },
+      },
+    ],
+  },
 ];
 
 const MODULES = [
-  { key: "enable_dashboard", title: "Dashboard", description: "Mostra a visão geral do negócio com números, atalhos e acompanhamento diário." },
-  { key: "enable_crm", title: "CRM", description: "Organiza oportunidades, contatos e andamento comercial em um só lugar." },
-  { key: "enable_clients", title: "Cadastros", description: "Controla os registros principais de clientes, alunos ou empresas atendidas." },
-  { key: "enable_quotes", title: "Orçamentos / Consultas", description: "Permite montar propostas, valores, condições e enviar documentos comerciais." },
-  { key: "enable_financial", title: "Financeiro", description: "Centraliza contas, recebimentos, vencimentos e acompanhamento financeiro." },
-  { key: "enable_inventory", title: "Inventário", description: "Gerencia itens, equipamentos, estoque e disponibilidade operacional." },
-  { key: "enable_service_orders", title: "Ordens de Serviço", description: "Controla execução de serviços, itens extras, status e operação do dia a dia." },
-  { key: "enable_marketing", title: "Marketing", description: "Ajuda a planejar e organizar conteúdos, campanhas e publicações." },
-  { key: "enable_calendar", title: "Calendário", description: "Exibe agenda, datas importantes e organização das atividades." },
-  { key: "enable_team", title: "Equipe", description: "Reúne as informações da equipe e o acompanhamento das pessoas envolvidas." },
-  { key: "enable_support", title: "Suporte", description: "Mantém o canal de atendimento e acompanhamento das solicitações." },
-  { key: "enable_training", title: "Treinamentos", description: "Libera a área de cursos, aulas e acompanhamento de aprendizagem." },
-  { key: "enable_client_portal", title: "Portal do Cliente", description: "Entrega uma área exclusiva para o cliente acompanhar informações e documentos." },
+  {
+    key: "enable_dashboard",
+    title: "Dashboard",
+    description: "Visão geral do negócio com métricas, atalhos e acompanhamento diário.",
+  },
+  {
+    key: "enable_crm",
+    title: "CRM",
+    description: "Oportunidades, contatos e funil comercial em um só lugar.",
+  },
+  {
+    key: "enable_clients",
+    title: "Cadastros",
+    description: "Registros principais de clientes, alunos ou empresas atendidas.",
+  },
+  {
+    key: "enable_quotes",
+    title: "Orçamentos / Consultas",
+    description: "Montagem de propostas, valores, condições e envio de documentos.",
+  },
+  {
+    key: "enable_financial",
+    title: "Financeiro",
+    description: "Contas, recebimentos, vencimentos e acompanhamento financeiro.",
+  },
+  {
+    key: "enable_inventory",
+    title: "Inventário",
+    description: "Itens, equipamentos, estoque e disponibilidade operacional.",
+  },
+  {
+    key: "enable_service_orders",
+    title: "Ordens de Serviço",
+    description: "Execução de serviços, itens extras, status e operação do dia a dia.",
+  },
+  {
+    key: "enable_marketing",
+    title: "Marketing",
+    description: "Planejamento e organização de conteúdos, campanhas e publicações.",
+  },
+  {
+    key: "enable_calendar",
+    title: "Calendário",
+    description: "Agenda, datas importantes e organização de atividades.",
+  },
+  {
+    key: "enable_team",
+    title: "Equipe",
+    description: "Informações da equipe e acompanhamento de colaboradores.",
+  },
+  {
+    key: "enable_support",
+    title: "Suporte",
+    description: "Canal de atendimento e acompanhamento de solicitações.",
+  },
+  {
+    key: "enable_training",
+    title: "Treinamentos",
+    description: "Área de cursos, aulas e acompanhamento de aprendizagem.",
+  },
+  {
+    key: "enable_client_portal",
+    title: "Portal do Cliente",
+    description: "Área exclusiva para o cliente acompanhar informações e documentos.",
+  },
 ] as const;
+
+// ─── Utilitários ──────────────────────────────────────────────────────────────
 
 function onlyDigits(value: string) {
   return value.replace(/\D/g, "");
 }
 
 function formatCnpj(value: string) {
-  const digits = onlyDigits(value).slice(0, 14);
-  return digits
+  const d = onlyDigits(value).slice(0, 14);
+  return d
     .replace(/^(\d{2})(\d)/, "$1.$2")
     .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
     .replace(/\.(\d{3})(\d)/, ".$1/$2")
@@ -348,20 +464,20 @@ function formatCnpj(value: string) {
 }
 
 function formatCep(value: string) {
-  const digits = onlyDigits(value).slice(0, 8);
-  return digits.replace(/^(\d{5})(\d)/, "$1-$2");
+  const d = onlyDigits(value).slice(0, 8);
+  return d.replace(/^(\d{5})(\d)/, "$1-$2");
 }
 
 function formatPhone(value: string) {
-  const digits = onlyDigits(value).slice(0, 11);
-  if (digits.length <= 10) {
-    return digits.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{4})(\d)/, "$1-$2");
+  const d = onlyDigits(value).slice(0, 11);
+  if (d.length <= 10) {
+    return d.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{4})(\d)/, "$1-$2");
   }
-  return digits.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2");
+  return d.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2");
 }
 
-function sanitizeFileName(fileName: string) {
-  return fileName
+function sanitizeFileName(name: string) {
+  return name
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9.-]/g, "-")
@@ -370,48 +486,15 @@ function sanitizeFileName(fileName: string) {
     .toLowerCase();
 }
 
-function getLabelTitle(key: string) {
-  const customMap: Record<string, string> = {
-    menu_dashboard: "Menu: Visão Geral",
-    menu_calendar: "Menu: Calendário",
-    menu_crm: "Menu: CRM / Vendas",
-    menu_financial: "Menu: Financeiro",
-    menu_marketing: "Menu: Marketing",
-    menu_training: "Menu: Treinamentos",
-    menu_patients: "Menu: Pacientes",
-    menu_inventory: "Menu: Inventário",
-    menu_quotes: "Menu: Orçamentos / Consultas",
-    menu_service_orders: "Menu: Ordens de Serviço",
-    menu_support: "Menu: Suporte Técnico",
-    menu_team: "Menu: Equipe",
-    entity_client_singular: "Entidade: Cliente (singular)",
-    entity_client_plural: "Entidade: Cliente (plural)",
-    entity_lead_singular: "Entidade: Lead (singular)",
-    entity_lead_plural: "Entidade: Lead (plural)",
-    entity_quote_singular: "Entidade: Orçamento / Consulta (singular)",
-    entity_quote_plural: "Entidade: Orçamento / Consulta (plural)",
-    entity_proposal_singular: "Entidade: Proposta (singular)",
-    entity_proposal_plural: "Entidade: Proposta (plural)",
-    entity_contract_singular: "Entidade: Contrato (singular)",
-    entity_contract_plural: "Entidade: Contrato (plural)",
-    entity_invoice_singular: "Entidade: Fatura (singular)",
-    entity_invoice_plural: "Entidade: Fatura (plural)",
-    entity_service_order_singular: "Entidade: Ordem de Serviço (singular)",
-    entity_service_order_plural: "Entidade: Ordem de Serviço (plural)",
-    entity_equipment_singular: "Entidade: Equipamento (singular)",
-    entity_equipment_plural: "Entidade: Equipamento (plural)",
-    entity_course_singular: "Entidade: Curso (singular)",
-    entity_course_plural: "Entidade: Curso (plural)",
-    entity_lesson_singular: "Entidade: Aula (singular)",
-    entity_lesson_plural: "Entidade: Aula (plural)",
-    entity_salesperson_singular: "Entidade: Responsável comercial (singular)",
-    entity_salesperson_plural: "Entidade: Responsável comercial (plural)",
-  };
-
-  return customMap[key] ?? key;
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
 }
 
-function buildCommercialDocumentsFromForm(form: CompanyForm, current: CommercialDocuments): CommercialDocuments {
+/** Espelha campos de CompanyForm para o objeto commercial_documents. */
+function buildCommercialDocuments(
+  form: CompanyForm,
+  current: CommercialDocuments
+): CommercialDocuments {
   return {
     ...current,
     company_legal_name: form.legal_name,
@@ -434,12 +517,11 @@ function buildCommercialDocumentsFromForm(form: CompanyForm, current: Commercial
   };
 }
 
-function mergeClassNames(...values: Array<string | false | null | undefined>) {
-  return values.filter(Boolean).join(" ");
-}
+// ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function ConfiguracoesPage() {
-  const { companyProfile, systemPreferences, refreshSettings } = useSettings() as SettingsContextShape;
+  const { companyProfile, systemPreferences, refreshSettings } =
+    useSettings() as SettingsContextShape;
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("perfil-corporativo");
   const [companyForm, setCompanyForm] = useState<CompanyForm>(DEFAULT_COMPANY_FORM);
@@ -448,9 +530,13 @@ export default function ConfiguracoesPage() {
     feature_toggles: { ...DEFAULT_FEATURE_TOGGLES },
     commercial_documents: { ...DEFAULT_COMMERCIAL_DOCUMENTS },
   });
+
   const [savingTab, setSavingTab] = useState<SettingsTab | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
+  const [feedback, setFeedback] = useState<{
+    type: "success" | "error" | "info";
+    message: string;
+  } | null>(null);
   const [logoPreview, setLogoPreview] = useState("");
   const [selectedLogoFile, setSelectedLogoFile] = useState<File | null>(null);
   const [cropScale, setCropScale] = useState(1);
@@ -459,14 +545,18 @@ export default function ConfiguracoesPage() {
   const [cities, setCities] = useState<IbgeCity[]>([]);
   const [loadingStates, setLoadingStates] = useState(false);
   const [loadingCities, setLoadingCities] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const previewUrlRef = useRef<string | null>(null);
 
-  const primaryColor = useMemo(() => companyForm.primary_color || "#138946", [companyForm.primary_color]);
-  const canSaveLogoEdit = useMemo(() => Boolean(selectedLogoFile), [selectedLogoFile]);
+  const primaryColor = useMemo(
+    () => companyForm.primary_color || "#138946",
+    [companyForm.primary_color]
+  );
 
+  // ── Carrega dados salvos ───────────────────────────────────────────────────
   useEffect(() => {
-    const commercialDocuments = {
+    const saved: CommercialDocuments = {
       ...DEFAULT_COMMERCIAL_DOCUMENTS,
       ...(systemPreferences?.commercial_documents ?? {}),
     };
@@ -478,23 +568,23 @@ export default function ConfiguracoesPage() {
       logo_url: companyProfile?.logo_url ?? "",
       primary_color: companyProfile?.primary_color ?? DEFAULT_COMPANY_FORM.primary_color,
       contract_terms: companyProfile?.contract_terms ?? "",
-      legal_name: String(commercialDocuments.company_legal_name ?? ""),
-      trade_name: String(commercialDocuments.company_trade_name ?? ""),
-      website: String(commercialDocuments.website ?? ""),
-      contact_email: String(commercialDocuments.contact_email ?? ""),
-      phone_landline: String(commercialDocuments.phone_landline ?? ""),
-      phone_mobile: String(commercialDocuments.phone_mobile ?? ""),
-      whatsapp_number: String(commercialDocuments.whatsapp_number ?? ""),
-      zipcode: String(commercialDocuments.zipcode ?? ""),
-      street: String(commercialDocuments.street ?? ""),
-      street_number: String(commercialDocuments.street_number ?? ""),
-      complement: String(commercialDocuments.complement ?? ""),
-      district: String(commercialDocuments.district ?? ""),
-      city: String(commercialDocuments.city ?? ""),
-      state: String(commercialDocuments.state ?? ""),
-      country: String(commercialDocuments.country ?? "Brasil"),
-      proposal_footer: String(commercialDocuments.proposal_footer ?? ""),
-      invoice_footer: String(commercialDocuments.invoice_footer ?? ""),
+      legal_name: String(saved.company_legal_name ?? ""),
+      trade_name: String(saved.company_trade_name ?? ""),
+      website: String(saved.website ?? ""),
+      contact_email: String(saved.contact_email ?? ""),
+      phone_landline: String(saved.phone_landline ?? ""),
+      phone_mobile: String(saved.phone_mobile ?? ""),
+      whatsapp_number: String(saved.whatsapp_number ?? ""),
+      zipcode: String(saved.zipcode ?? ""),
+      street: String(saved.street ?? ""),
+      street_number: String(saved.street_number ?? ""),
+      complement: String(saved.complement ?? ""),
+      district: String(saved.district ?? ""),
+      city: String(saved.city ?? ""),
+      state: String(saved.state ?? ""),
+      country: String(saved.country ?? "Brasil"),
+      proposal_footer: String(saved.proposal_footer ?? ""),
+      invoice_footer: String(saved.invoice_footer ?? ""),
     });
 
     setPreferencesForm({
@@ -506,127 +596,105 @@ export default function ConfiguracoesPage() {
         ...DEFAULT_FEATURE_TOGGLES,
         ...(systemPreferences?.feature_toggles ?? {}),
       },
-      commercial_documents: commercialDocuments,
+      commercial_documents: saved,
     });
 
     setLogoPreview(companyProfile?.logo_url ?? "");
   }, [companyProfile, systemPreferences]);
 
+  // ── IBGE: estados ─────────────────────────────────────────────────────────
   useEffect(() => {
-    async function loadStates() {
-      setLoadingStates(true);
-      try {
-        const response = await fetch("https://servicodados.ibge.gov.br/api/v1/localidades/estados");
-        if (!response.ok) throw new Error("Falha ao carregar estados.");
-        const data = (await response.json()) as IbgeState[];
-        setStates([...data].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")));
-      } catch {
-        setStates([]);
-      } finally {
-        setLoadingStates(false);
-      }
-    }
-
-    void loadStates();
+    setLoadingStates(true);
+    fetch("https://servicodados.ibge.gov.br/api/v1/localidades/estados")
+      .then((r) => r.json())
+      .then((data: IbgeState[]) =>
+        setStates([...data].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")))
+      )
+      .catch(() => setStates([]))
+      .finally(() => setLoadingStates(false));
   }, []);
 
+  // ── IBGE: municípios por UF ───────────────────────────────────────────────
   useEffect(() => {
-    const state = companyForm.state.trim().toUpperCase();
-    if (!state || state.length !== 2) {
+    const uf = companyForm.state.trim().toUpperCase();
+    if (!uf || uf.length !== 2) {
       setCities([]);
       return;
     }
 
-    async function loadCities() {
-      setLoadingCities(true);
-      try {
-        const response = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${state}/municipios`);
-        if (!response.ok) throw new Error("Falha ao carregar municípios.");
-        const data = (await response.json()) as IbgeCity[];
-        setCities([...data].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")));
-      } catch {
-        setCities([]);
-      } finally {
-        setLoadingCities(false);
-      }
-    }
-
-    void loadCities();
+    setLoadingCities(true);
+    fetch(
+      `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`
+    )
+      .then((r) => r.json())
+      .then((data: IbgeCity[]) =>
+        setCities([...data].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")))
+      )
+      .catch(() => setCities([]))
+      .finally(() => setLoadingCities(false));
   }, [companyForm.state]);
 
+  // ── Limpa object URL ao desmontar ─────────────────────────────────────────
   useEffect(() => {
     return () => {
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     };
   }, []);
 
-  function setStatus(message: string, type: "success" | "error" | "info") {
+  // ─── Helpers de estado ────────────────────────────────────────────────────
+
+  function notify(message: string, type: "success" | "error" | "info") {
     setFeedback({ message, type });
   }
 
-  function updateCompanyField<K extends keyof CompanyForm>(field: K, value: CompanyForm[K]) {
+  function setField<K extends keyof CompanyForm>(field: K, value: CompanyForm[K]) {
     setCompanyForm((prev) => ({ ...prev, [field]: value }));
   }
 
-  function updateLabelField(key: string, value: string) {
+  function setLabel(key: string, value: string) {
     setPreferencesForm((prev) => ({
       ...prev,
-      custom_labels: {
-        ...prev.custom_labels,
-        [key]: value,
-      },
+      custom_labels: { ...prev.custom_labels, [key]: value },
     }));
   }
 
-  function updateFeatureToggle(key: string, value: boolean) {
+  function setToggle(key: string, value: boolean) {
     setPreferencesForm((prev) => ({
       ...prev,
-      feature_toggles: {
-        ...prev.feature_toggles,
-        [key]: value,
-      },
+      feature_toggles: { ...prev.feature_toggles, [key]: value },
     }));
   }
 
-  function updateCommercialDocField(key: string, value: string | boolean) {
+  function setCommercialDoc(key: string, value: string | boolean) {
     setPreferencesForm((prev) => ({
       ...prev,
-      commercial_documents: {
-        ...prev.commercial_documents,
-        [key]: value,
-      },
+      commercial_documents: { ...prev.commercial_documents, [key]: value },
     }));
   }
 
-  function handleMaskedInput(field: keyof CompanyForm, formatter: (value: string) => string) {
-    return (event: ChangeEvent<HTMLInputElement>) => {
-      updateCompanyField(field, formatter(event.target.value) as CompanyForm[keyof CompanyForm]);
-    };
+  function masked(field: keyof CompanyForm, fmt: (v: string) => string) {
+    return (e: ChangeEvent<HTMLInputElement>) =>
+      setField(field, fmt(e.target.value) as CompanyForm[keyof CompanyForm]);
   }
 
   function applyPreset(values: Record<string, string>) {
     setPreferencesForm((prev) => ({
       ...prev,
-      custom_labels: {
-        ...prev.custom_labels,
-        ...values,
-      },
+      custom_labels: { ...prev.custom_labels, ...values },
     }));
-    setStatus("Preset aplicado. Revise os rótulos e salve a aba de nomenclaturas.", "info");
+    notify("Preset aplicado. Revise e salve.", "info");
   }
 
-  function handleSelectLogo(file?: File | null) {
+  // ─── Logo ─────────────────────────────────────────────────────────────────
+
+  function selectLogo(file?: File | null) {
     if (!file) return;
-
-    if (previewUrlRef.current) {
-      URL.revokeObjectURL(previewUrlRef.current);
-    }
-
-    const objectUrl = URL.createObjectURL(file);
-    previewUrlRef.current = objectUrl;
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    const url = URL.createObjectURL(file);
+    previewUrlRef.current = url;
     setSelectedLogoFile(file);
-    setLogoPreview(objectUrl);
-    setStatus("Nova logo selecionada. Salve o perfil corporativo para concluir o upload.", "info");
+    setLogoPreview(url);
+    notify("Logo selecionada. Salve o perfil para concluir o upload.", "info");
   }
 
   function removeLogo() {
@@ -634,85 +702,91 @@ export default function ConfiguracoesPage() {
       URL.revokeObjectURL(previewUrlRef.current);
       previewUrlRef.current = null;
     }
-
     setSelectedLogoFile(null);
     setLogoPreview("");
-    updateCompanyField("logo_url", "");
-    setStatus("Logo removida localmente. Salve o perfil para persistir.", "info");
+    setField("logo_url", "");
+    notify("Logo removida. Salve o perfil para persistir.", "info");
   }
 
-  async function uploadProcessedLogo() {
+  /**
+   * Faz crop + upload no bucket axon-assets/logos/.
+   * Retorna a URL pública ou a URL já salva se nenhum arquivo novo foi selecionado.
+   */
+  async function uploadLogo(): Promise<string> {
     if (!selectedLogoFile) return companyForm.logo_url;
 
     setUploadingLogo(true);
     try {
       const tempUrl = URL.createObjectURL(selectedLogoFile);
-      const image = document.createElement("img");
-      image.src = tempUrl;
+      const img = new Image();
+      img.src = tempUrl;
 
-      await new Promise<void>((resolve, reject) => {
-        image.onload = () => resolve();
-        image.onerror = () => reject(new Error("Falha ao ler imagem da logo."));
+      await new Promise<void>((res, rej) => {
+        img.onload = () => res();
+        img.onerror = () => rej(new Error("Falha ao ler imagem da logo."));
       });
 
       const canvas = document.createElement("canvas");
       canvas.width = cropSize;
       canvas.height = cropSize;
-      const context = canvas.getContext("2d");
-      if (!context) throw new Error("Não foi possível preparar a logo.");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas indisponível.");
 
-      const shortestSide = Math.min(image.width, image.height);
-      const sourceSize = shortestSide / cropScale;
-      const sourceX = (image.width - sourceSize) / 2;
-      const sourceY = (image.height - sourceSize) / 2;
+      const shortest = Math.min(img.width, img.height);
+      const srcSize = shortest / cropScale;
+      const srcX = (img.width - srcSize) / 2;
+      const srcY = (img.height - srcSize) / 2;
 
-      context.clearRect(0, 0, cropSize, cropSize);
-      context.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, cropSize, cropSize);
-
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png", 0.95));
+      ctx.clearRect(0, 0, cropSize, cropSize);
+      ctx.drawImage(img, srcX, srcY, srcSize, srcSize, 0, 0, cropSize, cropSize);
       URL.revokeObjectURL(tempUrl);
-      if (!blob) throw new Error("Falha ao gerar arquivo final da logo.");
 
-      const safeName = sanitizeFileName(selectedLogoFile.name.replace(/\.[^.]+$/, "") || "logo");
-      const filePath = `logos/${Date.now()}-${safeName}.png`;
+      const blob = await new Promise<Blob | null>((res) =>
+        canvas.toBlob(res, "image/png", 0.95)
+      );
+      if (!blob) throw new Error("Falha ao gerar arquivo da logo.");
 
-      const { error: uploadError } = await supabase.storage.from("axon-assets").upload(filePath, blob, {
-        contentType: "image/png",
-        upsert: true,
-      });
+      const safeName = sanitizeFileName(
+        selectedLogoFile.name.replace(/\.[^.]+$/, "") || "logo"
+      );
+      const path = `logos/${Date.now()}-${safeName}.png`;
 
-      if (uploadError) throw uploadError;
+      const { error: uploadErr } = await supabase.storage
+        .from("axon-assets")
+        .upload(path, blob, { contentType: "image/png", upsert: true });
 
-      const { data } = supabase.storage.from("axon-assets").getPublicUrl(filePath);
-      const publicUrl = data.publicUrl;
-      if (!publicUrl) throw new Error("Falha ao gerar URL pública da logo.");
+      if (uploadErr) throw uploadErr;
+
+      const { data } = supabase.storage.from("axon-assets").getPublicUrl(path);
+      if (!data.publicUrl) throw new Error("URL pública não gerada.");
 
       setSelectedLogoFile(null);
-      setLogoPreview(publicUrl);
-      updateCompanyField("logo_url", publicUrl);
-      return publicUrl;
+      setLogoPreview(data.publicUrl);
+      setField("logo_url", data.publicUrl);
+      return data.publicUrl;
     } finally {
       setUploadingLogo(false);
     }
   }
 
-  async function upsertSystemPreferences(payload: PreferencesForm) {
-    const currentId = systemPreferences?.id;
-    const query = currentId
-      ? supabase.from("system_preferences").update(payload).eq("id", currentId)
-      : supabase.from("system_preferences").insert(payload);
+  // ─── Persistência ─────────────────────────────────────────────────────────
 
-    const { error } = await query;
+  async function upsertPreferences(payload: PreferencesForm) {
+    const id = systemPreferences?.id;
+    const q = id
+      ? supabase.from("system_preferences").update(payload).eq("id", id)
+      : supabase.from("system_preferences").insert(payload);
+    const { error } = await q;
     if (error) throw error;
   }
 
   async function saveCompanyTab() {
     setSavingTab("perfil-corporativo");
-    setStatus("Salvando perfil corporativo...", "info");
-
+    notify("Salvando...", "info");
     try {
-      const logoUrl = await uploadProcessedLogo();
-      const companyPayload: CompanyProfilePayload = {
+      const logoUrl = await uploadLogo();
+
+      const payload: CompanyProfilePayload = {
         company_name: companyForm.company_name.trim(),
         cnpj: formatCnpj(companyForm.cnpj),
         logo_url: logoUrl,
@@ -720,24 +794,24 @@ export default function ConfiguracoesPage() {
         contract_terms: companyForm.contract_terms,
       };
 
-      const currentId = companyProfile?.id;
-      const companyQuery = currentId
-        ? supabase.from("company_profile").update(companyPayload).eq("id", currentId)
-        : supabase.from("company_profile").insert(companyPayload);
+      const id = companyProfile?.id;
+      const { error } = id
+        ? await supabase.from("company_profile").update(payload).eq("id", id)
+        : await supabase.from("company_profile").insert(payload);
+      if (error) throw error;
 
-      const { error: companyError } = await companyQuery;
-      if (companyError) throw companyError;
-
-      const preferencesPayload: PreferencesForm = {
+      await upsertPreferences({
         ...preferencesForm,
-        commercial_documents: buildCommercialDocumentsFromForm(companyForm, preferencesForm.commercial_documents),
-      };
+        commercial_documents: buildCommercialDocuments(
+          companyForm,
+          preferencesForm.commercial_documents
+        ),
+      });
 
-      await upsertSystemPreferences(preferencesPayload);
       await refreshSettings?.();
-      setStatus("Perfil corporativo salvo com sucesso.", "success");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Erro ao salvar perfil corporativo.", "error");
+      notify("Perfil corporativo salvo.", "success");
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Erro ao salvar.", "error");
     } finally {
       setSavingTab(null);
     }
@@ -745,14 +819,13 @@ export default function ConfiguracoesPage() {
 
   async function saveLabelsTab() {
     setSavingTab("nomenclaturas");
-    setStatus("Salvando nomenclaturas...", "info");
-
+    notify("Salvando...", "info");
     try {
-      await upsertSystemPreferences(preferencesForm);
+      await upsertPreferences(preferencesForm);
       await refreshSettings?.();
-      setStatus("Nomenclaturas salvas com sucesso.", "success");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Erro ao salvar nomenclaturas.", "error");
+      notify("Nomenclaturas salvas.", "success");
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Erro ao salvar.", "error");
     } finally {
       setSavingTab(null);
     }
@@ -760,14 +833,13 @@ export default function ConfiguracoesPage() {
 
   async function saveModulesTab() {
     setSavingTab("modulos");
-    setStatus("Salvando módulos...", "info");
-
+    notify("Salvando...", "info");
     try {
-      await upsertSystemPreferences(preferencesForm);
+      await upsertPreferences(preferencesForm);
       await refreshSettings?.();
-      setStatus("Módulos salvos com sucesso.", "success");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Erro ao salvar módulos.", "error");
+      notify("Módulos salvos.", "success");
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Erro ao salvar.", "error");
     } finally {
       setSavingTab(null);
     }
@@ -775,89 +847,113 @@ export default function ConfiguracoesPage() {
 
   async function saveDocumentsTab() {
     setSavingTab("documentos");
-    setStatus("Salvando documentos comerciais...", "info");
-
+    notify("Salvando...", "info");
     try {
-      const currentId = companyProfile?.id;
-      const companyQuery = currentId
-        ? supabase.from("company_profile").update({ contract_terms: companyForm.contract_terms }).eq("id", currentId)
-        : supabase.from("company_profile").insert({
+      const id = companyProfile?.id;
+      const { error } = id
+        ? await supabase
+            .from("company_profile")
+            .update({ contract_terms: companyForm.contract_terms })
+            .eq("id", id)
+        : await supabase.from("company_profile").insert({
             company_name: companyForm.company_name.trim(),
             cnpj: formatCnpj(companyForm.cnpj),
             logo_url: companyForm.logo_url,
             primary_color: primaryColor,
             contract_terms: companyForm.contract_terms,
           });
+      if (error) throw error;
 
-      const { error: companyError } = await companyQuery;
-      if (companyError) throw companyError;
-
-      const preferencesPayload: PreferencesForm = {
+      await upsertPreferences({
         ...preferencesForm,
-        commercial_documents: buildCommercialDocumentsFromForm(companyForm, preferencesForm.commercial_documents),
-      };
+        commercial_documents: buildCommercialDocuments(
+          companyForm,
+          preferencesForm.commercial_documents
+        ),
+      });
 
-      await upsertSystemPreferences(preferencesPayload);
       await refreshSettings?.();
-      setStatus("Documentos comerciais salvos com sucesso.", "success");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Erro ao salvar documentos comerciais.", "error");
+      notify("Documentos comerciais salvos.", "success");
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Erro ao salvar.", "error");
     } finally {
       setSavingTab(null);
     }
   }
 
-  function renderSaveButton(tab: SettingsTab, label: string, onClick: () => void) {
-    const loading = savingTab === tab;
+  // ─── Render helpers ───────────────────────────────────────────────────────
+
+  function SaveButton({
+    tab,
+    label,
+    onClick,
+  }: {
+    tab: SettingsTab;
+    label: string;
+    onClick: () => void;
+  }) {
+    const busy = savingTab === tab || uploadingLogo;
     return (
       <div className="flex justify-end">
         <button
           type="button"
           onClick={onClick}
-          disabled={loading || uploadingLogo}
-          className="inline-flex min-h-11 items-center justify-center rounded-xl border px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={busy}
+          className="inline-flex min-h-11 items-center justify-center rounded-xl border px-5 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
         >
-          {loading ? "Salvando..." : label}
+          {busy ? "Salvando…" : label}
         </button>
       </div>
     );
   }
 
+  // ─── Render ───────────────────────────────────────────────────────────────
+
   return (
     <div className="h-full w-full overflow-y-auto bg-transparent text-[var(--color-text-primary)]">
       <div className="mx-auto max-w-7xl space-y-6 p-6">
-        <div className="space-y-2">
-          <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Configurações AXON</h1>
-          <p className="text-sm text-[var(--color-text-secondary)]">Identidade visual, nomenclaturas, módulos e documentos comerciais.</p>
+        {/* Cabeçalho */}
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold">Configurações</h1>
+          <p className="text-sm text-[var(--color-text-secondary)]">
+            Identidade visual, nomenclaturas, módulos e documentos comerciais.
+          </p>
         </div>
 
-        {feedback ? (
+        {/* Feedback */}
+        {feedback && (
           <div
-            className={mergeClassNames(
+            className={cx(
               "rounded-2xl border px-4 py-3 text-sm",
-              feedback.type === "success" && "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
-              feedback.type === "error" && "border-rose-500/30 bg-rose-500/10 text-rose-200",
-              feedback.type === "info" && "border-white/10 bg-white/5 text-[var(--color-text-primary)]"
+              feedback.type === "success" &&
+                "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+              feedback.type === "error" &&
+                "border-rose-500/30 bg-rose-500/10 text-rose-300",
+              feedback.type === "info" &&
+                "border-white/10 bg-white/5 text-[var(--color-text-primary)]"
             )}
           >
             {feedback.message}
           </div>
-        ) : null}
+        )}
 
+        {/* Abas */}
         <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-[var(--color-surface)]/80 p-2">
           {TAB_OPTIONS.map((tab) => {
-            const isActive = activeTab === tab.key;
+            const active = activeTab === tab.key;
             return (
               <button
                 key={tab.key}
                 type="button"
                 onClick={() => setActiveTab(tab.key)}
-                className={mergeClassNames(
+                className={cx(
                   "rounded-xl px-4 py-2 text-sm font-medium transition",
-                  isActive ? "text-white" : "text-[var(--color-text-secondary)] hover:bg-white/5 hover:text-white"
+                  active
+                    ? "text-white"
+                    : "text-[var(--color-text-secondary)] hover:bg-white/5 hover:text-white"
                 )}
-                style={isActive ? { backgroundColor: primaryColor } : undefined}
+                style={active ? { backgroundColor: primaryColor } : undefined}
               >
                 {tab.label}
               </button>
@@ -865,188 +961,298 @@ export default function ConfiguracoesPage() {
           })}
         </div>
 
-        {activeTab === "perfil-corporativo" ? (
-          <section className="space-y-6 rounded-3xl border border-white/10 bg-[var(--color-surface)] p-6 shadow-none">
-            <div className="space-y-1">
-              <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">Perfil Corporativo</h2>
-              <p className="text-sm text-[var(--color-text-secondary)]">Sem alterar o fundo global do sistema. Só dados corporativos e identidade visual.</p>
-            </div>
+        {/* ── Aba: Perfil Corporativo ──────────────────────────────────────── */}
+        {activeTab === "perfil-corporativo" && (
+          <section className="space-y-6 rounded-3xl border border-white/10 bg-[var(--color-surface)] p-6">
+            <SectionHeader
+              title="Perfil Corporativo"
+              subtitle="Dados da empresa e identidade visual do sistema."
+            />
 
-            {renderSaveButton("perfil-corporativo", "Salvar perfil corporativo", saveCompanyTab)}
+            <SaveButton
+              tab="perfil-corporativo"
+              label="Salvar perfil corporativo"
+              onClick={saveCompanyTab}
+            />
 
+            {/* Campos principais */}
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <Field label="Nome exibido da empresa">
-                <Input value={companyForm.company_name} onChange={(event) => updateCompanyField("company_name", event.target.value)} />
+              <Field label="Nome exibido">
+                <Input
+                  value={companyForm.company_name}
+                  onChange={(e) => setField("company_name", e.target.value)}
+                />
               </Field>
 
               <Field label="CNPJ">
-                <Input value={companyForm.cnpj} onChange={handleMaskedInput("cnpj", formatCnpj)} placeholder="00.000.000/0000-00" />
+                <Input
+                  value={companyForm.cnpj}
+                  onChange={masked("cnpj", formatCnpj)}
+                  placeholder="00.000.000/0000-00"
+                />
               </Field>
 
-              <Field label="Cor principal do sistema">
+              <Field label="Cor principal">
                 <div className="flex items-center gap-3">
                   <input
                     type="color"
                     value={companyForm.primary_color}
-                    onChange={(event) => updateCompanyField("primary_color", event.target.value)}
-                    className="h-11 w-16 rounded-xl border border-white/10 bg-black/20 p-1"
+                    onChange={(e) => setField("primary_color", e.target.value)}
+                    className="h-11 w-14 cursor-pointer rounded-xl border border-white/10 bg-black/20 p-1"
                   />
-                  <Input value={companyForm.primary_color} onChange={(event) => updateCompanyField("primary_color", event.target.value)} />
+                  <Input
+                    value={companyForm.primary_color}
+                    onChange={(e) => setField("primary_color", e.target.value)}
+                    className="font-mono uppercase"
+                  />
                 </div>
               </Field>
 
               <Field label="Razão social">
-                <Input value={companyForm.legal_name} onChange={(event) => updateCompanyField("legal_name", event.target.value)} />
+                <Input
+                  value={companyForm.legal_name}
+                  onChange={(e) => setField("legal_name", e.target.value)}
+                />
               </Field>
 
               <Field label="Nome fantasia">
-                <Input value={companyForm.trade_name} onChange={(event) => updateCompanyField("trade_name", event.target.value)} />
+                <Input
+                  value={companyForm.trade_name}
+                  onChange={(e) => setField("trade_name", e.target.value)}
+                />
               </Field>
 
               <Field label="Site">
-                <Input value={companyForm.website} onChange={(event) => updateCompanyField("website", event.target.value)} placeholder="https://..." />
+                <Input
+                  value={companyForm.website}
+                  onChange={(e) => setField("website", e.target.value)}
+                  placeholder="https://..."
+                />
               </Field>
 
               <Field label="E-mail de contato">
-                <Input value={companyForm.contact_email} onChange={(event) => updateCompanyField("contact_email", event.target.value)} />
+                <Input
+                  value={companyForm.contact_email}
+                  onChange={(e) => setField("contact_email", e.target.value)}
+                  type="email"
+                />
               </Field>
 
               <Field label="Telefone fixo">
-                <Input value={companyForm.phone_landline} onChange={handleMaskedInput("phone_landline", formatPhone)} placeholder="(21) 3333-4444" />
+                <Input
+                  value={companyForm.phone_landline}
+                  onChange={masked("phone_landline", formatPhone)}
+                  placeholder="(21) 3333-4444"
+                />
               </Field>
 
               <Field label="Celular">
-                <Input value={companyForm.phone_mobile} onChange={handleMaskedInput("phone_mobile", formatPhone)} placeholder="(21) 99999-9999" />
+                <Input
+                  value={companyForm.phone_mobile}
+                  onChange={masked("phone_mobile", formatPhone)}
+                  placeholder="(21) 99999-9999"
+                />
               </Field>
 
               <Field label="WhatsApp">
-                <Input value={companyForm.whatsapp_number} onChange={handleMaskedInput("whatsapp_number", formatPhone)} placeholder="(21) 99999-9999" />
+                <Input
+                  value={companyForm.whatsapp_number}
+                  onChange={masked("whatsapp_number", formatPhone)}
+                  placeholder="(21) 99999-9999"
+                />
               </Field>
 
               <Field label="CEP">
-                <Input value={companyForm.zipcode} onChange={handleMaskedInput("zipcode", formatCep)} placeholder="00000-000" />
+                <Input
+                  value={companyForm.zipcode}
+                  onChange={masked("zipcode", formatCep)}
+                  placeholder="00000-000"
+                />
               </Field>
 
               <Field label="Estado">
                 <Select
                   value={companyForm.state}
-                  onChange={(event) => {
-                    updateCompanyField("state", event.target.value);
-                    updateCompanyField("city", "");
+                  onChange={(e) => {
+                    setField("state", e.target.value);
+                    setField("city", "");
                   }}
                 >
-                  <option value="">{loadingStates ? "Carregando estados..." : "Selecione"}</option>
-                  {states.map((state) => (
-                    <option key={state.id} value={state.sigla}>
-                      {state.nome} ({state.sigla})
+                  <option value="">
+                    {loadingStates ? "Carregando…" : "Selecione"}
+                  </option>
+                  {states.map((s) => (
+                    <option key={s.id} value={s.sigla}>
+                      {s.nome} ({s.sigla})
                     </option>
                   ))}
                 </Select>
               </Field>
 
               <Field label="Cidade">
-                <Select value={companyForm.city} onChange={(event) => updateCompanyField("city", event.target.value)} disabled={!companyForm.state || loadingCities}>
-                  <option value="">{loadingCities ? "Carregando municípios..." : "Selecione"}</option>
-                  {cities.map((city) => (
-                    <option key={city.id} value={city.nome}>
-                      {city.nome}
+                <Select
+                  value={companyForm.city}
+                  onChange={(e) => setField("city", e.target.value)}
+                  disabled={!companyForm.state || loadingCities}
+                >
+                  <option value="">
+                    {loadingCities ? "Carregando…" : "Selecione"}
+                  </option>
+                  {cities.map((c) => (
+                    <option key={c.id} value={c.nome}>
+                      {c.nome}
                     </option>
                   ))}
                 </Select>
               </Field>
 
               <Field label="Endereço">
-                <Input value={companyForm.street} onChange={(event) => updateCompanyField("street", event.target.value)} />
+                <Input
+                  value={companyForm.street}
+                  onChange={(e) => setField("street", e.target.value)}
+                />
               </Field>
 
               <Field label="Número">
-                <Input value={companyForm.street_number} onChange={(event) => updateCompanyField("street_number", event.target.value)} />
+                <Input
+                  value={companyForm.street_number}
+                  onChange={(e) => setField("street_number", e.target.value)}
+                />
               </Field>
 
               <Field label="Complemento">
-                <Input value={companyForm.complement} onChange={(event) => updateCompanyField("complement", event.target.value)} />
+                <Input
+                  value={companyForm.complement}
+                  onChange={(e) => setField("complement", e.target.value)}
+                />
               </Field>
 
               <Field label="Bairro">
-                <Input value={companyForm.district} onChange={(event) => updateCompanyField("district", event.target.value)} />
+                <Input
+                  value={companyForm.district}
+                  onChange={(e) => setField("district", e.target.value)}
+                />
               </Field>
 
               <Field label="País">
-                <Input value={companyForm.country} onChange={(event) => updateCompanyField("country", event.target.value)} />
+                <Input
+                  value={companyForm.country}
+                  onChange={(e) => setField("country", e.target.value)}
+                />
               </Field>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-black/10 p-4">
-              <div className="mb-4 space-y-1">
-                <h3 className="font-medium text-[var(--color-text-primary)]">Logo da empresa</h3>
-                <p className="text-sm text-[var(--color-text-secondary)]">Bucket axon-assets / pasta logos.</p>
-              </div>
+            {/* Logo */}
+            <div className="rounded-2xl border border-white/10 bg-black/10 p-5">
+              <h3 className="mb-1 font-medium">Logo da empresa</h3>
+              <p className="mb-5 text-xs text-[var(--color-text-secondary)]">
+                Bucket <code>axon-assets</code>, pasta <code>logos/</code>. Formato PNG final.
+              </p>
 
-              <div className="flex flex-col gap-5 lg:flex-row">
-                <div className="flex h-44 w-44 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-white/10 bg-black/10">
+              <div className="flex flex-col gap-6 lg:flex-row">
+                {/* Preview */}
+                <div className="flex h-44 w-44 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-white/15 bg-black/20">
                   {logoPreview || companyForm.logo_url ? (
                     <img
                       src={logoPreview || companyForm.logo_url}
-                      alt="Logo da empresa"
-                      className="h-full w-full object-contain"
+                      alt="Logo"
+                      className="h-full w-full object-contain transition-transform"
                       style={{ transform: `scale(${cropScale})` }}
                     />
                   ) : (
-                    <span className="px-4 text-center text-sm text-[var(--color-text-secondary)]">Nenhuma logo enviada</span>
+                    <span className="px-4 text-center text-sm text-[var(--color-text-secondary)]">
+                      Nenhuma logo
+                    </span>
                   )}
                 </div>
 
+                {/* Controles */}
                 <div className="flex-1 space-y-4">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => selectLogo(e.target.files?.[0])}
+                  />
                   <div className="flex flex-wrap gap-2">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(event) => handleSelectLogo(event.target.files?.[0] ?? null)}
-                    />
-                    <button type="button" onClick={() => fileInputRef.current?.click()} className="rounded-xl border border-white/10 bg-black/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/5">
-                      {companyForm.logo_url || logoPreview ? "Editar logo" : "Enviar logo"}
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="rounded-xl border border-white/10 bg-black/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/5"
+                    >
+                      {logoPreview || companyForm.logo_url ? "Trocar logo" : "Enviar logo"}
                     </button>
-                    {(companyForm.logo_url || logoPreview) ? (
-                      <button type="button" onClick={removeLogo} className="rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-2 text-sm font-medium text-red-200 transition hover:bg-red-400/20">
+                    {(logoPreview || companyForm.logo_url) && (
+                      <button
+                        type="button"
+                        onClick={removeLogo}
+                        className="rounded-xl border border-rose-400/20 bg-rose-400/10 px-4 py-2 text-sm font-medium text-rose-300 transition hover:bg-rose-400/20"
+                      >
                         Excluir logo
                       </button>
-                    ) : null}
+                    )}
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
-                    <Field label="Ajuste de corte">
-                      <input type="range" min="1" max="2.2" step="0.1" value={cropScale} onChange={(event) => setCropScale(Number(event.target.value))} className="w-full accent-[var(--color-cs-green)]" />
+                    <Field label={`Zoom: ${cropScale.toFixed(1)}×`}>
+                      <input
+                        type="range"
+                        min="1"
+                        max="2.5"
+                        step="0.1"
+                        value={cropScale}
+                        onChange={(e) => setCropScale(Number(e.target.value))}
+                        className="w-full accent-[var(--color-cs-green)]"
+                      />
                     </Field>
-                    <Field label="Tamanho final">
-                      <input type="range" min="160" max="800" step="20" value={cropSize} onChange={(event) => setCropSize(Number(event.target.value))} className="w-full accent-[var(--color-cs-green)]" />
+                    <Field label={`Tamanho final: ${cropSize}px`}>
+                      <input
+                        type="range"
+                        min="160"
+                        max="800"
+                        step="20"
+                        value={cropSize}
+                        onChange={(e) => setCropSize(Number(e.target.value))}
+                        className="w-full accent-[var(--color-cs-green)]"
+                      />
                     </Field>
                   </div>
 
-                  <p className="text-xs text-[var(--color-text-secondary)]">A logo só sobe no storage quando você salvar.</p>
-                  {canSaveLogoEdit ? <p className="text-xs text-[var(--color-cs-gold)]">Nova logo pendente de upload.</p> : null}
+                  {selectedLogoFile && (
+                    <p className="text-xs text-[var(--color-cs-gold)]">
+                      Upload pendente — salve o perfil para concluir.
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
 
-            {renderSaveButton("perfil-corporativo", "Salvar perfil corporativo", saveCompanyTab)}
+            <SaveButton
+              tab="perfil-corporativo"
+              label="Salvar perfil corporativo"
+              onClick={saveCompanyTab}
+            />
           </section>
-        ) : null}
+        )}
 
-        {activeTab === "nomenclaturas" ? (
-          <section className="space-y-6 rounded-3xl border border-white/10 bg-[var(--color-surface)] p-6 shadow-none">
-            <div className="space-y-1">
-              <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">Nomenclaturas</h2>
-              <p className="text-sm text-[var(--color-text-secondary)]">Tudo em português, com presets prontos para o usuário só selecionar.</p>
-            </div>
+        {/* ── Aba: Nomenclaturas ───────────────────────────────────────────── */}
+        {activeTab === "nomenclaturas" && (
+          <section className="space-y-6 rounded-3xl border border-white/10 bg-[var(--color-surface)] p-6">
+            <SectionHeader
+              title="Nomenclaturas"
+              subtitle="Renomeie menus e entidades para o vocabulário do cliente."
+            />
 
-            <div className="space-y-4 rounded-2xl border border-white/10 bg-black/10 p-4">
-              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">Presets rápidos</h3>
-              <div className="space-y-4">
+            {/* Presets */}
+            <div className="rounded-2xl border border-white/10 bg-black/10 p-5">
+              <h3 className="mb-4 text-sm font-semibold">Presets rápidos</h3>
+              <div className="space-y-5">
                 {NOMENCLATURE_PRESETS.map((group) => (
-                  <div key={group.title} className="space-y-3">
-                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-[var(--color-text-secondary)]">{group.title}</p>
+                  <div key={group.title}>
+                    <p className="mb-2 text-xs font-medium uppercase tracking-widest text-[var(--color-text-secondary)]">
+                      {group.title}
+                    </p>
                     <div className="flex flex-wrap gap-2">
                       {group.options.map((preset) => (
                         <button
@@ -1064,16 +1270,27 @@ export default function ConfiguracoesPage() {
               </div>
             </div>
 
-            {renderSaveButton("nomenclaturas", "Salvar nomenclaturas", saveLabelsTab)}
+            <SaveButton
+              tab="nomenclaturas"
+              label="Salvar nomenclaturas"
+              onClick={saveLabelsTab}
+            />
 
+            {/* Grupos de campos */}
             <div className="space-y-5">
               {LABEL_GROUPS.map((group) => (
-                <div key={group.title} className="rounded-2xl border border-white/10 bg-black/10 p-4">
-                  <h3 className="mb-4 font-medium text-[var(--color-text-primary)]">{group.title}</h3>
+                <div
+                  key={group.title}
+                  className="rounded-2xl border border-white/10 bg-black/10 p-5"
+                >
+                  <h3 className="mb-4 font-medium">{group.title}</h3>
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {group.fields.map((field) => (
-                      <Field key={field} label={getLabelTitle(field)}>
-                        <Input value={preferencesForm.custom_labels[field] ?? ""} onChange={(event) => updateLabelField(field, event.target.value)} />
+                      <Field key={field} label={LABEL_MAP[field] ?? field}>
+                        <Input
+                          value={preferencesForm.custom_labels[field] ?? ""}
+                          onChange={(e) => setLabel(field, e.target.value)}
+                        />
                       </Field>
                     ))}
                   </div>
@@ -1081,88 +1298,213 @@ export default function ConfiguracoesPage() {
               ))}
             </div>
 
-            {renderSaveButton("nomenclaturas", "Salvar nomenclaturas", saveLabelsTab)}
+            <SaveButton
+              tab="nomenclaturas"
+              label="Salvar nomenclaturas"
+              onClick={saveLabelsTab}
+            />
           </section>
-        ) : null}
+        )}
 
-        {activeTab === "modulos" ? (
-          <section className="space-y-6 rounded-3xl border border-white/10 bg-[var(--color-surface)] p-6 shadow-none">
-            <div className="space-y-1">
-              <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">Módulos</h2>
-              <p className="text-sm text-[var(--color-text-secondary)]">Ative apenas o que entra na operação do cliente.</p>
-            </div>
+        {/* ── Aba: Módulos ─────────────────────────────────────────────────── */}
+        {activeTab === "modulos" && (
+          <section className="space-y-6 rounded-3xl border border-white/10 bg-[var(--color-surface)] p-6">
+            <SectionHeader
+              title="Módulos"
+              subtitle="Ative apenas as funcionalidades usadas pelo cliente."
+            />
 
-            {renderSaveButton("modulos", "Salvar módulos", saveModulesTab)}
+            <SaveButton
+              tab="modulos"
+              label="Salvar módulos"
+              onClick={saveModulesTab}
+            />
 
             <div className="grid gap-4 lg:grid-cols-2">
-              {MODULES.map((module) => {
-                const enabled = Boolean(preferencesForm.feature_toggles[module.key]);
+              {MODULES.map((mod) => {
+                const enabled = Boolean(
+                  preferencesForm.feature_toggles[mod.key]
+                );
                 return (
-                  <div key={module.key} className="rounded-2xl border border-white/10 bg-black/10 p-5">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="space-y-1">
-                        <h3 className="font-medium text-[var(--color-text-primary)]">{module.title}</h3>
-                        <p className="text-sm text-[var(--color-text-secondary)]">{module.description}</p>
-                      </div>
-                      <ToggleSwitch value={enabled} onChange={(value) => updateFeatureToggle(module.key, value)} activeColor={primaryColor} />
+                  <div
+                    key={mod.key}
+                    className="flex items-start justify-between gap-4 rounded-2xl border border-white/10 bg-black/10 p-5"
+                  >
+                    <div className="space-y-0.5">
+                      <p className="font-medium">{mod.title}</p>
+                      <p className="text-sm text-[var(--color-text-secondary)]">
+                        {mod.description}
+                      </p>
                     </div>
+                    <Toggle
+                      value={enabled}
+                      onChange={(v) => setToggle(mod.key, v)}
+                      activeColor={primaryColor}
+                    />
                   </div>
                 );
               })}
             </div>
 
-            {renderSaveButton("modulos", "Salvar módulos", saveModulesTab)}
+            <SaveButton
+              tab="modulos"
+              label="Salvar módulos"
+              onClick={saveModulesTab}
+            />
           </section>
-        ) : null}
+        )}
 
-        {activeTab === "documentos" ? (
-          <section className="space-y-6 rounded-3xl border border-white/10 bg-[var(--color-surface)] p-6 shadow-none">
-            <div className="space-y-1">
-              <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">Documentos Comerciais</h2>
-              <p className="text-sm text-[var(--color-text-secondary)]">Cláusulas, textos padrões, rodapés e regras de exibição.</p>
-            </div>
+        {/* ── Aba: Documentos Comerciais ───────────────────────────────────── */}
+        {activeTab === "documentos" && (
+          <section className="space-y-6 rounded-3xl border border-white/10 bg-[var(--color-surface)] p-6">
+            <SectionHeader
+              title="Documentos Comerciais"
+              subtitle="Cláusulas, textos padrões, rodapés e regras de exibição."
+            />
 
-            {renderSaveButton("documentos", "Salvar documentos comerciais", saveDocumentsTab)}
+            <SaveButton
+              tab="documentos"
+              label="Salvar documentos comerciais"
+              onClick={saveDocumentsTab}
+            />
 
+            {/* Opções de exibição */}
             <div className="grid gap-4 md:grid-cols-2">
-              <ToggleField label="Mostrar logo nos orçamentos" value={Boolean(preferencesForm.commercial_documents.show_logo_on_quotes)} onChange={(value) => updateCommercialDocField("show_logo_on_quotes", value)} activeColor={primaryColor} />
-              <ToggleField label="Mostrar endereço nos orçamentos" value={Boolean(preferencesForm.commercial_documents.show_company_address_on_quotes)} onChange={(value) => updateCommercialDocField("show_company_address_on_quotes", value)} activeColor={primaryColor} />
-              <ToggleField label="Mostrar contatos nos orçamentos" value={Boolean(preferencesForm.commercial_documents.show_company_contacts_on_quotes)} onChange={(value) => updateCommercialDocField("show_company_contacts_on_quotes", value)} activeColor={primaryColor} />
-              <ToggleField label="Mostrar assinatura nos orçamentos" value={Boolean(preferencesForm.commercial_documents.show_signature_on_quotes)} onChange={(value) => updateCommercialDocField("show_signature_on_quotes", value)} activeColor={primaryColor} />
+              <ToggleRow
+                label="Mostrar logo nos orçamentos"
+                value={Boolean(
+                  preferencesForm.commercial_documents.show_logo_on_quotes
+                )}
+                onChange={(v) => setCommercialDoc("show_logo_on_quotes", v)}
+                activeColor={primaryColor}
+              />
+              <ToggleRow
+                label="Mostrar endereço nos orçamentos"
+                value={Boolean(
+                  preferencesForm.commercial_documents
+                    .show_company_address_on_quotes
+                )}
+                onChange={(v) =>
+                  setCommercialDoc("show_company_address_on_quotes", v)
+                }
+                activeColor={primaryColor}
+              />
+              <ToggleRow
+                label="Mostrar contatos nos orçamentos"
+                value={Boolean(
+                  preferencesForm.commercial_documents
+                    .show_company_contacts_on_quotes
+                )}
+                onChange={(v) =>
+                  setCommercialDoc("show_company_contacts_on_quotes", v)
+                }
+                activeColor={primaryColor}
+              />
+              <ToggleRow
+                label="Mostrar assinatura nos orçamentos"
+                value={Boolean(
+                  preferencesForm.commercial_documents.show_signature_on_quotes
+                )}
+                onChange={(v) =>
+                  setCommercialDoc("show_signature_on_quotes", v)
+                }
+                activeColor={primaryColor}
+              />
             </div>
 
+            {/* Textos */}
             <Field label="Texto de abertura do orçamento">
-              <Textarea value={String(preferencesForm.commercial_documents.quote_intro_text ?? "")} onChange={(event) => updateCommercialDocField("quote_intro_text", event.target.value)} />
+              <Textarea
+                value={String(
+                  preferencesForm.commercial_documents.quote_intro_text ?? ""
+                )}
+                onChange={(e) =>
+                  setCommercialDoc("quote_intro_text", e.target.value)
+                }
+              />
             </Field>
 
             <Field label="Termos padrão do orçamento">
-              <Textarea value={String(preferencesForm.commercial_documents.quote_terms_text ?? "")} onChange={(event) => updateCommercialDocField("quote_terms_text", event.target.value)} />
+              <Textarea
+                value={String(
+                  preferencesForm.commercial_documents.quote_terms_text ?? ""
+                )}
+                onChange={(e) =>
+                  setCommercialDoc("quote_terms_text", e.target.value)
+                }
+              />
             </Field>
 
             <Field label="Cláusulas contratuais padrão">
-              <Textarea value={companyForm.contract_terms} onChange={(event) => updateCompanyField("contract_terms", event.target.value)} />
+              <Textarea
+                value={companyForm.contract_terms}
+                onChange={(e) => setField("contract_terms", e.target.value)}
+              />
             </Field>
 
             <Field label="Modelo de proposta">
-              <Textarea value={String(preferencesForm.commercial_documents.default_proposal_template ?? "")} onChange={(event) => updateCommercialDocField("default_proposal_template", event.target.value)} />
+              <Textarea
+                value={String(
+                  preferencesForm.commercial_documents
+                    .default_proposal_template ?? ""
+                )}
+                onChange={(e) =>
+                  setCommercialDoc("default_proposal_template", e.target.value)
+                }
+              />
             </Field>
 
             <Field label="Rodapé de proposta">
-              <Textarea value={companyForm.proposal_footer} onChange={(event) => updateCompanyField("proposal_footer", event.target.value)} />
+              <Textarea
+                value={companyForm.proposal_footer}
+                onChange={(e) => setField("proposal_footer", e.target.value)}
+              />
             </Field>
 
             <Field label="Rodapé de fatura">
-              <Textarea value={companyForm.invoice_footer} onChange={(event) => updateCompanyField("invoice_footer", event.target.value)} />
+              <Textarea
+                value={companyForm.invoice_footer}
+                onChange={(e) => setField("invoice_footer", e.target.value)}
+              />
             </Field>
 
             <Field label="Observações operacionais padrão">
-              <Textarea value={String(preferencesForm.commercial_documents.default_operational_notes ?? "")} onChange={(event) => updateCommercialDocField("default_operational_notes", event.target.value)} />
+              <Textarea
+                value={String(
+                  preferencesForm.commercial_documents
+                    .default_operational_notes ?? ""
+                )}
+                onChange={(e) =>
+                  setCommercialDoc("default_operational_notes", e.target.value)
+                }
+              />
             </Field>
 
-            {renderSaveButton("documentos", "Salvar documentos comerciais", saveDocumentsTab)}
+            <SaveButton
+              tab="documentos"
+              label="Salvar documentos comerciais"
+              onClick={saveDocumentsTab}
+            />
           </section>
-        ) : null}
+        )}
       </div>
+    </div>
+  );
+}
+
+// ─── Componentes reutilizáveis ────────────────────────────────────────────────
+
+function SectionHeader({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <h2 className="text-lg font-semibold">{title}</h2>
+      <p className="text-sm text-[var(--color-text-secondary)]">{subtitle}</p>
     </div>
   );
 }
@@ -1170,7 +1512,9 @@ export default function ConfiguracoesPage() {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="space-y-1.5">
-      <span className="block text-sm font-medium text-[var(--color-text-secondary)]">{label}</span>
+      <span className="block text-sm font-medium text-[var(--color-text-secondary)]">
+        {label}
+      </span>
       {children}
     </label>
   );
@@ -1180,9 +1524,10 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={mergeClassNames(
+      className={cx(
         "min-h-11 w-full rounded-xl border border-white/10 bg-black/10 px-4 py-2 text-sm text-white outline-none transition",
-        "placeholder:text-[var(--color-text-secondary)] focus:border-[var(--color-cs-green)]/60 focus:bg-black/20 focus:ring-2 focus:ring-[var(--color-cs-green)]/15",
+        "placeholder:text-[var(--color-text-secondary)]",
+        "focus:border-[var(--color-cs-green)]/60 focus:bg-black/20 focus:ring-2 focus:ring-[var(--color-cs-green)]/15",
         props.className
       )}
     />
@@ -1193,9 +1538,10 @@ function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
       {...props}
-      className={mergeClassNames(
-        "min-h-11 w-full rounded-xl border border-white/10 bg-black/10 px-4 py-2 text-sm text-white outline-none transition",
-        "focus:border-[var(--color-cs-green)]/60 focus:bg-black/20 focus:ring-2 focus:ring-[var(--color-cs-green)]/15 disabled:cursor-not-allowed disabled:opacity-60",
+      className={cx(
+        "min-h-11 w-full rounded-xl border border-white/10 bg-[var(--color-surface)] px-4 py-2 text-sm text-white outline-none transition",
+        "focus:border-[var(--color-cs-green)]/60 focus:ring-2 focus:ring-[var(--color-cs-green)]/15",
+        "disabled:cursor-not-allowed disabled:opacity-50",
         props.className
       )}
     />
@@ -1205,31 +1551,47 @@ function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
 function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
+      rows={5}
       {...props}
-      className={mergeClassNames(
+      className={cx(
         "min-h-[140px] w-full rounded-xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-white outline-none transition",
-        "placeholder:text-[var(--color-text-secondary)] focus:border-[var(--color-cs-green)]/60 focus:bg-black/20 focus:ring-2 focus:ring-[var(--color-cs-green)]/15",
+        "placeholder:text-[var(--color-text-secondary)]",
+        "focus:border-[var(--color-cs-green)]/60 focus:bg-black/20 focus:ring-2 focus:ring-[var(--color-cs-green)]/15",
         props.className
       )}
     />
   );
 }
 
-function ToggleSwitch({ value, onChange, activeColor }: { value: boolean; onChange: (value: boolean) => void; activeColor: string }) {
+function Toggle({
+  value,
+  onChange,
+  activeColor,
+}: {
+  value: boolean;
+  onChange: (v: boolean) => void;
+  activeColor: string;
+}) {
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={value}
       onClick={() => onChange(!value)}
-      aria-pressed={value}
-      className="relative h-7 w-12 rounded-full transition"
-      style={{ backgroundColor: value ? activeColor : "rgba(255,255,255,0.18)" }}
+      className="relative h-7 w-12 shrink-0 rounded-full transition-colors duration-200"
+      style={{ backgroundColor: value ? activeColor : "rgba(255,255,255,0.15)" }}
     >
-      <span className={mergeClassNames("absolute top-1 h-5 w-5 rounded-full bg-white transition", value ? "left-6" : "left-1")} />
+      <span
+        className={cx(
+          "absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all duration-200",
+          value ? "left-6" : "left-1"
+        )}
+      />
     </button>
   );
 }
 
-function ToggleField({
+function ToggleRow({
   label,
   value,
   onChange,
@@ -1237,13 +1599,13 @@ function ToggleField({
 }: {
   label: string;
   value: boolean;
-  onChange: (value: boolean) => void;
+  onChange: (v: boolean) => void;
   activeColor: string;
 }) {
   return (
     <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/10 p-4">
-      <span className="pr-4 text-sm font-medium text-[var(--color-text-primary)]">{label}</span>
-      <ToggleSwitch value={value} onChange={onChange} activeColor={activeColor} />
+      <span className="pr-4 text-sm font-medium">{label}</span>
+      <Toggle value={value} onChange={onChange} activeColor={activeColor} />
     </div>
   );
 }
