@@ -1,14 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
+  ImageIcon,
   Loader2,
   Lock,
   Mail,
   Save,
   Shield,
+  Upload,
   User2,
   X,
 } from "lucide-react";
@@ -28,6 +30,7 @@ interface ProfileRow {
   email: string;
   full_name: string | null;
   role: string | null;
+  avatar_url: string | null;
   created_at?: string | null;
   client_id?: string | null;
 }
@@ -36,6 +39,7 @@ interface ProfileFormData {
   full_name: string;
   email: string;
   role: string;
+  avatar_url: string;
 }
 
 interface PasswordFormData {
@@ -47,12 +51,15 @@ const DEFAULT_PROFILE_FORM: ProfileFormData = {
   full_name: "",
   email: "",
   role: "admin",
+  avatar_url: "",
 };
 
 const DEFAULT_PASSWORD_FORM: PasswordFormData = {
   newPassword: "",
   confirmPassword: "",
 };
+
+const STORAGE_BUCKET_NAME = "axon-assets";
 
 function cn(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(" ");
@@ -108,6 +115,22 @@ function translateSupabaseError(message: string): string {
     return "A política de acesso do banco bloqueou esta operação.";
   }
 
+  if (normalized.includes("mime type")) {
+    return "O tipo de arquivo não é permitido pelo bucket.";
+  }
+
+  if (normalized.includes("duplicate")) {
+    return "Já existe um arquivo com esse nome no bucket.";
+  }
+
+  if (normalized.includes("bucket")) {
+    return "Não foi possível acessar o bucket configurado.";
+  }
+
+  if (normalized.includes("storage")) {
+    return "Houve um problema ao acessar o storage.";
+  }
+
   return message;
 }
 
@@ -126,6 +149,15 @@ function buildInitials(fullName: string): string {
     .join("");
 }
 
+function sanitizeFileName(fileName: string): string {
+  return fileName
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zA-Z0-9._-]/g, "")
+    .toLowerCase();
+}
+
 export default function PerfilAdminPage() {
   const [profileId, setProfileId] = useState<string | null>(null);
   const [authUserId, setAuthUserId] = useState<string | null>(null);
@@ -135,6 +167,8 @@ export default function PerfilAdminPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [savingProfile, setSavingProfile] = useState<boolean>(false);
   const [savingPassword, setSavingPassword] = useState<boolean>(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState<boolean>(false);
+  const [avatarPreviewError, setAvatarPreviewError] = useState<boolean>(false);
 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
@@ -152,34 +186,27 @@ export default function PerfilAdminPage() {
     setToasts((current) => current.filter((item) => item.id !== id));
   }, []);
 
-  const updateProfileField = useCallback(
-    (field: keyof ProfileFormData, value: string) => {
-      setFormData((current) => ({
-        ...current,
-        [field]: value,
-      }));
-    },
-    []
-  );
+  const updateProfileField = useCallback((field: keyof ProfileFormData, value: string) => {
+    setFormData((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }, []);
 
-  const updatePasswordField = useCallback(
-    (field: keyof PasswordFormData, value: string) => {
-      setPasswordForm((current) => ({
-        ...current,
-        [field]: value,
-      }));
-    },
-    []
-  );
+  const updatePasswordField = useCallback((field: keyof PasswordFormData, value: string) => {
+    setPasswordForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }, []);
 
   const fetchProfile = useCallback(async () => {
     setLoading(true);
 
     try {
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
+      const authResponse = await supabase.auth.getUser();
+      const user = authResponse.data.user;
+      const authError = authResponse.error;
 
       if (authError) {
         throw authError;
@@ -191,24 +218,26 @@ export default function PerfilAdminPage() {
 
       setAuthUserId(user.id);
 
-      const { data: profile, error: profileError } = await supabase
+      const profileResponse = await supabase
         .from("profiles")
-        .select("id, email, full_name, role, created_at, client_id")
+        .select("id, email, full_name, role, avatar_url, created_at, client_id")
         .eq("id", user.id)
         .maybeSingle();
 
-      if (profileError) {
-        throw profileError;
+      if (profileResponse.error) {
+        throw profileResponse.error;
       }
 
-      const typedProfile = (profile as ProfileRow | null) ?? null;
+      const profile = (profileResponse.data as ProfileRow | null) ?? null;
 
-      setProfileId(typedProfile?.id ?? user.id);
+      setProfileId(profile?.id ?? user.id);
+      setAvatarPreviewError(false);
 
       setFormData({
-        full_name: typedProfile?.full_name ?? "",
-        email: typedProfile?.email ?? user.email ?? "",
-        role: typedProfile?.role ?? "admin",
+        full_name: profile?.full_name ?? "",
+        email: profile?.email ?? user.email ?? "",
+        role: profile?.role ?? "admin",
+        avatar_url: profile?.avatar_url ?? "",
       });
     } catch (error: unknown) {
       const message =
@@ -226,6 +255,92 @@ export default function PerfilAdminPage() {
     void fetchProfile();
   }, [fetchProfile]);
 
+  const handleAvatarUpload = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const input = event.target;
+      const file = input.files?.[0] ?? null;
+
+      if (!file) {
+        return;
+      }
+
+      if (!authUserId) {
+        addToast("error", "Sessão inválida", "Não foi possível identificar o usuário atual.");
+        input.value = "";
+        return;
+      }
+
+      if (!file.type.startsWith("image/")) {
+        addToast("error", "Arquivo inválido", "Selecione uma imagem válida para o avatar.");
+        input.value = "";
+        return;
+      }
+
+      const maxSizeInBytes = 5 * 1024 * 1024;
+
+      if (file.size > maxSizeInBytes) {
+        addToast("error", "Arquivo muito grande", "Envie uma imagem com até 5MB.");
+        input.value = "";
+        return;
+      }
+
+      setUploadingAvatar(true);
+      setAvatarPreviewError(false);
+
+      try {
+        const safeName = sanitizeFileName(file.name);
+        const fallbackExtension = file.type.split("/")[1] || "png";
+        const detectedExtension = safeName.includes(".")
+          ? safeName.split(".").pop() || fallbackExtension
+          : fallbackExtension;
+        const baseName = safeName.replace(/\.[^.]+$/, "") || "avatar";
+        const filePath = `avatars/${authUserId}/${Date.now()}-${baseName}.${detectedExtension}`;
+
+        const uploadResponse = await supabase.storage
+          .from(STORAGE_BUCKET_NAME)
+          .upload(filePath, file, {
+            cacheControl: "3600",
+            upsert: true,
+          });
+
+        if (uploadResponse.error) {
+          throw uploadResponse.error;
+        }
+
+        const publicUrlResponse = supabase.storage.from(STORAGE_BUCKET_NAME).getPublicUrl(filePath);
+        const publicUrl = publicUrlResponse.data.publicUrl ?? "";
+
+        if (!publicUrl) {
+          throw new Error("Não foi possível gerar a URL pública da imagem.");
+        }
+
+        setFormData((current) => ({
+          ...current,
+          avatar_url: publicUrl,
+        }));
+
+        setAvatarPreviewError(false);
+
+        addToast(
+          "success",
+          "Avatar enviado",
+          "A imagem foi enviada com sucesso e vinculada ao seu perfil."
+        );
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error
+            ? translateSupabaseError(error.message)
+            : "Não foi possível enviar a imagem.";
+
+        addToast("error", "Erro no upload", message);
+      } finally {
+        setUploadingAvatar(false);
+        input.value = "";
+      }
+    },
+    [addToast, authUserId]
+  );
+
   const handleSaveProfile = useCallback(async () => {
     if (!authUserId) {
       addToast("error", "Sessão inválida", "Não foi possível identificar o usuário atual.");
@@ -234,6 +349,7 @@ export default function PerfilAdminPage() {
 
     const trimmedName = formData.full_name.trim();
     const trimmedEmail = formData.email.trim();
+    const trimmedAvatarUrl = formData.avatar_url.trim();
     const normalizedRole = formData.role.trim() || "admin";
 
     if (!trimmedEmail) {
@@ -244,12 +360,12 @@ export default function PerfilAdminPage() {
     setSavingProfile(true);
 
     try {
-      const { error: authUpdateError } = await supabase.auth.updateUser({
+      const authUpdateResponse = await supabase.auth.updateUser({
         email: trimmedEmail,
       });
 
-      if (authUpdateError) {
-        throw authUpdateError;
+      if (authUpdateResponse.error) {
+        throw authUpdateResponse.error;
       }
 
       const payload = {
@@ -257,27 +373,28 @@ export default function PerfilAdminPage() {
         email: trimmedEmail,
         full_name: trimmedName || null,
         role: normalizedRole,
+        avatar_url: trimmedAvatarUrl || null,
       };
 
-      const { data: savedProfile, error: profileError } = await supabase
+      const profileSaveResponse = await supabase
         .from("profiles")
         .upsert(payload, { onConflict: "id" })
-        .select("id, email, full_name, role, created_at, client_id")
+        .select("id, email, full_name, role, avatar_url, created_at, client_id")
         .single();
 
-      if (profileError) {
-        throw profileError;
+      if (profileSaveResponse.error) {
+        throw profileSaveResponse.error;
       }
 
-      const typedSavedProfile = savedProfile as ProfileRow;
+      const savedProfile = profileSaveResponse.data as ProfileRow;
 
-      setProfileId(typedSavedProfile.id);
+      setProfileId(savedProfile.id);
+      setFormData((current) => ({
+        ...current,
+        avatar_url: savedProfile.avatar_url ?? current.avatar_url,
+      }));
 
-      addToast(
-        "success",
-        "Perfil salvo",
-        "Seus dados de perfil foram atualizados. Se o e-mail mudou, pode ser necessária confirmação."
-      );
+      addToast("success", "Perfil salvo", "Seus dados de perfil foram atualizados com sucesso.");
 
       await fetchProfile();
     } catch (error: unknown) {
@@ -311,12 +428,12 @@ export default function PerfilAdminPage() {
     setSavingPassword(true);
 
     try {
-      const { error } = await supabase.auth.updateUser({
+      const passwordResponse = await supabase.auth.updateUser({
         password: passwordForm.newPassword,
       });
 
-      if (error) {
-        throw error;
+      if (passwordResponse.error) {
+        throw passwordResponse.error;
       }
 
       setPasswordForm(DEFAULT_PASSWORD_FORM);
@@ -338,6 +455,9 @@ export default function PerfilAdminPage() {
     return buildInitials(formData.full_name);
   }, [formData.full_name]);
 
+  const avatarPreviewSrc = formData.avatar_url.trim();
+  const hasAvatar = avatarPreviewSrc.length > 0;
+
   return (
     <main className="min-h-screen bg-[#0d0807] text-zinc-100">
       <section className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
@@ -354,7 +474,7 @@ export default function PerfilAdminPage() {
                   Meu Perfil
                 </h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400 sm:text-base">
-                  Atualize seus dados básicos e a segurança da conta administrativa.
+                  Atualize seus dados básicos, segurança e foto do perfil administrativo.
                 </p>
               </div>
             </div>
@@ -395,8 +515,32 @@ export default function PerfilAdminPage() {
                 <div className="flex flex-col items-center text-center">
                   <div className="relative">
                     <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[#120e0d] text-2xl font-semibold text-white">
-                      {initials}
+                      {hasAvatar && !avatarPreviewError ? (
+                        <img
+                          src={avatarPreviewSrc}
+                          alt="Avatar do administrador"
+                          className="h-full w-full object-cover"
+                          onError={() => setAvatarPreviewError(true)}
+                        />
+                      ) : (
+                        initials
+                      )}
                     </div>
+
+                    <label className="absolute -bottom-1 -right-1 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-white/10 bg-[#138946] text-white shadow-lg shadow-[#138946]/20 transition hover:bg-[#0f723b]">
+                      {uploadingAvatar ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Upload className="h-4 w-4" />
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => void handleAvatarUpload(e)}
+                        disabled={uploadingAvatar}
+                      />
+                    </label>
                   </div>
 
                   <h2 className="mt-5 text-lg font-semibold text-white">
@@ -410,6 +554,12 @@ export default function PerfilAdminPage() {
                     <Shield className="h-3.5 w-3.5 text-sky-300" />
                     {getRoleLabel(formData.role)}
                   </div>
+
+                  {avatarPreviewError && (
+                    <p className="mt-3 text-xs leading-5 text-amber-300">
+                      A imagem foi salva, mas a prévia não pôde ser exibida agora.
+                    </p>
+                  )}
                 </div>
               </section>
 
@@ -442,6 +592,15 @@ export default function PerfilAdminPage() {
                       {getRoleLabel(formData.role)}
                     </p>
                   </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-[#120e0d] p-4">
+                    <span className="text-xs uppercase tracking-[0.18em] text-zinc-500">
+                      Avatar URL
+                    </span>
+                    <p className="mt-2 break-all text-xs text-zinc-300">
+                      {formData.avatar_url || "Nenhum avatar enviado"}
+                    </p>
+                  </div>
                 </div>
               </section>
             </aside>
@@ -451,7 +610,7 @@ export default function PerfilAdminPage() {
                 <div className="border-b border-white/10 pb-5">
                   <h2 className="text-xl font-semibold text-white">Dados do administrador</h2>
                   <p className="mt-2 text-sm leading-6 text-zinc-400">
-                    Edite os dados essenciais do perfil. O papel de acesso é apenas informativo nesta etapa.
+                    Edite os dados essenciais do perfil e envie uma imagem para salvar no bucket.
                   </p>
                 </div>
 
@@ -495,6 +654,23 @@ export default function PerfilAdminPage() {
                       disabled
                       className="w-full cursor-not-allowed rounded-2xl border border-white/10 bg-[#120e0d] px-4 py-3 text-sm text-zinc-400 outline-none"
                     />
+                  </div>
+
+                  <div className="space-y-2 sm:col-span-2">
+                    <label className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+                      <ImageIcon className="h-4 w-4 text-[#72d39c]" />
+                      URL do avatar
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.avatar_url}
+                      onChange={(e) => updateProfileField("avatar_url", e.target.value)}
+                      placeholder="Será preenchido automaticamente após o upload"
+                      className="w-full rounded-2xl border border-white/10 bg-[#0d0807] px-4 py-3 text-sm text-white outline-none transition focus:border-[#138946]/70 focus:ring-2 focus:ring-[#138946]/20"
+                    />
+                    <p className="text-xs leading-5 text-zinc-500">
+                      Você também pode colar manualmente uma URL se quiser testar outra imagem.
+                    </p>
                   </div>
                 </div>
               </section>
