@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Building2,
   CheckCircle2,
@@ -17,6 +17,7 @@ import {
   Type,
 } from "lucide-react";
 import { supabase } from "@/app/lib/supabase";
+import { useSettings } from "@/app/providers/SettingsProvider";
 
 type TabId = "identidade" | "nomenclaturas";
 type ToastType = "success" | "error" | "info";
@@ -31,22 +32,7 @@ interface CustomLabels {
 }
 
 interface FeatureToggles {
-  [key: string]: boolean | string | number | null;
-}
-
-interface CompanyProfileRow {
-  id?: string | number;
-  company_name: string | null;
-  cnpj: string | null;
-  logo_url: string | null;
-  primary_color: string | null;
-  contract_terms: string | null;
-}
-
-interface SystemPreferencesRow {
-  id?: string | number;
-  feature_toggles: FeatureToggles | null;
-  custom_labels: Partial<CustomLabels> | null;
+  [key: string]: boolean;
 }
 
 interface CompanyProfileForm {
@@ -67,6 +53,10 @@ interface ToastItem {
   type: ToastType;
   title: string;
   message: string;
+}
+
+interface RowIdResult {
+  id?: string | number | null;
 }
 
 const DEFAULT_CUSTOM_LABELS: CustomLabels = {
@@ -104,46 +94,38 @@ function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-function sanitizeCustomLabels(input: unknown): CustomLabels {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return { ...DEFAULT_CUSTOM_LABELS };
-  }
+function safeString(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
 
-  const source = input as Record<string, unknown>;
+function sanitizeCustomLabels(input: unknown): CustomLabels {
+  const source =
+    input && typeof input === "object" && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : {};
 
   return {
-    client_singular:
-      typeof source.client_singular === "string" && source.client_singular.trim()
-        ? source.client_singular
-        : DEFAULT_CUSTOM_LABELS.client_singular,
-    client_plural:
-      typeof source.client_plural === "string" && source.client_plural.trim()
-        ? source.client_plural
-        : DEFAULT_CUSTOM_LABELS.client_plural,
-    quote_singular:
-      typeof source.quote_singular === "string" && source.quote_singular.trim()
-        ? source.quote_singular
-        : DEFAULT_CUSTOM_LABELS.quote_singular,
-    quote_plural:
-      typeof source.quote_plural === "string" && source.quote_plural.trim()
-        ? source.quote_plural
-        : DEFAULT_CUSTOM_LABELS.quote_plural,
-    academy_name:
-      typeof source.academy_name === "string" && source.academy_name.trim()
-        ? source.academy_name
-        : DEFAULT_CUSTOM_LABELS.academy_name,
+    client_singular: safeString(source.client_singular, DEFAULT_CUSTOM_LABELS.client_singular),
+    client_plural: safeString(source.client_plural, DEFAULT_CUSTOM_LABELS.client_plural),
+    quote_singular: safeString(source.quote_singular, DEFAULT_CUSTOM_LABELS.quote_singular),
+    quote_plural: safeString(source.quote_plural, DEFAULT_CUSTOM_LABELS.quote_plural),
+    academy_name: safeString(source.academy_name, DEFAULT_CUSTOM_LABELS.academy_name),
   };
 }
 
 function sanitizeFeatureToggles(input: unknown): FeatureToggles {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return { ...DEFAULT_FEATURE_TOGGLES };
+  const source =
+    input && typeof input === "object" && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : {};
+
+  const merged: FeatureToggles = { ...DEFAULT_FEATURE_TOGGLES };
+
+  for (const key of Object.keys(DEFAULT_FEATURE_TOGGLES)) {
+    merged[key] = typeof source[key] === "boolean" ? (source[key] as boolean) : merged[key];
   }
 
-  return {
-    ...DEFAULT_FEATURE_TOGGLES,
-    ...(input as Record<string, boolean | string | number | null>),
-  };
+  return merged;
 }
 
 function formatCnpj(value: string): string {
@@ -156,23 +138,42 @@ function formatCnpj(value: string): string {
     .replace(/(\d{4})(\d)/, "$1-$2");
 }
 
+function sanitizeFileName(fileName: string): string {
+  return fileName
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zA-Z0-9._-]/g, "")
+    .toLowerCase();
+}
+
+function isValidHexColor(value: string): boolean {
+  return /^#([0-9a-fA-F]{6})$/.test(value.trim());
+}
+
 export default function ConfiguracoesPage() {
+  const {
+    companyProfile,
+    systemPreferences,
+    loading,
+    refreshSettings,
+    resolvedClientId,
+  } = useSettings();
+
   const [activeTab, setActiveTab] = useState<TabId>("identidade");
   const [companyRowId, setCompanyRowId] = useState<string | number | null>(null);
   const [preferencesRowId, setPreferencesRowId] = useState<string | number | null>(null);
-
   const [companyForm, setCompanyForm] = useState<CompanyProfileForm>(DEFAULT_COMPANY_PROFILE);
-  const [preferencesForm, setPreferencesForm] = useState<SystemPreferencesForm>(
-    DEFAULT_SYSTEM_PREFERENCES
-  );
-
-  const [loading, setLoading] = useState<boolean>(true);
+  const [preferencesForm, setPreferencesForm] =
+    useState<SystemPreferencesForm>(DEFAULT_SYSTEM_PREFERENCES);
   const [saving, setSaving] = useState<boolean>(false);
   const [uploadingLogo, setUploadingLogo] = useState<boolean>(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [initialized, setInitialized] = useState<boolean>(false);
 
   const addToast = useCallback((type: ToastType, title: string, message: string) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
+
     setToasts((current) => [...current, { id, type, title, message }]);
 
     window.setTimeout(() => {
@@ -184,64 +185,49 @@ export default function ConfiguracoesPage() {
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
 
-  const fetchSettings = useCallback(async () => {
-    setLoading(true);
-
+  const loadRowIds = useCallback(async () => {
     try {
       const [companyResult, preferencesResult] = await Promise.all([
-        supabase
-          .from("company_profile")
-          .select("id, company_name, cnpj, logo_url, primary_color, contract_terms")
-          .limit(1)
-          .maybeSingle<CompanyProfileRow>(),
-        supabase
-          .from("system_preferences")
-          .select("id, feature_toggles, custom_labels")
-          .limit(1)
-          .maybeSingle<SystemPreferencesRow>(),
+        supabase.from("company_profile").select("id").limit(1).maybeSingle<RowIdResult>(),
+        supabase.from("system_preferences").select("id").limit(1).maybeSingle<RowIdResult>(),
       ]);
 
-      if (companyResult.error) throw companyResult.error;
-      if (preferencesResult.error) throw preferencesResult.error;
+      if (companyResult.error) {
+        throw companyResult.error;
+      }
 
-      const company = companyResult.data ?? null;
-      const preferences = preferencesResult.data ?? null;
+      if (preferencesResult.error) {
+        throw preferencesResult.error;
+      }
 
-      setCompanyRowId(company?.id ?? null);
-      setPreferencesRowId(preferences?.id ?? null);
-
-      setCompanyForm(
-        company
-          ? {
-              company_name: company.company_name ?? "",
-              cnpj: company.cnpj ?? "",
-              logo_url: company.logo_url ?? "",
-              primary_color: company.primary_color ?? "#138946",
-              contract_terms: company.contract_terms ?? "",
-            }
-          : DEFAULT_COMPANY_PROFILE
-      );
-
-      setPreferencesForm(
-        preferences
-          ? {
-              feature_toggles: sanitizeFeatureToggles(preferences.feature_toggles),
-              custom_labels: sanitizeCustomLabels(preferences.custom_labels),
-            }
-          : DEFAULT_SYSTEM_PREFERENCES
-      );
+      setCompanyRowId(companyResult.data?.id ?? null);
+      setPreferencesRowId(preferencesResult.data?.id ?? null);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Não foi possível carregar as configurações.";
-      addToast("error", "Erro ao carregar", message);
-    } finally {
-      setLoading(false);
+        error instanceof Error ? error.message : "Não foi possível resolver os registros atuais.";
+      addToast("error", "Erro ao preparar salvamento", message);
     }
   }, [addToast]);
 
   useEffect(() => {
-    void fetchSettings();
-  }, [fetchSettings]);
+    if (loading) return;
+
+    setCompanyForm({
+      company_name: companyProfile.company_name ?? "",
+      cnpj: companyProfile.cnpj ?? "",
+      logo_url: companyProfile.logo_url ?? "",
+      primary_color: companyProfile.primary_color ?? "#138946",
+      contract_terms: companyProfile.contract_terms ?? "",
+    });
+
+    setPreferencesForm({
+      feature_toggles: sanitizeFeatureToggles(systemPreferences.feature_toggles),
+      custom_labels: sanitizeCustomLabels(systemPreferences.custom_labels),
+    });
+
+    setInitialized(true);
+    void loadRowIds();
+  }, [companyProfile, systemPreferences, loading, loadRowIds]);
 
   const updateCompanyField = useCallback(
     <K extends keyof CompanyProfileForm>(field: K, value: CompanyProfileForm[K]) => {
@@ -274,33 +260,47 @@ export default function ConfiguracoesPage() {
   }, []);
 
   const handleLogoUpload = useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const input = event.target;
+      const file = input.files?.[0] ?? null;
+
       if (!file) return;
 
       if (!file.type.startsWith("image/")) {
         addToast("error", "Arquivo inválido", "Selecione uma imagem para a logo.");
-        event.target.value = "";
+        input.value = "";
+        return;
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        addToast("error", "Arquivo muito grande", "Envie uma imagem com até 5MB.");
+        input.value = "";
         return;
       }
 
       setUploadingLogo(true);
 
       try {
-        const fileExt = file.name.split(".").pop()?.toLowerCase() || "png";
-        const filePath = `branding/logo-${Date.now()}.${fileExt}`;
+        const safeName = sanitizeFileName(file.name);
+        const fallbackExtension = file.type.split("/")[1] || "png";
+        const detectedExtension = safeName.includes(".")
+          ? safeName.split(".").pop() || fallbackExtension
+          : fallbackExtension;
+        const baseName = safeName.replace(/\.[^.]+$/, "") || "logo";
+        const scope = resolvedClientId ? `client-${resolvedClientId}` : "global";
+        const filePath = `branding/${scope}/logo-${Date.now()}-${baseName}.${detectedExtension}`;
 
-        const { error: uploadError } = await supabase.storage
-          .from("axon-assets")
-          .upload(filePath, file, {
-            cacheControl: "3600",
-            upsert: true,
-          });
+        const uploadResponse = await supabase.storage.from("axon-assets").upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: true,
+        });
 
-        if (uploadError) throw uploadError;
+        if (uploadResponse.error) {
+          throw uploadResponse.error;
+        }
 
-        const { data } = supabase.storage.from("axon-assets").getPublicUrl(filePath);
-        const publicUrl = data.publicUrl;
+        const publicUrlResponse = supabase.storage.from("axon-assets").getPublicUrl(filePath);
+        const publicUrl = publicUrlResponse.data.publicUrl ?? "";
 
         if (!publicUrl) {
           throw new Error("Não foi possível gerar a URL pública da logo.");
@@ -317,79 +317,75 @@ export default function ConfiguracoesPage() {
         addToast("error", "Erro no upload", message);
       } finally {
         setUploadingLogo(false);
-        event.target.value = "";
+        input.value = "";
       }
     },
-    [addToast]
+    [addToast, resolvedClientId]
   );
 
   const handleSave = useCallback(async () => {
     setSaving(true);
 
     try {
+      const normalizedPrimaryColor = isValidHexColor(companyForm.primary_color)
+        ? companyForm.primary_color.trim()
+        : "#138946";
+
       const companyPayload = {
         company_name: companyForm.company_name.trim() || null,
         cnpj: companyForm.cnpj.trim() || null,
         logo_url: companyForm.logo_url.trim() || null,
-        primary_color: companyForm.primary_color.trim() || "#138946",
+        primary_color: normalizedPrimaryColor,
         contract_terms: companyForm.contract_terms.trim() || null,
       };
 
       const preferencesPayload = {
-        feature_toggles: preferencesForm.feature_toggles,
-        custom_labels: {
-          client_singular:
-            preferencesForm.custom_labels.client_singular.trim() ||
-            DEFAULT_CUSTOM_LABELS.client_singular,
-          client_plural:
-            preferencesForm.custom_labels.client_plural.trim() ||
-            DEFAULT_CUSTOM_LABELS.client_plural,
-          quote_singular:
-            preferencesForm.custom_labels.quote_singular.trim() ||
-            DEFAULT_CUSTOM_LABELS.quote_singular,
-          quote_plural:
-            preferencesForm.custom_labels.quote_plural.trim() ||
-            DEFAULT_CUSTOM_LABELS.quote_plural,
-          academy_name:
-            preferencesForm.custom_labels.academy_name.trim() ||
-            DEFAULT_CUSTOM_LABELS.academy_name,
-        },
+        feature_toggles: sanitizeFeatureToggles(preferencesForm.feature_toggles),
+        custom_labels: sanitizeCustomLabels(preferencesForm.custom_labels),
       };
 
-      if (companyRowId !== null) {
-        const { error } = await supabase
-          .from("company_profile")
-          .update(companyPayload)
-          .eq("id", companyRowId);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase
-          .from("company_profile")
-          .insert(companyPayload)
-          .select("id")
-          .single<{ id?: string | number }>();
-        if (error) throw error;
-        setCompanyRowId(data?.id ?? null);
+      const companyPromise =
+        companyRowId !== null
+          ? supabase.from("company_profile").update(companyPayload).eq("id", companyRowId)
+          : supabase
+              .from("company_profile")
+              .insert(companyPayload)
+              .select("id")
+              .single<RowIdResult>();
+
+      const preferencesPromise =
+        preferencesRowId !== null
+          ? supabase.from("system_preferences").update(preferencesPayload).eq("id", preferencesRowId)
+          : supabase
+              .from("system_preferences")
+              .insert(preferencesPayload)
+              .select("id")
+              .single<RowIdResult>();
+
+      const [companyResult, preferencesResult] = await Promise.all([
+        companyPromise,
+        preferencesPromise,
+      ]);
+
+      if (companyResult.error) {
+        throw companyResult.error;
       }
 
-      if (preferencesRowId !== null) {
-        const { error } = await supabase
-          .from("system_preferences")
-          .update(preferencesPayload)
-          .eq("id", preferencesRowId);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase
-          .from("system_preferences")
-          .insert(preferencesPayload)
-          .select("id")
-          .single<{ id?: string | number }>();
-        if (error) throw error;
-        setPreferencesRowId(data?.id ?? null);
+      if (preferencesResult.error) {
+        throw preferencesResult.error;
       }
+
+      if ("data" in companyResult) {
+        setCompanyRowId(companyResult.data?.id ?? companyRowId);
+      }
+
+      if ("data" in preferencesResult) {
+        setPreferencesRowId(preferencesResult.data?.id ?? preferencesRowId);
+      }
+
+      await refreshSettings();
 
       addToast("success", "Configurações salvas", "As alterações foram persistidas com sucesso.");
-      await fetchSettings();
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Não foi possível salvar as configurações.";
@@ -397,7 +393,7 @@ export default function ConfiguracoesPage() {
     } finally {
       setSaving(false);
     }
-  }, [addToast, companyForm, companyRowId, fetchSettings, preferencesForm, preferencesRowId]);
+  }, [companyForm, companyRowId, preferencesForm, preferencesRowId, refreshSettings, addToast]);
 
   const tabs = useMemo(
     () => [
@@ -414,6 +410,8 @@ export default function ConfiguracoesPage() {
     ],
     []
   );
+
+  const localLoading = loading || !initialized;
 
   return (
     <main className="min-h-screen bg-[#0d0807] text-zinc-100">
@@ -432,7 +430,7 @@ export default function ConfiguracoesPage() {
                 </h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400 sm:text-base">
                   Personalize a identidade visual, os termos contratuais e as nomenclaturas
-                  globais utilizadas em toda a plataforma.
+                  utilizadas em toda a plataforma.
                 </p>
               </div>
             </div>
@@ -440,7 +438,7 @@ export default function ConfiguracoesPage() {
             <button
               type="button"
               onClick={() => void handleSave()}
-              disabled={saving || loading}
+              disabled={saving || localLoading}
               className={cn(
                 "inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-medium transition-all",
                 "bg-[#138946] text-white shadow-lg shadow-[#138946]/20 hover:bg-[#0f723b]",
@@ -498,7 +496,7 @@ export default function ConfiguracoesPage() {
           </aside>
 
           <section className="rounded-3xl border border-white/10 bg-[#1a1413] p-5 sm:p-6">
-            {loading ? (
+            {localLoading ? (
               <div className="flex min-h-[420px] items-center justify-center">
                 <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-300">
                   <Loader2 className="h-4 w-4 animate-spin text-[#138946]" />
@@ -529,7 +527,7 @@ export default function ConfiguracoesPage() {
                               type="text"
                               value={companyForm.company_name}
                               onChange={(e) => updateCompanyField("company_name", e.target.value)}
-                              placeholder="Ex.: Axon Academy"
+                              placeholder="Ex.: AXON Systems"
                               className="w-full rounded-2xl border border-white/10 bg-[#0d0807] px-4 py-3 text-sm text-white outline-none transition focus:border-[#138946]/70 focus:ring-2 focus:ring-[#138946]/20"
                             />
                           </div>
@@ -556,7 +554,7 @@ export default function ConfiguracoesPage() {
                             <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#0d0807] px-3 py-2">
                               <input
                                 type="color"
-                                value={companyForm.primary_color}
+                                value={isValidHexColor(companyForm.primary_color) ? companyForm.primary_color : "#138946"}
                                 onChange={(e) => updateCompanyField("primary_color", e.target.value)}
                                 className="h-10 w-12 cursor-pointer rounded-lg border border-white/10 bg-transparent"
                               />
@@ -673,7 +671,7 @@ export default function ConfiguracoesPage() {
                     <div className="border-b border-white/10 pb-5">
                       <h2 className="text-xl font-semibold text-white">Nomenclaturas do Sistema</h2>
                       <p className="mt-2 text-sm leading-6 text-zinc-400">
-                        Ajuste os rótulos globais usados em menus, formulários, dashboards e fluxos
+                        Ajuste os rótulos usados em menus, formulários, dashboards e fluxos
                         operacionais da plataforma.
                       </p>
                     </div>
