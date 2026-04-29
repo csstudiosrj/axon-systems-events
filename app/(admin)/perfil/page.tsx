@@ -26,14 +26,10 @@ interface ToastItem {
   message: string;
 }
 
-interface AuthUserData {
-  id: string;
-  email: string;
-}
-
 interface ProfileRow {
   id?: string;
   user_id?: string | null;
+  email?: string | null;
   full_name?: string | null;
   phone?: string | null;
   avatar_url?: string | null;
@@ -100,12 +96,46 @@ function getRoleLabel(role: string): string {
     subscriber: "Assinante",
   };
 
-  return labels[normalized] ?? role;
+  return labels[normalized] ?? role || "Administrador";
+}
+
+function translateSupabaseError(message: string): string {
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("new password should be different from the old password")) {
+    return "A nova senha deve ser diferente da senha atual.";
+  }
+
+  if (normalized.includes("same as the old password")) {
+    return "A nova senha deve ser diferente da senha atual.";
+  }
+
+  if (normalized.includes("password should be at least")) {
+    return "A senha deve ter pelo menos 6 caracteres.";
+  }
+
+  if (normalized.includes("unable to validate email address")) {
+    return "Não foi possível validar o endereço de e-mail da conta.";
+  }
+
+  if (normalized.includes("user not found")) {
+    return "Usuário não encontrado.";
+  }
+
+  if (normalized.includes("jwt")) {
+    return "Sua sessão expirou. Faça login novamente.";
+  }
+
+  if (normalized.includes("row-level security")) {
+    return "A política de acesso do banco bloqueou esta operação.";
+  }
+
+  return message;
 }
 
 export default function PerfilAdminPage() {
   const [profileId, setProfileId] = useState<string | null>(null);
-  const [authUser, setAuthUser] = useState<AuthUserData | null>(null);
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [formData, setFormData] = useState<ProfileFormData>(DEFAULT_PROFILE_FORM);
   const [passwordForm, setPasswordForm] = useState<PasswordFormData>(DEFAULT_PASSWORD_FORM);
 
@@ -113,14 +143,14 @@ export default function PerfilAdminPage() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarPreviewError, setAvatarPreviewError] = useState(false);
 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const addToast = useCallback((type: ToastType, title: string, message: string) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
-    const toast: ToastItem = { id, type, title, message };
 
-    setToasts((current) => [...current, toast]);
+    setToasts((current) => [...current, { id, type, title, message }]);
 
     window.setTimeout(() => {
       setToasts((current) => current.filter((item) => item.id !== id));
@@ -137,24 +167,19 @@ export default function PerfilAdminPage() {
     try {
       const {
         data: { user },
-        error: userError,
+        error: authError,
       } = await supabase.auth.getUser();
 
-      if (userError) throw userError;
-      if (!user) throw new Error("Usuário não autenticado.");
+      if (authError) throw authError;
+      if (!user?.id) throw new Error("Usuário não autenticado.");
 
-      const authData: AuthUserData = {
-        id: user.id,
-        email: user.email ?? "",
-      };
-
-      setAuthUser(authData);
+      setAuthUserId(user.id);
 
       let profile: ProfileRow | null = null;
 
       const byUserId = await supabase
         .from("profiles")
-        .select("id, user_id, full_name, phone, avatar_url, role")
+        .select("id, user_id, email, full_name, phone, avatar_url, role")
         .eq("user_id", user.id)
         .maybeSingle<ProfileRow>();
 
@@ -167,7 +192,7 @@ export default function PerfilAdminPage() {
       if (!profile) {
         const byId = await supabase
           .from("profiles")
-          .select("id, user_id, full_name, phone, avatar_url, role")
+          .select("id, user_id, email, full_name, phone, avatar_url, role")
           .eq("id", user.id)
           .maybeSingle<ProfileRow>();
 
@@ -179,16 +204,21 @@ export default function PerfilAdminPage() {
       }
 
       setProfileId(profile?.id ?? null);
+      setAvatarPreviewError(false);
+
       setFormData({
         full_name: profile?.full_name ?? "",
-        email: authData.email,
+        email: profile?.email ?? user.email ?? "",
         phone: profile?.phone ?? "",
         avatar_url: profile?.avatar_url ?? "",
         role: profile?.role ?? "admin",
       });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Não foi possível carregar o perfil.";
+        error instanceof Error
+          ? translateSupabaseError(error.message)
+          : "Não foi possível carregar o perfil.";
+
       addToast("error", "Erro ao carregar", message);
     } finally {
       setLoading(false);
@@ -225,14 +255,13 @@ export default function PerfilAdminPage() {
 
       if (!file) return;
 
-      const isImage = file.type.startsWith("image/");
-      if (!isImage) {
+      if (!file.type.startsWith("image/")) {
         addToast("error", "Arquivo inválido", "Selecione uma imagem válida para o avatar.");
         event.target.value = "";
         return;
       }
 
-      if (!authUser?.id) {
+      if (!authUserId) {
         addToast("error", "Sessão inválida", "Não foi possível identificar o usuário atual.");
         event.target.value = "";
         return;
@@ -242,7 +271,7 @@ export default function PerfilAdminPage() {
 
       try {
         const fileExt = file.name.split(".").pop()?.toLowerCase() || "png";
-        const filePath = `avatars/admin-${authUser.id}-${Date.now()}.${fileExt}`;
+        const filePath = `avatars/admin-${authUserId}-${Date.now()}.${fileExt}`;
 
         const { error: uploadError } = await supabase.storage
           .from("axon-assets")
@@ -256,29 +285,33 @@ export default function PerfilAdminPage() {
         const { data } = supabase.storage.from("axon-assets").getPublicUrl(filePath);
         const publicUrl = data.publicUrl;
 
-        if (!publicUrl) {
-          throw new Error("Não foi possível gerar a URL pública do avatar.");
-        }
-
         setFormData((current) => ({
           ...current,
-          avatar_url: publicUrl,
+          avatar_url: publicUrl || filePath,
         }));
 
-        addToast("success", "Avatar enviado", "A nova foto foi carregada com sucesso.");
+        setAvatarPreviewError(false);
+
+        addToast(
+          "success",
+          "Avatar enviado",
+          "A imagem foi enviada. Se o bucket não for público, a prévia pode não aparecer agora."
+        );
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Falha no upload da imagem.";
+        const message =
+          error instanceof Error ? translateSupabaseError(error.message) : "Falha no upload da imagem.";
+
         addToast("error", "Erro no upload", message);
       } finally {
         setUploadingAvatar(false);
         event.target.value = "";
       }
     },
-    [addToast, authUser?.id]
+    [addToast, authUserId]
   );
 
   const handleSaveProfile = useCallback(async () => {
-    if (!authUser?.id) {
+    if (!authUserId) {
       addToast("error", "Sessão inválida", "Não foi possível identificar o usuário atual.");
       return;
     }
@@ -287,7 +320,8 @@ export default function PerfilAdminPage() {
 
     try {
       const payload = {
-        user_id: authUser.id,
+        user_id: authUserId,
+        email: formData.email.trim() || null,
         full_name: formData.full_name.trim() || null,
         phone: formData.phone.trim() || null,
         avatar_url: formData.avatar_url.trim() || null,
@@ -297,6 +331,7 @@ export default function PerfilAdminPage() {
 
       if (profileId) {
         const updateById = await supabase.from("profiles").update(payload).eq("id", profileId);
+
         if (!updateById.error) {
           updated = true;
         }
@@ -306,7 +341,7 @@ export default function PerfilAdminPage() {
         const updateByUserId = await supabase
           .from("profiles")
           .update(payload)
-          .eq("user_id", authUser.id);
+          .eq("user_id", authUserId);
 
         if (!updateByUserId.error) {
           updated = true;
@@ -320,7 +355,7 @@ export default function PerfilAdminPage() {
             ...payload,
             role: formData.role || "admin",
           })
-          .select("id, user_id, role")
+          .select("id, role")
           .single<ProfileRow>();
 
         if (insertResult.error) throw insertResult.error;
@@ -331,12 +366,15 @@ export default function PerfilAdminPage() {
       await fetchProfile();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Não foi possível salvar o perfil.";
+        error instanceof Error
+          ? translateSupabaseError(error.message)
+          : "Não foi possível salvar o perfil.";
+
       addToast("error", "Erro ao salvar", message);
     } finally {
       setSavingProfile(false);
     }
-  }, [addToast, authUser?.id, fetchProfile, formData, profileId]);
+  }, [addToast, authUserId, fetchProfile, formData, profileId]);
 
   const handleChangePassword = useCallback(async () => {
     if (!passwordForm.newPassword || !passwordForm.confirmPassword) {
@@ -367,7 +405,10 @@ export default function PerfilAdminPage() {
       addToast("success", "Senha atualizada", "Sua senha foi alterada com sucesso.");
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Não foi possível atualizar a senha.";
+        error instanceof Error
+          ? translateSupabaseError(error.message)
+          : "Não foi possível atualizar a senha.";
+
       addToast("error", "Erro ao atualizar senha", message);
     } finally {
       setSavingPassword(false);
@@ -402,7 +443,7 @@ export default function PerfilAdminPage() {
                   Meu Perfil
                 </h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400 sm:text-base">
-                  Atualize seus dados de acesso, contato e segurança da conta administrativa.
+                  Atualize seus dados básicos e a segurança da conta administrativa.
                 </p>
               </div>
             </div>
@@ -443,11 +484,12 @@ export default function PerfilAdminPage() {
                 <div className="flex flex-col items-center text-center">
                   <div className="relative">
                     <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[#120e0d] text-2xl font-semibold text-white">
-                      {formData.avatar_url ? (
+                      {formData.avatar_url && !avatarPreviewError ? (
                         <img
                           src={formData.avatar_url}
                           alt="Avatar do administrador"
                           className="h-full w-full object-cover"
+                          onError={() => setAvatarPreviewError(true)}
                         />
                       ) : (
                         initials
@@ -473,12 +515,20 @@ export default function PerfilAdminPage() {
                   <h2 className="mt-5 text-lg font-semibold text-white">
                     {formData.full_name || "Administrador"}
                   </h2>
-                  <p className="mt-1 text-sm text-zinc-400">{formData.email || "Sem e-mail"}</p>
+                  <p className="mt-1 text-sm text-zinc-400">
+                    {formData.email || "E-mail não encontrado no perfil"}
+                  </p>
 
                   <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-zinc-300">
                     <Shield className="h-3.5 w-3.5 text-sky-300" />
                     {getRoleLabel(formData.role)}
                   </div>
+
+                  {avatarPreviewError && (
+                    <p className="mt-3 text-xs leading-5 text-amber-300">
+                      A imagem foi salva, mas a prévia não pôde ser exibida agora.
+                    </p>
+                  )}
                 </div>
               </section>
 
@@ -487,19 +537,29 @@ export default function PerfilAdminPage() {
                 <div className="mt-4 space-y-3">
                   <div className="rounded-2xl border border-white/10 bg-[#120e0d] p-4">
                     <span className="text-xs uppercase tracking-[0.18em] text-zinc-500">
-                      E-mail de acesso
+                      E-mail
                     </span>
-                    <p className="mt-2 text-sm text-zinc-200">{formData.email || "Não informado"}</p>
+                    <p className="mt-2 text-sm text-zinc-200">
+                      {formData.email || "Não informado"}
+                    </p>
                   </div>
 
                   <div className="rounded-2xl border border-white/10 bg-[#120e0d] p-4">
-                    <span className="text-xs uppercase tracking-[0.18em] text-zinc-500">Telefone</span>
-                    <p className="mt-2 text-sm text-zinc-200">{formData.phone || "Não informado"}</p>
+                    <span className="text-xs uppercase tracking-[0.18em] text-zinc-500">
+                      Telefone
+                    </span>
+                    <p className="mt-2 text-sm text-zinc-200">
+                      {formData.phone || "Não informado"}
+                    </p>
                   </div>
 
                   <div className="rounded-2xl border border-white/10 bg-[#120e0d] p-4">
-                    <span className="text-xs uppercase tracking-[0.18em] text-zinc-500">Perfil</span>
-                    <p className="mt-2 text-sm text-zinc-200">{getRoleLabel(formData.role)}</p>
+                    <span className="text-xs uppercase tracking-[0.18em] text-zinc-500">
+                      Perfil de acesso
+                    </span>
+                    <p className="mt-2 text-sm text-zinc-200">
+                      {getRoleLabel(formData.role)}
+                    </p>
                   </div>
                 </div>
               </section>
@@ -510,7 +570,7 @@ export default function PerfilAdminPage() {
                 <div className="border-b border-white/10 pb-5">
                   <h2 className="text-xl font-semibold text-white">Dados do administrador</h2>
                   <p className="mt-2 text-sm leading-6 text-zinc-400">
-                    Atualize seus dados principais. O e-mail é exibido a partir da conta autenticada.
+                    Edite os dados essenciais do perfil. O papel de acesso é apenas informativo nesta etapa.
                   </p>
                 </div>
 
@@ -537,8 +597,9 @@ export default function PerfilAdminPage() {
                     <input
                       type="email"
                       value={formData.email}
-                      disabled
-                      className="w-full cursor-not-allowed rounded-2xl border border-white/10 bg-[#120e0d] px-4 py-3 text-sm text-zinc-400 outline-none"
+                      onChange={(e) => updateField("email", e.target.value)}
+                      placeholder="seuemail@dominio.com"
+                      className="w-full rounded-2xl border border-white/10 bg-[#0d0807] px-4 py-3 text-sm text-white outline-none transition focus:border-[#138946]/70 focus:ring-2 focus:ring-[#138946]/20"
                     />
                   </div>
 
@@ -565,20 +626,6 @@ export default function PerfilAdminPage() {
                       value={formData.phone}
                       onChange={(e) => updateField("phone", formatPhone(e.target.value))}
                       placeholder="(21) 99999-9999"
-                      className="w-full rounded-2xl border border-white/10 bg-[#0d0807] px-4 py-3 text-sm text-white outline-none transition focus:border-[#138946]/70 focus:ring-2 focus:ring-[#138946]/20"
-                    />
-                  </div>
-
-                  <div className="space-y-2 sm:col-span-2">
-                    <label className="flex items-center gap-2 text-sm font-medium text-zinc-200">
-                      <ImageIcon className="h-4 w-4 text-[#72d39c]" />
-                      URL do avatar
-                    </label>
-                    <input
-                      type="url"
-                      value={formData.avatar_url}
-                      onChange={(e) => updateField("avatar_url", e.target.value)}
-                      placeholder="https://..."
                       className="w-full rounded-2xl border border-white/10 bg-[#0d0807] px-4 py-3 text-sm text-white outline-none transition focus:border-[#138946]/70 focus:ring-2 focus:ring-[#138946]/20"
                     />
                   </div>
@@ -643,7 +690,7 @@ export default function PerfilAdminPage() {
                   </button>
 
                   <p className="text-sm text-zinc-500">
-                    A troca é aplicada diretamente à conta autenticada.
+                    A troca é aplicada à conta autenticada atual.
                   </p>
                 </div>
               </section>
