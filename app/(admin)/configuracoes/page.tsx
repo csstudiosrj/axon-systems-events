@@ -1,31 +1,32 @@
 "use client";
 
-import {
-  ChangeEvent,
-  ReactNode,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { ChangeEvent, useEffect, useRef, useState } from "react";
 import { supabase } from "@/app/lib/supabase";
 import { useSettings } from "@/app/providers/SettingsProvider";
+import {
+  Building2,
+  Check,
+  FileText,
+  LayoutGrid,
+  Loader2,
+  Palette,
+  Save,
+  Settings,
+  Trash2,
+  Type,
+  Upload,
+  X,
+} from "lucide-react";
 
-type SettingsTab =
-  | "perfil-corporativo"
-  | "nomenclaturas"
-  | "modulos"
-  | "documentos";
+// --- TIPAGENS (BLINDAGEM TYPESCRIPT) ---
+type SettingsTab = "perfil" | "nomenclaturas" | "modulos" | "documentos";
 
-type CompanyProfilePayload = {
+interface CompanyForm {
   company_name: string;
   cnpj: string;
   logo_url: string;
   primary_color: string;
   contract_terms: string;
-};
-
-type CompanyForm = CompanyProfilePayload & {
   legal_name: string;
   trade_name: string;
   website: string;
@@ -43,44 +44,35 @@ type CompanyForm = CompanyProfilePayload & {
   country: string;
   proposal_footer: string;
   invoice_footer: string;
-};
+}
 
 type CustomLabels = Record<string, string>;
 type FeatureToggles = Record<string, boolean>;
 type CommercialDocuments = Record<string, string | boolean>;
 
-type PreferencesForm = {
+interface PreferencesForm {
   custom_labels: CustomLabels;
   feature_toggles: FeatureToggles;
   commercial_documents: CommercialDocuments;
-};
+}
 
-type SettingsContextShape = {
-  companyProfile?: {
-    id?: string | number;
-    company_name?: string | null;
-    cnpj?: string | null;
-    logo_url?: string | null;
-    primary_color?: string | null;
-    contract_terms?: string | null;
-  } | null;
-  systemPreferences?: {
-    id?: string | number;
-    custom_labels?: CustomLabels | null;
-    feature_toggles?: FeatureToggles | null;
-    commercial_documents?: CommercialDocuments | null;
-  } | null;
-  refreshSettings?: () => Promise<void> | void;
-};
+interface Toast {
+  message: string;
+  type: "success" | "error" | "info";
+}
 
-type IbgeState = { id: number; nome: string; sigla: string };
-type IbgeCity = { id: number; nome: string };
+interface IbgeState {
+  id: number;
+  nome: string;
+  sigla: string;
+}
 
-type PresetGroup = {
-  title: string;
-  options: Array<{ label: string; values: Record<string, string> }>;
-};
+interface IbgeCity {
+  id: number;
+  nome: string;
+}
 
+// --- VALORES PADRÃO ---
 const DEFAULT_COMPANY_FORM: CompanyForm = {
   company_name: "",
   cnpj: "",
@@ -169,282 +161,25 @@ const DEFAULT_COMMERCIAL_DOCUMENTS: CommercialDocuments = {
   default_contract_template: "",
   default_proposal_template: "",
   default_operational_notes: "",
-  company_legal_name: "",
-  company_trade_name: "",
-  website: "",
-  contact_email: "",
-  phone_landline: "",
-  phone_mobile: "",
-  whatsapp_number: "",
-  zipcode: "",
-  street: "",
-  street_number: "",
-  complement: "",
-  district: "",
-  city: "",
-  state: "",
-  country: "Brasil",
-  proposal_footer: "",
-  invoice_footer: "",
 };
 
-const TAB_OPTIONS: Array<{ key: SettingsTab; label: string }> = [
-  { key: "perfil-corporativo", label: "Perfil Corporativo" },
-  { key: "nomenclaturas", label: "Nomenclaturas" },
-  { key: "modulos", label: "Módulos" },
-  { key: "documentos", label: "Documentos Comerciais" },
-];
-
-const LABEL_GROUPS: Array<{ title: string; fields: string[] }> = [
-  {
-    title: "Menus principais",
-    fields: [
-      "menu_dashboard",
-      "menu_calendar",
-      "menu_crm",
-      "menu_financial",
-      "menu_marketing",
-      "menu_training",
-      "menu_patients",
-      "menu_inventory",
-      "menu_quotes",
-      "menu_service_orders",
-      "menu_support",
-      "menu_team",
-    ],
-  },
-  {
-    title: "Cadastros e relacionamento",
-    fields: [
-      "entity_client_singular",
-      "entity_client_plural",
-      "entity_lead_singular",
-      "entity_lead_plural",
-      "entity_salesperson_singular",
-      "entity_salesperson_plural",
-    ],
-  },
-  {
-    title: "Comercial e documentos",
-    fields: [
-      "entity_quote_singular",
-      "entity_quote_plural",
-      "entity_proposal_singular",
-      "entity_proposal_plural",
-      "entity_contract_singular",
-      "entity_contract_plural",
-      "entity_invoice_singular",
-      "entity_invoice_plural",
-    ],
-  },
-  {
-    title: "Operação e ensino",
-    fields: [
-      "entity_service_order_singular",
-      "entity_service_order_plural",
-      "entity_equipment_singular",
-      "entity_equipment_plural",
-      "entity_course_singular",
-      "entity_course_plural",
-      "entity_lesson_singular",
-      "entity_lesson_plural",
-    ],
-  },
-];
-
-const LABEL_MAP: Record<string, string> = {
-  menu_dashboard: "Menu: Visão Geral",
-  menu_calendar: "Menu: Calendário",
-  menu_crm: "Menu: CRM / Vendas",
-  menu_financial: "Menu: Financeiro",
-  menu_marketing: "Menu: Marketing",
-  menu_training: "Menu: Treinamentos",
-  menu_patients: "Menu: Pacientes",
-  menu_inventory: "Menu: Inventário",
-  menu_quotes: "Menu: Orçamentos / Consultas",
-  menu_service_orders: "Menu: Ordens de Serviço",
-  menu_support: "Menu: Suporte Técnico",
-  menu_team: "Menu: Equipe",
-  entity_client_singular: "Cliente (singular)",
-  entity_client_plural: "Cliente (plural)",
-  entity_lead_singular: "Lead (singular)",
-  entity_lead_plural: "Lead (plural)",
-  entity_quote_singular: "Orçamento / Consulta (singular)",
-  entity_quote_plural: "Orçamento / Consulta (plural)",
-  entity_proposal_singular: "Proposta (singular)",
-  entity_proposal_plural: "Proposta (plural)",
-  entity_contract_singular: "Contrato (singular)",
-  entity_contract_plural: "Contrato (plural)",
-  entity_invoice_singular: "Fatura (singular)",
-  entity_invoice_plural: "Fatura (plural)",
-  entity_service_order_singular: "Ordem de Serviço (singular)",
-  entity_service_order_plural: "Ordem de Serviço (plural)",
-  entity_equipment_singular: "Equipamento (singular)",
-  entity_equipment_plural: "Equipamento (plural)",
-  entity_course_singular: "Curso (singular)",
-  entity_course_plural: "Curso (plural)",
-  entity_lesson_singular: "Aula (singular)",
-  entity_lesson_plural: "Aula (plural)",
-  entity_salesperson_singular: "Responsável comercial (singular)",
-  entity_salesperson_plural: "Responsável comercial (plural)",
-};
-
-const NOMENCLATURE_PRESETS: PresetGroup[] = [
-  {
-    title: "CRM / Serviços",
-    options: [
-      {
-        label: "Empresarial padrão",
-        values: {
-          menu_quotes: "Orçamentos",
-          menu_service_orders: "Ordens de Serviço",
-          entity_quote_singular: "Orçamento",
-          entity_quote_plural: "Orçamentos",
-          entity_client_singular: "Cliente",
-          entity_client_plural: "Clientes",
-          entity_salesperson_singular: "Vendedor",
-          entity_salesperson_plural: "Vendedores",
-        },
-      },
-      {
-        label: "Consultivo / Saúde",
-        values: {
-          menu_quotes: "Consultas",
-          menu_patients: "Pacientes",
-          entity_quote_singular: "Consulta",
-          entity_quote_plural: "Consultas",
-          entity_client_singular: "Paciente",
-          entity_client_plural: "Pacientes",
-          entity_salesperson_singular: "Consultor",
-          entity_salesperson_plural: "Consultores",
-        },
-      },
-    ],
-  },
-  {
-    title: "Eventos / Produção",
-    options: [
-      {
-        label: "Eventos corporativos",
-        values: {
-          menu_quotes: "Propostas",
-          menu_inventory: "Estruturas",
-          menu_service_orders: "Operações",
-          entity_quote_singular: "Proposta",
-          entity_quote_plural: "Propostas",
-          entity_service_order_singular: "Operação",
-          entity_service_order_plural: "Operações",
-          entity_equipment_singular: "Estrutura",
-          entity_equipment_plural: "Estruturas",
-        },
-      },
-      {
-        label: "Produção cultural",
-        values: {
-          menu_quotes: "Projetos",
-          menu_service_orders: "Produções",
-          entity_quote_singular: "Projeto",
-          entity_quote_plural: "Projetos",
-          entity_service_order_singular: "Produção",
-          entity_service_order_plural: "Produções",
-          entity_salesperson_singular: "Produtor",
-          entity_salesperson_plural: "Produtores",
-        },
-      },
-    ],
-  },
-  {
-    title: "Educação / Treinamento",
-    options: [
-      {
-        label: "EAD / Escola",
-        values: {
-          menu_quotes: "Matrículas",
-          menu_training: "Cursos",
-          entity_quote_singular: "Matrícula",
-          entity_quote_plural: "Matrículas",
-          entity_client_singular: "Aluno",
-          entity_client_plural: "Alunos",
-          entity_salesperson_singular: "Tutor",
-          entity_salesperson_plural: "Tutores",
-          entity_course_singular: "Curso",
-          entity_course_plural: "Cursos",
-          entity_lesson_singular: "Aula",
-          entity_lesson_plural: "Aulas",
-        },
-      },
-    ],
-  },
-];
-
-const MODULES = [
-  {
-    key: "enable_dashboard",
-    title: "Dashboard",
-    description: "Visão geral do negócio com métricas, atalhos e acompanhamento diário.",
-  },
-  {
-    key: "enable_crm",
-    title: "CRM",
-    description: "Oportunidades, contatos e funil comercial em um só lugar.",
-  },
-  {
-    key: "enable_clients",
-    title: "Cadastros",
-    description: "Registros principais de clientes, alunos ou empresas atendidas.",
-  },
-  {
-    key: "enable_quotes",
-    title: "Orçamentos / Consultas",
-    description: "Montagem de propostas, valores, condições e envio de documentos.",
-  },
-  {
-    key: "enable_financial",
-    title: "Financeiro",
-    description: "Contas, recebimentos, vencimentos e acompanhamento financeiro.",
-  },
-  {
-    key: "enable_inventory",
-    title: "Inventário",
-    description: "Itens, equipamentos, estoque e disponibilidade operacional.",
-  },
-  {
-    key: "enable_service_orders",
-    title: "Ordens de Serviço",
-    description: "Execução de serviços, itens extras, status e operação do dia a dia.",
-  },
-  {
-    key: "enable_marketing",
-    title: "Marketing",
-    description: "Planejamento e organização de conteúdos, campanhas e publicações.",
-  },
-  {
-    key: "enable_calendar",
-    title: "Calendário",
-    description: "Agenda, datas importantes e organização de atividades.",
-  },
-  {
-    key: "enable_team",
-    title: "Equipe",
-    description: "Informações da equipe e acompanhamento de colaboradores.",
-  },
-  {
-    key: "enable_support",
-    title: "Suporte",
-    description: "Canal de atendimento e acompanhamento de solicitações.",
-  },
-  {
-    key: "enable_training",
-    title: "Treinamentos",
-    description: "Área de cursos, aulas e acompanhamento de aprendizagem.",
-  },
-  {
-    key: "enable_client_portal",
-    title: "Portal do Cliente",
-    description: "Área exclusiva para o cliente acompanhar informações e documentos.",
-  },
+const MODULES =[
+  { key: "enable_dashboard", title: "Dashboard", desc: "Visão geral do negócio com métricas." },
+  { key: "enable_crm", title: "CRM", desc: "Oportunidades, contatos e funil comercial." },
+  { key: "enable_clients", title: "Cadastros", desc: "Registros principais de clientes." },
+  { key: "enable_quotes", title: "Orçamentos", desc: "Montagem de propostas e valores." },
+  { key: "enable_financial", title: "Financeiro", desc: "Contas, recebimentos e vencimentos." },
+  { key: "enable_inventory", title: "Inventário", desc: "Equipamentos e estoque." },
+  { key: "enable_service_orders", title: "Ordens de Serviço", desc: "Execução e operação." },
+  { key: "enable_marketing", title: "Marketing", desc: "Planejamento de conteúdos." },
+  { key: "enable_calendar", title: "Calendário", desc: "Agenda e organização." },
+  { key: "enable_team", title: "Equipe", desc: "Acompanhamento de colaboradores." },
+  { key: "enable_support", title: "Suporte", desc: "Canal de atendimento técnico." },
+  { key: "enable_training", title: "Treinamentos", desc: "Área de cursos e aulas." },
+  { key: "enable_client_portal", title: "Portal do Cliente", desc: "Área exclusiva para o cliente." },
 ] as const;
 
+// --- FUNÇÕES UTILITÁRIAS ---
 function onlyDigits(value: string) {
   return value.replace(/\D/g, "");
 }
@@ -466,13 +201,9 @@ function formatCep(value: string) {
 function formatPhone(value: string) {
   const d = onlyDigits(value).slice(0, 11);
   if (d.length <= 10) {
-    return d
-      .replace(/^(\d{2})(\d)/, "($1) $2")
-      .replace(/(\d{4})(\d)/, "$1-$2");
+    return d.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{4})(\d)/, "$1-$2");
   }
-  return d
-    .replace(/^(\d{2})(\d)/, "($1) $2")
-    .replace(/(\d{5})(\d)/, "$1-$2");
+  return d.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2");
 }
 
 function sanitizeFileName(name: string) {
@@ -485,128 +216,78 @@ function sanitizeFileName(name: string) {
     .toLowerCase();
 }
 
-function cx(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
-}
-
-function buildCommercialDocuments(
-  form: CompanyForm,
-  current: CommercialDocuments
-): CommercialDocuments {
-  return {
-    ...current,
-    company_legal_name: form.legal_name,
-    company_trade_name: form.trade_name,
-    website: form.website,
-    contact_email: form.contact_email,
-    phone_landline: form.phone_landline,
-    phone_mobile: form.phone_mobile,
-    whatsapp_number: form.whatsapp_number,
-    zipcode: form.zipcode,
-    street: form.street,
-    street_number: form.street_number,
-    complement: form.complement,
-    district: form.district,
-    city: form.city,
-    state: form.state,
-    country: form.country,
-    proposal_footer: form.proposal_footer,
-    invoice_footer: form.invoice_footer,
-  };
-}
-
 export default function ConfiguracoesPage() {
-  const { companyProfile, systemPreferences, refreshSettings } =
-    useSettings() as SettingsContextShape;
+  const { companyProfile, systemPreferences, refreshSettings } = useSettings() as any;
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>("perfil-corporativo");
-  const [companyForm, setCompanyForm] = useState<CompanyForm>(DEFAULT_COMPANY_FORM);
-  const [preferencesForm, setPreferencesForm] = useState<PreferencesForm>({
+  const [activeTab, setActiveTab] = useState<SettingsTab>("perfil");
+  const[companyForm, setCompanyForm] = useState<CompanyForm>(DEFAULT_COMPANY_FORM);
+  const[preferencesForm, setPreferencesForm] = useState<PreferencesForm>({
     custom_labels: { ...DEFAULT_CUSTOM_LABELS },
     feature_toggles: { ...DEFAULT_FEATURE_TOGGLES },
     commercial_documents: { ...DEFAULT_COMMERCIAL_DOCUMENTS },
   });
 
-  const [savingTab, setSavingTab] = useState<SettingsTab | null>(null);
-  const [uploadingLogo, setUploadingLogo] = useState(false);
-  const [feedback, setFeedback] = useState<{
-    type: "success" | "error" | "info";
-    message: string;
-  } | null>(null);
-  const [logoPreview, setLogoPreview] = useState("");
-  const [selectedLogoFile, setSelectedLogoFile] = useState<File | null>(null);
-  const [cropScale, setCropScale] = useState(1);
-  const [cropSize, setCropSize] = useState(320);
-  const [states, setStates] = useState<IbgeState[]>([]);
-  const [cities, setCities] = useState<IbgeCity[]>([]);
-  const [loadingStates, setLoadingStates] = useState(false);
-  const [loadingCities, setLoadingCities] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [toast, setToast] = useState<Toast | null>(null);
 
+  // Estados de Upload de Logo
+  const [logoPreview, setLogoPreview] = useState("");
+  const[selectedLogoFile, setSelectedLogoFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const previewUrlRef = useRef<string | null>(null);
 
-  const primaryColor = useMemo(
-    () => companyForm.primary_color || "#138946",
-    [companyForm.primary_color]
-  );
+  // Estados de IBGE
+  const [states, setStates] = useState<IbgeState[]>([]);
+  const[cities, setCities] = useState<IbgeCity[]>([]);
+  const [loadingStates, setLoadingStates] = useState(false);
+  const [loadingCities, setLoadingCities] = useState(false);
 
   useEffect(() => {
-    const saved: CommercialDocuments = {
-      ...DEFAULT_COMMERCIAL_DOCUMENTS,
-      ...(systemPreferences?.commercial_documents ?? {}),
-    };
+    if (companyProfile) {
+      setCompanyForm({
+        company_name: companyProfile.company_name || "",
+        cnpj: companyProfile.cnpj || "",
+        logo_url: companyProfile.logo_url || "",
+        primary_color: companyProfile.primary_color || "#138946",
+        contract_terms: companyProfile.contract_terms || "",
+        legal_name: companyProfile.legal_name || "",
+        trade_name: companyProfile.trade_name || "",
+        website: companyProfile.website || "",
+        contact_email: companyProfile.contact_email || "",
+        phone_landline: companyProfile.phone_landline || "",
+        phone_mobile: companyProfile.phone_mobile || "",
+        whatsapp_number: companyProfile.whatsapp_number || "",
+        zipcode: companyProfile.zipcode || "",
+        street: companyProfile.street || "",
+        street_number: companyProfile.street_number || "",
+        complement: companyProfile.complement || "",
+        district: companyProfile.district || "",
+        city: companyProfile.city || "",
+        state: companyProfile.state || "",
+        country: companyProfile.country || "Brasil",
+        proposal_footer: companyProfile.proposal_footer || "",
+        invoice_footer: companyProfile.invoice_footer || "",
+      });
+      setLogoPreview(companyProfile.logo_url || "");
+    }
 
-    setCompanyForm({
-      ...DEFAULT_COMPANY_FORM,
-      company_name: companyProfile?.company_name ?? "",
-      cnpj: companyProfile?.cnpj ?? "",
-      logo_url: companyProfile?.logo_url ?? "",
-      primary_color: companyProfile?.primary_color ?? DEFAULT_COMPANY_FORM.primary_color,
-      contract_terms: companyProfile?.contract_terms ?? "",
-      legal_name: String(saved.company_legal_name ?? ""),
-      trade_name: String(saved.company_trade_name ?? ""),
-      website: String(saved.website ?? ""),
-      contact_email: String(saved.contact_email ?? ""),
-      phone_landline: String(saved.phone_landline ?? ""),
-      phone_mobile: String(saved.phone_mobile ?? ""),
-      whatsapp_number: String(saved.whatsapp_number ?? ""),
-      zipcode: String(saved.zipcode ?? ""),
-      street: String(saved.street ?? ""),
-      street_number: String(saved.street_number ?? ""),
-      complement: String(saved.complement ?? ""),
-      district: String(saved.district ?? ""),
-      city: String(saved.city ?? ""),
-      state: String(saved.state ?? ""),
-      country: String(saved.country ?? "Brasil"),
-      proposal_footer: String(saved.proposal_footer ?? ""),
-      invoice_footer: String(saved.invoice_footer ?? ""),
-    });
-
-    setPreferencesForm({
-      custom_labels: {
-        ...DEFAULT_CUSTOM_LABELS,
-        ...(systemPreferences?.custom_labels ?? {}),
-      },
-      feature_toggles: {
-        ...DEFAULT_FEATURE_TOGGLES,
-        ...(systemPreferences?.feature_toggles ?? {}),
-      },
-      commercial_documents: saved,
-    });
-
-    setLogoPreview(companyProfile?.logo_url ?? "");
+    if (systemPreferences) {
+      setPreferencesForm({
+        custom_labels: { ...DEFAULT_CUSTOM_LABELS, ...(systemPreferences.custom_labels || {}) },
+        feature_toggles: { ...DEFAULT_FEATURE_TOGGLES, ...(systemPreferences.feature_toggles || {}) },
+        commercial_documents: { ...DEFAULT_COMMERCIAL_DOCUMENTS, ...(systemPreferences.commercial_documents || {}) },
+      });
+    }
   }, [companyProfile, systemPreferences]);
 
   useEffect(() => {
     setLoadingStates(true);
     fetch("https://servicodados.ibge.gov.br/api/v1/localidades/estados")
       .then((r) => r.json())
-      .then((data: IbgeState[]) =>
-        setStates([...data].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")))
-      )
+      .then((data: IbgeState[]) => setStates([...data].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))))
       .catch(() => setStates([]))
       .finally(() => setLoadingStates(false));
-  }, []);
+  },[]);
 
   useEffect(() => {
     const uf = companyForm.state.trim().toUpperCase();
@@ -614,15 +295,10 @@ export default function ConfiguracoesPage() {
       setCities([]);
       return;
     }
-
     setLoadingCities(true);
-    fetch(
-      `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`
-    )
+    fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`)
       .then((r) => r.json())
-      .then((data: IbgeCity[]) =>
-        setCities([...data].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")))
-      )
+      .then((data: IbgeCity[]) => setCities([...data].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))))
       .catch(() => setCities([]))
       .finally(() => setLoadingCities(false));
   }, [companyForm.state]);
@@ -631,61 +307,33 @@ export default function ConfiguracoesPage() {
     return () => {
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     };
-  }, []);
+  },[]);
 
-  function notify(message: string, type: "success" | "error" | "info") {
-    setFeedback({ message, type });
-  }
+  const showToast = (message: string, type: "success" | "error" | "info") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
 
-  function setField<K extends keyof CompanyForm>(field: K, value: CompanyForm[K]) {
+  const setField = <K extends keyof CompanyForm>(field: K, value: CompanyForm[K]) => {
     setCompanyForm((prev) => ({ ...prev, [field]: value }));
-  }
+  };
 
-  function setLabel(key: string, value: string) {
-    setPreferencesForm((prev) => ({
-      ...prev,
-      custom_labels: { ...prev.custom_labels, [key]: value },
-    }));
-  }
+  const masked = (field: keyof CompanyForm, fmt: (v: string) => string) => {
+    return (e: ChangeEvent<HTMLInputElement>) => setField(field, fmt(e.target.value) as CompanyForm[keyof CompanyForm]);
+  };
 
-  function setToggle(key: string, value: boolean) {
-    setPreferencesForm((prev) => ({
-      ...prev,
-      feature_toggles: { ...prev.feature_toggles, [key]: value },
-    }));
-  }
-
-  function setCommercialDoc(key: string, value: string | boolean) {
-    setPreferencesForm((prev) => ({
-      ...prev,
-      commercial_documents: { ...prev.commercial_documents, [key]: value },
-    }));
-  }
-
-  function masked(field: keyof CompanyForm, fmt: (v: string) => string) {
-    return (e: ChangeEvent<HTMLInputElement>) =>
-      setField(field, fmt(e.target.value) as CompanyForm[keyof CompanyForm]);
-  }
-
-  function applyPreset(values: Record<string, string>) {
-    setPreferencesForm((prev) => ({
-      ...prev,
-      custom_labels: { ...prev.custom_labels, ...values },
-    }));
-    notify("Preset aplicado. Revise e salve.", "info");
-  }
-
-  function selectLogo(file?: File | null) {
+  // --- LÓGICA DE UPLOAD ---
+  const selectLogo = (file?: File | null) => {
     if (!file) return;
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     const url = URL.createObjectURL(file);
     previewUrlRef.current = url;
     setSelectedLogoFile(file);
     setLogoPreview(url);
-    notify("Logo selecionada. Salve o perfil para concluir o upload.", "info");
-  }
+    showToast("Logo selecionada. Salve para concluir o upload.", "info");
+  };
 
-  function removeLogo() {
+  const removeLogo = () => {
     if (previewUrlRef.current) {
       URL.revokeObjectURL(previewUrlRef.current);
       previewUrlRef.current = null;
@@ -693,444 +341,162 @@ export default function ConfiguracoesPage() {
     setSelectedLogoFile(null);
     setLogoPreview("");
     setField("logo_url", "");
-    notify("Logo removida. Salve o perfil para persistir.", "info");
-  }
+  };
 
-  async function uploadLogo(): Promise<string> {
+  const uploadLogo = async (): Promise<string> => {
     if (!selectedLogoFile) return companyForm.logo_url;
 
-    setUploadingLogo(true);
-    try {
-      const tempUrl = URL.createObjectURL(selectedLogoFile);
-      const img = new Image();
-      img.src = tempUrl;
+    const safeName = sanitizeFileName(selectedLogoFile.name.replace(/\.[^.]+$/, "") || "logo");
+    const path = `logos/${Date.now()}-${safeName}.png`;
 
-      await new Promise<void>((res, rej) => {
-        img.onload = () => res();
-        img.onerror = () => rej(new Error("Falha ao ler imagem da logo."));
-      });
+    const { error: uploadErr } = await supabase.storage
+      .from("axon-assets")
+      .upload(path, selectedLogoFile, { contentType: "image/png", upsert: true });
 
-      const canvas = document.createElement("canvas");
-      canvas.width = cropSize;
-      canvas.height = cropSize;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas indisponível.");
+    if (uploadErr) throw uploadErr;
 
-      const shortest = Math.min(img.width, img.height);
-      const srcSize = shortest / cropScale;
-      const srcX = (img.width - srcSize) / 2;
-      const srcY = (img.height - srcSize) / 2;
+    const { data } = supabase.storage.from("axon-assets").getPublicUrl(path);
+    if (!data.publicUrl) throw new Error("URL pública não gerada.");
 
-      ctx.clearRect(0, 0, cropSize, cropSize);
-      ctx.drawImage(img, srcX, srcY, srcSize, srcSize, 0, 0, cropSize, cropSize);
-      URL.revokeObjectURL(tempUrl);
+    setSelectedLogoFile(null);
+    return data.publicUrl;
+  };
 
-      const blob = await new Promise<Blob | null>((res) =>
-        canvas.toBlob(res, "image/png", 0.95)
-      );
-      if (!blob) throw new Error("Falha ao gerar arquivo da logo.");
-
-      const safeName = sanitizeFileName(
-        selectedLogoFile.name.replace(/\.[^.]+$/, "") || "logo"
-      );
-      const path = `logos/${Date.now()}-${safeName}.png`;
-
-      const { error: uploadErr } = await supabase.storage
-        .from("axon-assets")
-        .upload(path, blob, { contentType: "image/png", upsert: true });
-
-      if (uploadErr) throw uploadErr;
-
-      const { data } = supabase.storage.from("axon-assets").getPublicUrl(path);
-      if (!data.publicUrl) throw new Error("URL pública não gerada.");
-
-      setSelectedLogoFile(null);
-      setLogoPreview(data.publicUrl);
-      setField("logo_url", data.publicUrl);
-      return data.publicUrl;
-    } finally {
-      setUploadingLogo(false);
-    }
-  }
-
-  async function upsertPreferences(payload: PreferencesForm) {
-    const id = systemPreferences?.id;
-
-    if (id) {
-      const { error } = await supabase
-        .from("system_preferences")
-        .update({
-          custom_labels: payload.custom_labels,
-          feature_toggles: payload.feature_toggles,
-          commercial_documents: payload.commercial_documents,
-        })
-        .eq("id", id);
-      if (error) throw error;
-    } else {
-      const { error } = await supabase
-        .from("system_preferences")
-        .insert({
-          custom_labels: payload.custom_labels,
-          feature_toggles: payload.feature_toggles,
-          commercial_documents: payload.commercial_documents,
-        });
-      if (error) throw error;
-    }
-  }
-
-  async function saveCompanyTab() {
-    setSavingTab("perfil-corporativo");
-    notify("Salvando...", "info");
+  // --- LÓGICA DE SALVAMENTO ---
+  const saveCompanyProfile = async () => {
+    setIsSubmitting(true);
     try {
       const logoUrl = await uploadLogo();
+      const payload = { ...companyForm, logo_url: logoUrl };
 
-      const payload: CompanyProfilePayload = {
-        company_name: companyForm.company_name.trim(),
-        cnpj: formatCnpj(companyForm.cnpj),
-        logo_url: logoUrl,
-        primary_color: primaryColor,
-        contract_terms: companyForm.contract_terms,
-      };
+      const { data: existing } = await supabase.from("company_profile").select("id").limit(1).single();
 
-      const id = companyProfile?.id;
-      const { error } = id
-        ? await supabase.from("company_profile").update(payload).eq("id", id)
-        : await supabase.from("company_profile").insert(payload);
-      if (error) throw error;
-
-      await upsertPreferences({
-        ...preferencesForm,
-        commercial_documents: buildCommercialDocuments(
-          companyForm,
-          preferencesForm.commercial_documents
-        ),
-      });
+      if (existing?.id) {
+        const { error } = await supabase.from("company_profile").update(payload).eq("id", existing.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("company_profile").insert(payload);
+        if (error) throw error;
+      }
 
       await refreshSettings?.();
-      notify("Perfil corporativo salvo.", "success");
-    } catch (err) {
-      notify(err instanceof Error ? err.message : "Erro ao salvar.", "error");
+      showToast("Perfil corporativo salvo com sucesso.", "success");
+    } catch (error: any) {
+      showToast(`Erro ao salvar perfil: ${error.message}`, "error");
     } finally {
-      setSavingTab(null);
+      setIsSubmitting(false);
     }
-  }
+  };
 
-  async function saveLabelsTab() {
-    setSavingTab("nomenclaturas");
-    notify("Salvando...", "info");
+  const savePreferences = async () => {
+    setIsSubmitting(true);
     try {
-      await upsertPreferences(preferencesForm);
-      await refreshSettings?.();
-      notify("Nomenclaturas salvas.", "success");
-    } catch (err) {
-      notify(err instanceof Error ? err.message : "Erro ao salvar.", "error");
-    } finally {
-      setSavingTab(null);
-    }
-  }
+      const { data: existing } = await supabase.from("system_preferences").select("id").limit(1).single();
 
-  async function saveModulesTab() {
-    setSavingTab("modulos");
-    notify("Salvando...", "info");
-    try {
-      await upsertPreferences(preferencesForm);
-      await refreshSettings?.();
-      notify("Módulos salvos.", "success");
-    } catch (err) {
-      notify(err instanceof Error ? err.message : "Erro ao salvar.", "error");
-    } finally {
-      setSavingTab(null);
-    }
-  }
-
-  async function saveDocumentsTab() {
-    setSavingTab("documentos");
-    notify("Salvando...", "info");
-    try {
-      const id = companyProfile?.id;
-      const { error } = id
-        ? await supabase
-            .from("company_profile")
-            .update({ contract_terms: companyForm.contract_terms })
-            .eq("id", id)
-        : await supabase.from("company_profile").insert({
-            company_name: companyForm.company_name.trim(),
-            cnpj: formatCnpj(companyForm.cnpj),
-            logo_url: companyForm.logo_url,
-            primary_color: primaryColor,
-            contract_terms: companyForm.contract_terms,
-          });
-      if (error) throw error;
-
-      await upsertPreferences({
-        ...preferencesForm,
-        commercial_documents: buildCommercialDocuments(
-          companyForm,
-          preferencesForm.commercial_documents
-        ),
-      });
+      if (existing?.id) {
+        const { error } = await supabase.from("system_preferences").update(preferencesForm).eq("id", existing.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("system_preferences").insert(preferencesForm);
+        if (error) throw error;
+      }
 
       await refreshSettings?.();
-      notify("Documentos comerciais salvos.", "success");
-    } catch (err) {
-      notify(err instanceof Error ? err.message : "Erro ao salvar.", "error");
+      showToast("Configurações salvas com sucesso.", "success");
+    } catch (error: any) {
+      showToast(`Erro ao salvar configurações: ${error.message}`, "error");
     } finally {
-      setSavingTab(null);
+      setIsSubmitting(false);
     }
-  }
+  };
 
-  function SaveButton({
-    tab,
-    label,
-    onClick,
-  }: {
-    tab: SettingsTab;
-    label: string;
-    onClick: () => void;
-  }) {
-    const busy = savingTab === tab || uploadingLogo;
-    return (
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={onClick}
-          disabled={busy}
-          className="inline-flex min-h-11 items-center justify-center rounded-xl border px-5 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-          style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
-        >
-          {busy ? "Salvando…" : label}
-        </button>
-      </div>
-    );
-  }
+  const handleSave = () => {
+    if (activeTab === "perfil") {
+      saveCompanyProfile();
+    } else {
+      savePreferences();
+    }
+  };
 
   return (
-    <div className="h-full w-full overflow-y-auto bg-transparent text-[var(--color-text-primary)]">
-      <div className="mx-auto max-w-7xl space-y-6 p-6">
-        {feedback && (
-          <div
-            className={cx(
-              "rounded-2xl border px-4 py-3 text-sm",
-              feedback.type === "success" &&
-                "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-              feedback.type === "error" &&
-                "border-rose-500/30 bg-rose-500/10 text-rose-300",
-              feedback.type === "info" &&
-                "border-white/10 bg-white/5 text-[var(--color-text-primary)]"
-            )}
-          >
-            {feedback.message}
-          </div>
-        )}
-
-        <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-[var(--color-surface)]/80 p-2">
-          {TAB_OPTIONS.map((tab) => {
-            const active = activeTab === tab.key;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setActiveTab(tab.key)}
-                className={cx(
-                  "rounded-xl px-4 py-2 text-sm font-medium transition",
-                  active
-                    ? "text-white"
-                    : "text-[var(--color-text-secondary)] hover:bg-white/5 hover:text-white"
-                )}
-                style={active ? { backgroundColor: primaryColor } : undefined}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
+    <div className="space-y-6 relative max-w-6xl mx-auto pb-12">
+      {/* Toast System */}
+      {toast && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-md shadow-lg flex items-center gap-2 border ${
+            toast.type === "success"
+              ? "bg-cs-green/10 border-cs-green/20 text-cs-green"
+              : toast.type === "error"
+              ? "bg-red-500/10 border-red-500/20 text-red-500"
+              : "bg-blue-500/10 border-blue-500/20 text-blue-400"
+          }`}
+        >
+          {toast.type === "success" ? <Check size={18} /> : toast.type === "error" ? <X size={18} /> : <Settings size={18} />}
+          <span className="text-sm font-medium">{toast.message}</span>
         </div>
+      )}
 
-        {activeTab === "perfil-corporativo" && (
-          <section className="space-y-6 rounded-3xl border border-white/10 bg-[var(--color-surface)] p-6">
-            <SectionHeader
-              title="Perfil Corporativo"
-              subtitle="Dados da empresa e identidade visual do sistema."
-            />
+      {/* Header */}
+      <div className="flex justify-between items-center bg-surface p-4 border border-surface/50 rounded-lg">
+        <div>
+          <h3 className="text-lg font-medium text-white flex items-center gap-2">
+            <Settings className="text-cs-green" size={20} />
+            Configurações Globais
+          </h3>
+          <p className="text-xs text-text-secondary mt-1">
+            Gerencie o perfil da empresa, módulos ativos e nomenclaturas do sistema.
+          </p>
+        </div>
+        <button
+          onClick={handleSave}
+          disabled={isSubmitting}
+          className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50"
+        >
+          {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+          Salvar Alterações
+        </button>
+      </div>
 
-            <SaveButton
-              tab="perfil-corporativo"
-              label="Salvar perfil corporativo"
-              onClick={saveCompanyTab}
-            />
+      {/* Tabs */}
+      <div className="flex gap-2 border-b border-surface/50 pb-4 overflow-x-auto custom-scrollbar">
+        {[
+          { id: "perfil", label: "Perfil Corporativo", icon: Building2 },
+          { id: "nomenclaturas", label: "Nomenclaturas", icon: Type },
+          { id: "modulos", label: "Módulos", icon: LayoutGrid },
+          { id: "documentos", label: "Documentos Comerciais", icon: FileText },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as SettingsTab)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
+              activeTab === tab.id
+                ? "bg-cs-green/10 text-cs-green border border-cs-green/20"
+                : "text-text-secondary hover:text-white hover:bg-surface border border-transparent"
+            }`}
+          >
+            <tab.icon size={16} /> {tab.label}
+          </button>
+        ))}
+      </div>
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <Field label="Nome exibido">
-                <Input
-                  value={companyForm.company_name}
-                  onChange={(e) => setField("company_name", e.target.value)}
-                />
-              </Field>
-
-              <Field label="CNPJ">
-                <Input
-                  value={companyForm.cnpj}
-                  onChange={masked("cnpj", formatCnpj)}
-                  placeholder="00.000.000/0000-00"
-                />
-              </Field>
-
-              <Field label="Razão social">
-                <Input
-                  value={companyForm.legal_name}
-                  onChange={(e) => setField("legal_name", e.target.value)}
-                />
-              </Field>
-
-              <Field label="Nome fantasia">
-                <Input
-                  value={companyForm.trade_name}
-                  onChange={(e) => setField("trade_name", e.target.value)}
-                />
-              </Field>
-
-              <Field label="Site">
-                <Input
-                  value={companyForm.website}
-                  onChange={(e) => setField("website", e.target.value)}
-                  placeholder="https://..."
-                />
-              </Field>
-
-              <Field label="E-mail de contato">
-                <Input
-                  value={companyForm.contact_email}
-                  onChange={(e) => setField("contact_email", e.target.value)}
-                  type="email"
-                />
-              </Field>
-
-              <Field label="Telefone fixo">
-                <Input
-                  value={companyForm.phone_landline}
-                  onChange={masked("phone_landline", formatPhone)}
-                  placeholder="(21) 3333-4444"
-                />
-              </Field>
-
-              <Field label="Celular">
-                <Input
-                  value={companyForm.phone_mobile}
-                  onChange={masked("phone_mobile", formatPhone)}
-                  placeholder="(21) 99999-9999"
-                />
-              </Field>
-
-              <Field label="WhatsApp">
-                <Input
-                  value={companyForm.whatsapp_number}
-                  onChange={masked("whatsapp_number", formatPhone)}
-                  placeholder="(21) 99999-9999"
-                />
-              </Field>
-
-              <Field label="CEP">
-                <Input
-                  value={companyForm.zipcode}
-                  onChange={masked("zipcode", formatCep)}
-                  placeholder="00000-000"
-                />
-              </Field>
-
-              <Field label="Estado">
-                <Select
-                  value={companyForm.state}
-                  onChange={(e) => {
-                    setField("state", e.target.value);
-                    setField("city", "");
-                  }}
-                >
-                  <option value="">
-                    {loadingStates ? "Carregando…" : "Selecione"}
-                  </option>
-                  {states.map((s) => (
-                    <option key={s.id} value={s.sigla}>
-                      {s.nome} ({s.sigla})
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-
-              <Field label="Cidade">
-                <Select
-                  value={companyForm.city}
-                  onChange={(e) => setField("city", e.target.value)}
-                  disabled={!companyForm.state || loadingCities}
-                >
-                  <option value="">
-                    {loadingCities ? "Carregando…" : "Selecione"}
-                  </option>
-                  {cities.map((c) => (
-                    <option key={c.id} value={c.nome}>
-                      {c.nome}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-
-              <Field label="Endereço">
-                <Input
-                  value={companyForm.street}
-                  onChange={(e) => setField("street", e.target.value)}
-                />
-              </Field>
-
-              <Field label="Número">
-                <Input
-                  value={companyForm.street_number}
-                  onChange={(e) => setField("street_number", e.target.value)}
-                />
-              </Field>
-
-              <Field label="Complemento">
-                <Input
-                  value={companyForm.complement}
-                  onChange={(e) => setField("complement", e.target.value)}
-                />
-              </Field>
-
-              <Field label="Bairro">
-                <Input
-                  value={companyForm.district}
-                  onChange={(e) => setField("district", e.target.value)}
-                />
-              </Field>
-
-              <Field label="País">
-                <Input
-                  value={companyForm.country}
-                  onChange={(e) => setField("country", e.target.value)}
-                />
-              </Field>
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-black/10 p-5">
-              <h3 className="mb-1 font-medium">Logo da empresa</h3>
-              <p className="mb-5 text-xs text-[var(--color-text-secondary)]">
-                Bucket <code>axon-assets</code>, pasta <code>logos/</code>. Formato PNG final.
-              </p>
-
-              <div className="flex flex-col gap-6 lg:flex-row">
-                <div className="flex h-44 w-44 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-white/15 bg-black/20">
-                  {logoPreview || companyForm.logo_url ? (
-                    <img
-                      src={logoPreview || companyForm.logo_url}
-                      alt="Logo"
-                      className="h-full w-full object-contain transition-transform"
-                      style={{ transform: `scale(${cropScale})` }}
-                    />
-                  ) : (
-                    <span className="px-4 text-center text-sm text-[var(--color-text-secondary)]">
-                      Nenhuma logo
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex-1 space-y-4">
+      {/* Content */}
+      <div className="bg-surface border border-surface/50 rounded-lg p-6">
+        {activeTab === "perfil" && (
+          <div className="space-y-8">
+            {/* Logo e Identidade Visual */}
+            <div>
+              <h4 className="text-sm font-bold text-white border-b border-surface/50 pb-2 mb-4 flex items-center gap-2">
+                <Palette size={16} className="text-cs-gold" /> Identidade Visual
+              </h4>
+              <div className="flex flex-col md:flex-row gap-6 items-start">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-32 h-32 rounded-lg border border-dashed border-surface/50 bg-background flex items-center justify-center overflow-hidden">
+                    {logoPreview ? (
+                      <img src={logoPreview} alt="Logo Preview" className="w-full h-full object-contain" />
+                    ) : (
+                      <span className="text-xs text-text-secondary text-center px-4">Nenhuma logo</span>
+                    )}
+                  </div>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -1138,420 +504,366 @@ export default function ConfiguracoesPage() {
                     className="hidden"
                     onChange={(e) => selectLogo(e.target.files?.[0])}
                   />
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex gap-2">
                     <button
-                      type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="rounded-xl border border-white/10 bg-black/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/5"
+                      className="text-xs flex items-center gap-1 bg-surface border border-surface/50 px-3 py-1.5 rounded hover:bg-background transition-colors text-white"
                     >
-                      {logoPreview || companyForm.logo_url ? "Trocar logo" : "Enviar logo"}
+                      <Upload size={14} /> {logoPreview ? "Trocar" : "Enviar"}
                     </button>
-                    {(logoPreview || companyForm.logo_url) && (
+                    {logoPreview && (
                       <button
-                        type="button"
                         onClick={removeLogo}
-                        className="rounded-xl border border-rose-400/20 bg-rose-400/10 px-4 py-2 text-sm font-medium text-rose-300 transition hover:bg-rose-400/20"
+                        className="text-xs flex items-center gap-1 bg-red-500/10 text-red-500 border border-red-500/20 px-3 py-1.5 rounded hover:bg-red-500/20 transition-colors"
                       >
-                        Excluir logo
+                        <Trash2 size={14} />
                       </button>
                     )}
                   </div>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <Field label={`Zoom: ${cropScale.toFixed(1)}×`}>
+                </div>
+                <div className="flex-1 space-y-4 w-full">
+                  <div>
+                    <label className="block text-xs font-medium text-text-secondary mb-1">Cor Primária (Hexadecimal)</label>
+                    <div className="flex items-center gap-3">
                       <input
-                        type="range"
-                        min="1"
-                        max="2.5"
-                        step="0.1"
-                        value={cropScale}
-                        onChange={(e) => setCropScale(Number(e.target.value))}
-                        className="w-full accent-[var(--color-cs-green)]"
+                        type="color"
+                        value={companyForm.primary_color}
+                        onChange={(e) => setField("primary_color", e.target.value)}
+                        className="w-10 h-10 rounded cursor-pointer bg-transparent border-0 p-0"
                       />
-                    </Field>
-                    <Field label={`Tamanho final: ${cropSize}px`}>
                       <input
-                        type="range"
-                        min="160"
-                        max="800"
-                        step="20"
-                        value={cropSize}
-                        onChange={(e) => setCropSize(Number(e.target.value))}
-                        className="w-full accent-[var(--color-cs-green)]"
+                        type="text"
+                        value={companyForm.primary_color}
+                        onChange={(e) => setField("primary_color", e.target.value)}
+                        className="block w-full max-w-xs rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm uppercase"
                       />
-                    </Field>
+                    </div>
                   </div>
-
-                  {selectedLogoFile && (
-                    <p className="text-xs text-[var(--color-cs-gold)]">
-                      Upload pendente — salve o perfil para concluir.
-                    </p>
-                  )}
                 </div>
               </div>
             </div>
 
-            <SaveButton
-              tab="perfil-corporativo"
-              label="Salvar perfil corporativo"
-              onClick={saveCompanyTab}
-            />
-          </section>
+            {/* Dados da Empresa */}
+            <div>
+              <h4 className="text-sm font-bold text-white border-b border-surface/50 pb-2 mb-4 flex items-center gap-2">
+                <Building2 size={16} className="text-cs-green" /> Dados da Empresa
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Nome Fantasia</label>
+                  <input
+                    type="text"
+                    value={companyForm.trade_name}
+                    onChange={(e) => setField("trade_name", e.target.value)}
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Razão Social</label>
+                  <input
+                    type="text"
+                    value={companyForm.legal_name}
+                    onChange={(e) => setField("legal_name", e.target.value)}
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">CNPJ</label>
+                  <input
+                    type="text"
+                    value={companyForm.cnpj}
+                    onChange={masked("cnpj", formatCnpj)}
+                    placeholder="00.000.000/0000-00"
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">E-mail de Contato</label>
+                  <input
+                    type="email"
+                    value={companyForm.contact_email}
+                    onChange={(e) => setField("contact_email", e.target.value)}
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Telefone Fixo</label>
+                  <input
+                    type="text"
+                    value={companyForm.phone_landline}
+                    onChange={masked("phone_landline", formatPhone)}
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">WhatsApp</label>
+                  <input
+                    type="text"
+                    value={companyForm.whatsapp_number}
+                    onChange={masked("whatsapp_number", formatPhone)}
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Website</label>
+                  <input
+                    type="text"
+                    value={companyForm.website}
+                    onChange={(e) => setField("website", e.target.value)}
+                    placeholder="https://..."
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Endereço */}
+            <div>
+              <h4 className="text-sm font-bold text-white border-b border-surface/50 pb-2 mb-4">Endereço</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">CEP</label>
+                  <input
+                    type="text"
+                    value={companyForm.zipcode}
+                    onChange={masked("zipcode", formatCep)}
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
+                  />
+                </div>
+                <div className="lg:col-span-2">
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Logradouro</label>
+                  <input
+                    type="text"
+                    value={companyForm.street}
+                    onChange={(e) => setField("street", e.target.value)}
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Número</label>
+                  <input
+                    type="text"
+                    value={companyForm.street_number}
+                    onChange={(e) => setField("street_number", e.target.value)}
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Complemento</label>
+                  <input
+                    type="text"
+                    value={companyForm.complement}
+                    onChange={(e) => setField("complement", e.target.value)}
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Bairro</label>
+                  <input
+                    type="text"
+                    value={companyForm.district}
+                    onChange={(e) => setField("district", e.target.value)}
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Estado</label>
+                  <select
+                    value={companyForm.state}
+                    onChange={(e) => {
+                      setField("state", e.target.value);
+                      setField("city", "");
+                    }}
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm cursor-pointer"
+                  >
+                    <option value="">Selecione</option>
+                    {states.map((s) => (
+                      <option key={s.id} value={s.sigla}>
+                        {s.nome} ({s.sigla})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Cidade</label>
+                  <select
+                    value={companyForm.city}
+                    onChange={(e) => setField("city", e.target.value)}
+                    disabled={!companyForm.state || loadingCities}
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm cursor-pointer disabled:opacity-50"
+                  >
+                    <option value="">Selecione</option>
+                    {cities.map((c) => (
+                      <option key={c.id} value={c.nome}>
+                        {c.nome}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {activeTab === "nomenclaturas" && (
-          <section className="space-y-6 rounded-3xl border border-white/10 bg-[var(--color-surface)] p-6">
-            <SectionHeader
-              title="Nomenclaturas"
-              subtitle="Renomeie menus e entidades para o vocabulário do cliente."
-            />
-
-            <div className="rounded-2xl border border-white/10 bg-black/10 p-5">
-              <h3 className="mb-4 text-sm font-semibold">Presets rápidos</h3>
-              <div className="space-y-5">
-                {NOMENCLATURE_PRESETS.map((group) => (
-                  <div key={group.title}>
-                    <p className="mb-2 text-xs font-medium uppercase tracking-widest text-[var(--color-text-secondary)]">
-                      {group.title}
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {group.options.map((preset) => (
-                        <button
-                          key={preset.label}
-                          type="button"
-                          onClick={() => applyPreset(preset.values)}
-                          className="rounded-xl border border-white/10 bg-black/10 px-3 py-2 text-sm text-white transition hover:border-[var(--color-cs-green)]/40 hover:bg-[var(--color-cs-green)]/10"
-                        >
-                          {preset.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <SaveButton
-              tab="nomenclaturas"
-              label="Salvar nomenclaturas"
-              onClick={saveLabelsTab}
-            />
-
-            <div className="space-y-5">
-              {LABEL_GROUPS.map((group) => (
-                <div
-                  key={group.title}
-                  className="rounded-2xl border border-white/10 bg-black/10 p-5"
-                >
-                  <h3 className="mb-4 font-medium">{group.title}</h3>
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {group.fields.map((field) => (
-                      <Field key={field} label={LABEL_MAP[field] ?? field}>
-                        <Input
-                          value={preferencesForm.custom_labels[field] ?? ""}
-                          onChange={(e) => setLabel(field, e.target.value)}
-                        />
-                      </Field>
-                    ))}
-                  </div>
+          <div className="space-y-6">
+            <p className="text-sm text-text-secondary mb-4">
+              Personalize como os menus e entidades são chamados no sistema para se adequar ao vocabulário da sua operação.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {Object.keys(DEFAULT_CUSTOM_LABELS).map((key) => (
+                <div key={key}>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">
+                    {key.replace("menu_", "Menu: ").replace("entity_", "Entidade: ").replace(/_/g, " ")}
+                  </label>
+                  <input
+                    type="text"
+                    value={preferencesForm.custom_labels[key] || ""}
+                    onChange={(e) =>
+                      setPreferencesForm((prev) => ({
+                        ...prev,
+                        custom_labels: { ...prev.custom_labels, [key]: e.target.value },
+                      }))
+                    }
+                    placeholder={DEFAULT_CUSTOM_LABELS[key]}
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
+                  />
                 </div>
               ))}
             </div>
-
-            <SaveButton
-              tab="nomenclaturas"
-              label="Salvar nomenclaturas"
-              onClick={saveLabelsTab}
-            />
-          </section>
+          </div>
         )}
 
         {activeTab === "modulos" && (
-          <section className="space-y-6 rounded-3xl border border-white/10 bg-[var(--color-surface)] p-6">
-            <SectionHeader
-              title="Módulos"
-              subtitle="Ative apenas as funcionalidades usadas pelo cliente."
-            />
-
-            <SaveButton
-              tab="modulos"
-              label="Salvar módulos"
-              onClick={saveModulesTab}
-            />
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              {MODULES.map((mod) => {
-                const enabled = Boolean(preferencesForm.feature_toggles[mod.key]);
-                return (
-                  <div
-                    key={mod.key}
-                    className="flex items-start justify-between gap-4 rounded-2xl border border-white/10 bg-black/10 p-5"
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {MODULES.map((mod) => {
+              const isActive = preferencesForm.feature_toggles[mod.key] ?? true;
+              return (
+                <div key={mod.key} className="flex items-center justify-between p-4 bg-background border border-surface/50 rounded-lg">
+                  <div>
+                    <h5 className="text-sm font-bold text-white">{mod.title}</h5>
+                    <p className="text-xs text-text-secondary mt-0.5">{mod.desc}</p>
+                  </div>
+                  <button
+                    onClick={() =>
+                      setPreferencesForm((prev) => ({
+                        ...prev,
+                        feature_toggles: { ...prev.feature_toggles, [mod.key]: !isActive },
+                      }))
+                    }
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      isActive ? "bg-cs-green" : "bg-surface"
+                    }`}
                   >
-                    <div className="space-y-0.5">
-                      <p className="font-medium">{mod.title}</p>
-                      <p className="text-sm text-[var(--color-text-secondary)]">
-                        {mod.description}
-                      </p>
-                    </div>
-                    <Toggle
-                      value={enabled}
-                      onChange={(v) => setToggle(mod.key, v)}
-                      activeColor={primaryColor}
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        isActive ? "translate-x-6" : "translate-x-1"
+                      }`}
                     />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {activeTab === "documentos" && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {[
+                { key: "show_logo_on_quotes", label: "Exibir Logo nos Orçamentos" },
+                { key: "show_company_address_on_quotes", label: "Exibir Endereço nos Orçamentos" },
+                { key: "show_company_contacts_on_quotes", label: "Exibir Contatos nos Orçamentos" },
+                { key: "show_signature_on_quotes", label: "Exibir Campo de Assinatura" },
+              ].map((toggle) => {
+                const isActive = Boolean(preferencesForm.commercial_documents[toggle.key]);
+                return (
+                  <div key={toggle.key} className="flex items-center justify-between p-4 bg-background border border-surface/50 rounded-lg">
+                    <span className="text-sm font-medium text-white">{toggle.label}</span>
+                    <button
+                      onClick={() =>
+                        setPreferencesForm((prev) => ({
+                          ...prev,
+                          commercial_documents: { ...prev.commercial_documents, [toggle.key]: !isActive },
+                        }))
+                      }
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        isActive ? "bg-cs-green" : "bg-surface"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          isActive ? "translate-x-6" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
                   </div>
                 );
               })}
             </div>
 
-            <SaveButton
-              tab="modulos"
-              label="Salvar módulos"
-              onClick={saveModulesTab}
-            />
-          </section>
-        )}
-
-        {activeTab === "documentos" && (
-          <section className="space-y-6 rounded-3xl border border-white/10 bg-[var(--color-surface)] p-6">
-            <SectionHeader
-              title="Documentos Comerciais"
-              subtitle="Cláusulas, textos padrões, rodapés e regras de exibição."
-            />
-
-            <SaveButton
-              tab="documentos"
-              label="Salvar documentos comerciais"
-              onClick={saveDocumentsTab}
-            />
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <ToggleRow
-                label="Mostrar logo nos orçamentos"
-                value={Boolean(
-                  preferencesForm.commercial_documents.show_logo_on_quotes
-                )}
-                onChange={(v) => setCommercialDoc("show_logo_on_quotes", v)}
-                activeColor={primaryColor}
-              />
-              <ToggleRow
-                label="Mostrar endereço nos orçamentos"
-                value={Boolean(
-                  preferencesForm.commercial_documents.show_company_address_on_quotes
-                )}
-                onChange={(v) =>
-                  setCommercialDoc("show_company_address_on_quotes", v)
-                }
-                activeColor={primaryColor}
-              />
-              <ToggleRow
-                label="Mostrar contatos nos orçamentos"
-                value={Boolean(
-                  preferencesForm.commercial_documents.show_company_contacts_on_quotes
-                )}
-                onChange={(v) =>
-                  setCommercialDoc("show_company_contacts_on_quotes", v)
-                }
-                activeColor={primaryColor}
-              />
-              <ToggleRow
-                label="Mostrar assinatura nos orçamentos"
-                value={Boolean(
-                  preferencesForm.commercial_documents.show_signature_on_quotes
-                )}
-                onChange={(v) => setCommercialDoc("show_signature_on_quotes", v)}
-                activeColor={primaryColor}
-              />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-text-secondary mb-1">Texto de Abertura Padrão (Orçamentos)</label>
+                <textarea
+                  rows={3}
+                  value={String(preferencesForm.commercial_documents.quote_intro_text || "")}
+                  onChange={(e) =>
+                    setPreferencesForm((prev) => ({
+                      ...prev,
+                      commercial_documents: { ...prev.commercial_documents, quote_intro_text: e.target.value },
+                    }))
+                  }
+                  className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-text-secondary mb-1">Termos e Condições Padrão (Orçamentos)</label>
+                <textarea
+                  rows={4}
+                  value={String(preferencesForm.commercial_documents.quote_terms_text || "")}
+                  onChange={(e) =>
+                    setPreferencesForm((prev) => ({
+                      ...prev,
+                      commercial_documents: { ...prev.commercial_documents, quote_terms_text: e.target.value },
+                    }))
+                  }
+                  className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-text-secondary mb-1">Cláusulas Contratuais Padrão</label>
+                <textarea
+                  rows={5}
+                  value={companyForm.contract_terms}
+                  onChange={(e) => setField("contract_terms", e.target.value)}
+                  className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm resize-none"
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Rodapé de Propostas (PDF)</label>
+                  <textarea
+                    rows={2}
+                    value={companyForm.proposal_footer}
+                    onChange={(e) => setField("proposal_footer", e.target.value)}
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm resize-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Rodapé de Faturas (PDF)</label>
+                  <textarea
+                    rows={2}
+                    value={companyForm.invoice_footer}
+                    onChange={(e) => setField("invoice_footer", e.target.value)}
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm resize-none"
+                  />
+                </div>
+              </div>
             </div>
-
-            <Field label="Texto de abertura do orçamento">
-              <Textarea
-                value={String(
-                  preferencesForm.commercial_documents.quote_intro_text ?? ""
-                )}
-                onChange={(e) =>
-                  setCommercialDoc("quote_intro_text", e.target.value)
-                }
-              />
-            </Field>
-
-            <Field label="Termos padrão do orçamento">
-              <Textarea
-                value={String(
-                  preferencesForm.commercial_documents.quote_terms_text ?? ""
-                )}
-                onChange={(e) =>
-                  setCommercialDoc("quote_terms_text", e.target.value)
-                }
-              />
-            </Field>
-
-            <Field label="Cláusulas contratuais padrão">
-              <Textarea
-                value={companyForm.contract_terms}
-                onChange={(e) => setField("contract_terms", e.target.value)}
-              />
-            </Field>
-
-            <Field label="Modelo de proposta">
-              <Textarea
-                value={String(
-                  preferencesForm.commercial_documents.default_proposal_template ?? ""
-                )}
-                onChange={(e) =>
-                  setCommercialDoc("default_proposal_template", e.target.value)
-                }
-              />
-            </Field>
-
-            <Field label="Rodapé de proposta">
-              <Textarea
-                value={companyForm.proposal_footer}
-                onChange={(e) => setField("proposal_footer", e.target.value)}
-              />
-            </Field>
-
-            <Field label="Rodapé de fatura">
-              <Textarea
-                value={companyForm.invoice_footer}
-                onChange={(e) => setField("invoice_footer", e.target.value)}
-              />
-            </Field>
-
-            <Field label="Observações operacionais padrão">
-              <Textarea
-                value={String(
-                  preferencesForm.commercial_documents.default_operational_notes ?? ""
-                )}
-                onChange={(e) =>
-                  setCommercialDoc("default_operational_notes", e.target.value)
-                }
-              />
-            </Field>
-
-            <SaveButton
-              tab="documentos"
-              label="Salvar documentos comerciais"
-              onClick={saveDocumentsTab}
-            />
-          </section>
+          </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function SectionHeader({
-  title,
-  subtitle,
-}: {
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <div className="space-y-1">
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <p className="text-sm text-[var(--color-text-secondary)]">{subtitle}</p>
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="space-y-1.5">
-      <span className="block text-sm font-medium text-[var(--color-text-secondary)]">
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
-
-function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      {...props}
-      className={cx(
-        "min-h-11 w-full rounded-xl border border-white/10 bg-black/10 px-4 py-2 text-sm text-white outline-none transition",
-        "placeholder:text-[var(--color-text-secondary)]",
-        "focus:border-[var(--color-cs-green)]/60 focus:bg-black/20 focus:ring-2 focus:ring-[var(--color-cs-green)]/15",
-        props.className
-      )}
-    />
-  );
-}
-
-function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select
-      {...props}
-      className={cx(
-        "min-h-11 w-full rounded-xl border border-white/10 bg-[var(--color-surface)] px-4 py-2 text-sm text-white outline-none transition",
-        "focus:border-[var(--color-cs-green)]/60 focus:ring-2 focus:ring-[var(--color-cs-green)]/15",
-        "disabled:cursor-not-allowed disabled:opacity-50",
-        props.className
-      )}
-    />
-  );
-}
-
-function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return (
-    <textarea
-      rows={5}
-      {...props}
-      className={cx(
-        "min-h-[140px] w-full rounded-xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-white outline-none transition",
-        "placeholder:text-[var(--color-text-secondary)]",
-        "focus:border-[var(--color-cs-green)]/60 focus:bg-black/20 focus:ring-2 focus:ring-[var(--color-cs-green)]/15",
-        props.className
-      )}
-    />
-  );
-}
-
-function Toggle({
-  value,
-  onChange,
-  activeColor,
-}: {
-  value: boolean;
-  onChange: (v: boolean) => void;
-  activeColor: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={value}
-      onClick={() => onChange(!value)}
-      className="relative h-7 w-12 shrink-0 rounded-full transition-colors duration-200"
-      style={{ backgroundColor: value ? activeColor : "rgba(255,255,255,0.15)" }}
-    >
-      <span
-        className={cx(
-          "absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all duration-200",
-          value ? "left-6" : "left-1"
-        )}
-      />
-    </button>
-  );
-}
-
-function ToggleRow({
-  label,
-  value,
-  onChange,
-  activeColor,
-}: {
-  label: string;
-  value: boolean;
-  onChange: (v: boolean) => void;
-  activeColor: string;
-}) {
-  return (
-    <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/10 p-4">
-      <span className="pr-4 text-sm font-medium">{label}</span>
-      <Toggle value={value} onChange={onChange} activeColor={activeColor} />
     </div>
   );
 }
