@@ -11,9 +11,11 @@ import {
 import { supabase } from "@/app/lib/supabase";
 import { useSettings } from "@/app/providers/SettingsProvider";
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
-
-type SettingsTab = "perfil-corporativo" | "nomenclaturas" | "modulos" | "documentos";
+type SettingsTab =
+  | "perfil-corporativo"
+  | "nomenclaturas"
+  | "modulos"
+  | "documentos";
 
 type CompanyProfilePayload = {
   company_name: string;
@@ -23,7 +25,6 @@ type CompanyProfilePayload = {
   contract_terms: string;
 };
 
-/** Campos editáveis na aba Perfil Corporativo. */
 type CompanyForm = CompanyProfilePayload & {
   legal_name: string;
   trade_name: string;
@@ -79,8 +80,6 @@ type PresetGroup = {
   title: string;
   options: Array<{ label: string; values: Record<string, string> }>;
 };
-
-// ─── Valores padrão ───────────────────────────────────────────────────────────
 
 const DEFAULT_COMPANY_FORM: CompanyForm = {
   company_name: "",
@@ -188,8 +187,6 @@ const DEFAULT_COMMERCIAL_DOCUMENTS: CommercialDocuments = {
   proposal_footer: "",
   invoice_footer: "",
 };
-
-// ─── Configurações estáticas ──────────────────────────────────────────────────
 
 const TAB_OPTIONS: Array<{ key: SettingsTab; label: string }> = [
   { key: "perfil-corporativo", label: "Perfil Corporativo" },
@@ -448,8 +445,6 @@ const MODULES = [
   },
 ] as const;
 
-// ─── Utilitários ──────────────────────────────────────────────────────────────
-
 function onlyDigits(value: string) {
   return value.replace(/\D/g, "");
 }
@@ -471,9 +466,13 @@ function formatCep(value: string) {
 function formatPhone(value: string) {
   const d = onlyDigits(value).slice(0, 11);
   if (d.length <= 10) {
-    return d.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{4})(\d)/, "$1-$2");
+    return d
+      .replace(/^(\d{2})(\d)/, "($1) $2")
+      .replace(/(\d{4})(\d)/, "$1-$2");
   }
-  return d.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2");
+  return d
+    .replace(/^(\d{2})(\d)/, "($1) $2")
+    .replace(/(\d{5})(\d)/, "$1-$2");
 }
 
 function sanitizeFileName(name: string) {
@@ -490,7 +489,6 @@ function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-/** Espelha campos de CompanyForm para o objeto commercial_documents. */
 function buildCommercialDocuments(
   form: CompanyForm,
   current: CommercialDocuments
@@ -516,8 +514,6 @@ function buildCommercialDocuments(
     invoice_footer: form.invoice_footer,
   };
 }
-
-// ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function ConfiguracoesPage() {
   const { companyProfile, systemPreferences, refreshSettings } =
@@ -554,7 +550,6 @@ export default function ConfiguracoesPage() {
     [companyForm.primary_color]
   );
 
-  // ── Carrega dados salvos ───────────────────────────────────────────────────
   useEffect(() => {
     const saved: CommercialDocuments = {
       ...DEFAULT_COMMERCIAL_DOCUMENTS,
@@ -602,7 +597,6 @@ export default function ConfiguracoesPage() {
     setLogoPreview(companyProfile?.logo_url ?? "");
   }, [companyProfile, systemPreferences]);
 
-  // ── IBGE: estados ─────────────────────────────────────────────────────────
   useEffect(() => {
     setLoadingStates(true);
     fetch("https://servicodados.ibge.gov.br/api/v1/localidades/estados")
@@ -614,7 +608,6 @@ export default function ConfiguracoesPage() {
       .finally(() => setLoadingStates(false));
   }, []);
 
-  // ── IBGE: municípios por UF ───────────────────────────────────────────────
   useEffect(() => {
     const uf = companyForm.state.trim().toUpperCase();
     if (!uf || uf.length !== 2) {
@@ -634,14 +627,11 @@ export default function ConfiguracoesPage() {
       .finally(() => setLoadingCities(false));
   }, [companyForm.state]);
 
-  // ── Limpa object URL ao desmontar ─────────────────────────────────────────
   useEffect(() => {
     return () => {
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     };
   }, []);
-
-  // ─── Helpers de estado ────────────────────────────────────────────────────
 
   function notify(message: string, type: "success" | "error" | "info") {
     setFeedback({ message, type });
@@ -685,8 +675,6 @@ export default function ConfiguracoesPage() {
     notify("Preset aplicado. Revise e salve.", "info");
   }
 
-  // ─── Logo ─────────────────────────────────────────────────────────────────
-
   function selectLogo(file?: File | null) {
     if (!file) return;
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
@@ -708,10 +696,6 @@ export default function ConfiguracoesPage() {
     notify("Logo removida. Salve o perfil para persistir.", "info");
   }
 
-  /**
-   * Faz crop + upload no bucket axon-assets/logos/.
-   * Retorna a URL pública ou a URL já salva se nenhum arquivo novo foi selecionado.
-   */
   async function uploadLogo(): Promise<string> {
     if (!selectedLogoFile) return companyForm.logo_url;
 
@@ -769,15 +753,29 @@ export default function ConfiguracoesPage() {
     }
   }
 
-  // ─── Persistência ─────────────────────────────────────────────────────────
-
   async function upsertPreferences(payload: PreferencesForm) {
     const id = systemPreferences?.id;
-    const q = id
-      ? supabase.from("system_preferences").update(payload).eq("id", id)
-      : supabase.from("system_preferences").insert(payload);
-    const { error } = await q;
-    if (error) throw error;
+
+    if (id) {
+      const { error } = await supabase
+        .from("system_preferences")
+        .update({
+          custom_labels: payload.custom_labels,
+          feature_toggles: payload.feature_toggles,
+          commercial_documents: payload.commercial_documents,
+        })
+        .eq("id", id);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase
+        .from("system_preferences")
+        .insert({
+          custom_labels: payload.custom_labels,
+          feature_toggles: payload.feature_toggles,
+          commercial_documents: payload.commercial_documents,
+        });
+      if (error) throw error;
+    }
   }
 
   async function saveCompanyTab() {
@@ -881,8 +879,6 @@ export default function ConfiguracoesPage() {
     }
   }
 
-  // ─── Render helpers ───────────────────────────────────────────────────────
-
   function SaveButton({
     tab,
     label,
@@ -908,20 +904,9 @@ export default function ConfiguracoesPage() {
     );
   }
 
-  // ─── Render ───────────────────────────────────────────────────────────────
-
   return (
     <div className="h-full w-full overflow-y-auto bg-transparent text-[var(--color-text-primary)]">
       <div className="mx-auto max-w-7xl space-y-6 p-6">
-        {/* Cabeçalho */}
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold">Configurações</h1>
-          <p className="text-sm text-[var(--color-text-secondary)]">
-            Identidade visual, nomenclaturas, módulos e documentos comerciais.
-          </p>
-        </div>
-
-        {/* Feedback */}
         {feedback && (
           <div
             className={cx(
@@ -938,7 +923,6 @@ export default function ConfiguracoesPage() {
           </div>
         )}
 
-        {/* Abas */}
         <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-[var(--color-surface)]/80 p-2">
           {TAB_OPTIONS.map((tab) => {
             const active = activeTab === tab.key;
@@ -961,7 +945,6 @@ export default function ConfiguracoesPage() {
           })}
         </div>
 
-        {/* ── Aba: Perfil Corporativo ──────────────────────────────────────── */}
         {activeTab === "perfil-corporativo" && (
           <section className="space-y-6 rounded-3xl border border-white/10 bg-[var(--color-surface)] p-6">
             <SectionHeader
@@ -975,7 +958,6 @@ export default function ConfiguracoesPage() {
               onClick={saveCompanyTab}
             />
 
-            {/* Campos principais */}
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <Field label="Nome exibido">
                 <Input
@@ -990,22 +972,6 @@ export default function ConfiguracoesPage() {
                   onChange={masked("cnpj", formatCnpj)}
                   placeholder="00.000.000/0000-00"
                 />
-              </Field>
-
-              <Field label="Cor principal">
-                <div className="flex items-center gap-3">
-                  <input
-                    type="color"
-                    value={companyForm.primary_color}
-                    onChange={(e) => setField("primary_color", e.target.value)}
-                    className="h-11 w-14 cursor-pointer rounded-xl border border-white/10 bg-black/20 p-1"
-                  />
-                  <Input
-                    value={companyForm.primary_color}
-                    onChange={(e) => setField("primary_color", e.target.value)}
-                    className="font-mono uppercase"
-                  />
-                </div>
               </Field>
 
               <Field label="Razão social">
@@ -1142,7 +1108,6 @@ export default function ConfiguracoesPage() {
               </Field>
             </div>
 
-            {/* Logo */}
             <div className="rounded-2xl border border-white/10 bg-black/10 p-5">
               <h3 className="mb-1 font-medium">Logo da empresa</h3>
               <p className="mb-5 text-xs text-[var(--color-text-secondary)]">
@@ -1150,7 +1115,6 @@ export default function ConfiguracoesPage() {
               </p>
 
               <div className="flex flex-col gap-6 lg:flex-row">
-                {/* Preview */}
                 <div className="flex h-44 w-44 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-white/15 bg-black/20">
                   {logoPreview || companyForm.logo_url ? (
                     <img
@@ -1166,7 +1130,6 @@ export default function ConfiguracoesPage() {
                   )}
                 </div>
 
-                {/* Controles */}
                 <div className="flex-1 space-y-4">
                   <input
                     ref={fileInputRef}
@@ -1236,7 +1199,6 @@ export default function ConfiguracoesPage() {
           </section>
         )}
 
-        {/* ── Aba: Nomenclaturas ───────────────────────────────────────────── */}
         {activeTab === "nomenclaturas" && (
           <section className="space-y-6 rounded-3xl border border-white/10 bg-[var(--color-surface)] p-6">
             <SectionHeader
@@ -1244,7 +1206,6 @@ export default function ConfiguracoesPage() {
               subtitle="Renomeie menus e entidades para o vocabulário do cliente."
             />
 
-            {/* Presets */}
             <div className="rounded-2xl border border-white/10 bg-black/10 p-5">
               <h3 className="mb-4 text-sm font-semibold">Presets rápidos</h3>
               <div className="space-y-5">
@@ -1276,7 +1237,6 @@ export default function ConfiguracoesPage() {
               onClick={saveLabelsTab}
             />
 
-            {/* Grupos de campos */}
             <div className="space-y-5">
               {LABEL_GROUPS.map((group) => (
                 <div
@@ -1306,7 +1266,6 @@ export default function ConfiguracoesPage() {
           </section>
         )}
 
-        {/* ── Aba: Módulos ─────────────────────────────────────────────────── */}
         {activeTab === "modulos" && (
           <section className="space-y-6 rounded-3xl border border-white/10 bg-[var(--color-surface)] p-6">
             <SectionHeader
@@ -1322,9 +1281,7 @@ export default function ConfiguracoesPage() {
 
             <div className="grid gap-4 lg:grid-cols-2">
               {MODULES.map((mod) => {
-                const enabled = Boolean(
-                  preferencesForm.feature_toggles[mod.key]
-                );
+                const enabled = Boolean(preferencesForm.feature_toggles[mod.key]);
                 return (
                   <div
                     key={mod.key}
@@ -1354,7 +1311,6 @@ export default function ConfiguracoesPage() {
           </section>
         )}
 
-        {/* ── Aba: Documentos Comerciais ───────────────────────────────────── */}
         {activeTab === "documentos" && (
           <section className="space-y-6 rounded-3xl border border-white/10 bg-[var(--color-surface)] p-6">
             <SectionHeader
@@ -1368,7 +1324,6 @@ export default function ConfiguracoesPage() {
               onClick={saveDocumentsTab}
             />
 
-            {/* Opções de exibição */}
             <div className="grid gap-4 md:grid-cols-2">
               <ToggleRow
                 label="Mostrar logo nos orçamentos"
@@ -1381,8 +1336,7 @@ export default function ConfiguracoesPage() {
               <ToggleRow
                 label="Mostrar endereço nos orçamentos"
                 value={Boolean(
-                  preferencesForm.commercial_documents
-                    .show_company_address_on_quotes
+                  preferencesForm.commercial_documents.show_company_address_on_quotes
                 )}
                 onChange={(v) =>
                   setCommercialDoc("show_company_address_on_quotes", v)
@@ -1392,8 +1346,7 @@ export default function ConfiguracoesPage() {
               <ToggleRow
                 label="Mostrar contatos nos orçamentos"
                 value={Boolean(
-                  preferencesForm.commercial_documents
-                    .show_company_contacts_on_quotes
+                  preferencesForm.commercial_documents.show_company_contacts_on_quotes
                 )}
                 onChange={(v) =>
                   setCommercialDoc("show_company_contacts_on_quotes", v)
@@ -1405,14 +1358,11 @@ export default function ConfiguracoesPage() {
                 value={Boolean(
                   preferencesForm.commercial_documents.show_signature_on_quotes
                 )}
-                onChange={(v) =>
-                  setCommercialDoc("show_signature_on_quotes", v)
-                }
+                onChange={(v) => setCommercialDoc("show_signature_on_quotes", v)}
                 activeColor={primaryColor}
               />
             </div>
 
-            {/* Textos */}
             <Field label="Texto de abertura do orçamento">
               <Textarea
                 value={String(
@@ -1445,8 +1395,7 @@ export default function ConfiguracoesPage() {
             <Field label="Modelo de proposta">
               <Textarea
                 value={String(
-                  preferencesForm.commercial_documents
-                    .default_proposal_template ?? ""
+                  preferencesForm.commercial_documents.default_proposal_template ?? ""
                 )}
                 onChange={(e) =>
                   setCommercialDoc("default_proposal_template", e.target.value)
@@ -1471,8 +1420,7 @@ export default function ConfiguracoesPage() {
             <Field label="Observações operacionais padrão">
               <Textarea
                 value={String(
-                  preferencesForm.commercial_documents
-                    .default_operational_notes ?? ""
+                  preferencesForm.commercial_documents.default_operational_notes ?? ""
                 )}
                 onChange={(e) =>
                   setCommercialDoc("default_operational_notes", e.target.value)
@@ -1491,8 +1439,6 @@ export default function ConfiguracoesPage() {
     </div>
   );
 }
-
-// ─── Componentes reutilizáveis ────────────────────────────────────────────────
 
 function SectionHeader({
   title,
