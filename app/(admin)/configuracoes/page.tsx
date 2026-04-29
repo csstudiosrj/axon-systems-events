@@ -4,6 +4,7 @@ import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from "r
 import {
   Building2,
   CheckCircle2,
+  FileText,
   ImageIcon,
   Loader2,
   Palette,
@@ -15,11 +16,13 @@ import {
   AlertCircle,
   Type,
   Sparkles,
+  Shapes,
+  FileBadge,
 } from "lucide-react";
 import { supabase } from "@/app/lib/supabase";
 import { useSettings } from "@/app/providers/SettingsProvider";
 
-type TabId = "perfil-corporativo" | "nomenclaturas";
+type TabId = "perfil-corporativo" | "nomenclaturas" | "modulos" | "documentos";
 type ToastType = "success" | "error" | "info";
 
 interface CustomLabels {
@@ -382,14 +385,26 @@ export default function ConfiguracoesPage() {
       {
         id: "perfil-corporativo" as const,
         label: "Perfil Corporativo",
-        description: "Marca, identidade visual e apresentação da empresa",
-        icon: Settings2,
+        icon: Building2,
+        description: "Marca, dados da empresa e identidade visual",
       },
       {
         id: "nomenclaturas" as const,
-        label: "Nomenclaturas do Sistema",
-        description: "Rótulos dos módulos e nomes exibidos no produto",
+        label: "Nomenclaturas",
         icon: Type,
+        description: "Como o sistema chama cada entidade do negócio",
+      },
+      {
+        id: "modulos" as const,
+        label: "Módulos",
+        icon: Shapes,
+        description: "Ative ou desative áreas do sistema por operação",
+      },
+      {
+        id: "documentos" as const,
+        label: "Documentos Comerciais",
+        icon: FileBadge,
+        description: "Espaço reservado para contratos, propostas e modelos",
       },
     ],
     []
@@ -405,7 +420,7 @@ export default function ConfiguracoesPage() {
             <div className="space-y-3">
               <span className="inline-flex w-fit items-center gap-2 rounded-full border border-[#138946]/30 bg-[#138946]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#72d39c]">
                 <Sparkles className="h-3.5 w-3.5" />
-                Personalização
+                Personalização do sistema
               </span>
 
               <div>
@@ -413,8 +428,8 @@ export default function ConfiguracoesPage() {
                   Configurações do Sistema
                 </h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400 sm:text-base">
-                  Ajuste a identidade da empresa e os nomes usados na plataforma. A navegação já
-                  respeita essas preferências; as páginas internas serão refatoradas em seguida.
+                  Personalize a identidade da empresa, os nomes exibidos no produto e os módulos
+                  disponíveis para cada operação.
                 </p>
               </div>
             </div>
@@ -492,8 +507,7 @@ export default function ConfiguracoesPage() {
                     <div className="border-b border-white/10 pb-5">
                       <h2 className="text-xl font-semibold text-white">Perfil Corporativo</h2>
                       <p className="mt-2 text-sm leading-6 text-zinc-400">
-                        Defina a apresentação da empresa dentro do sistema: nome, documento,
-                        cor principal e identidade visual da marca.
+                        Configure a apresentação institucional da empresa dentro do sistema.
                       </p>
                     </div>
 
@@ -516,7 +530,7 @@ export default function ConfiguracoesPage() {
 
                           <div className="space-y-2">
                             <label className="flex items-center gap-2 text-sm font-medium text-zinc-200">
-                              <Tag className="h-4 w-4 text-[#72d39c]" />
+                              <FileText className="h-4 w-4 text-[#72d39c]" />
                               CNPJ
                             </label>
                             <input
@@ -549,17 +563,6 @@ export default function ConfiguracoesPage() {
                               />
                             </div>
                           </div>
-
-                          <div className="space-y-2 sm:col-span-2">
-                            <label className="flex items-center gap-2 text-sm font-medium text-zinc-200">
-                              <ImageIcon className="h-4 w-4 text-[#72d39c]" />
-                              Logo da empresa
-                            </label>
-                            <div className="rounded-2xl border border-dashed border-white/10 bg-[#0d0807] p-4 text-sm text-zinc-400">
-                              A logo é definida pelo upload abaixo. O campo manual de URL foi removido
-                              para evitar inconsistência e centralizar o fluxo no storage.
-                            </div>
-                          </div>
                         </div>
                       </div>
 
@@ -569,7 +572,7 @@ export default function ConfiguracoesPage() {
                             <div>
                               <h3 className="text-sm font-semibold text-white">Logo da marca</h3>
                               <p className="mt-1 text-xs leading-5 text-zinc-500">
-                                Envie um arquivo para o bucket axon-assets.
+                                Defina a logo oficial via upload para o bucket axon-assets.
                               </p>
                             </div>
                             <div
@@ -609,23 +612,6 @@ export default function ConfiguracoesPage() {
                             />
                           </label>
                         </div>
-
-                        <div className="rounded-3xl border border-white/10 bg-[#120e0d] p-4">
-                          <h3 className="text-sm font-semibold text-white">Preview de cor</h3>
-                          <p className="mt-1 text-xs leading-5 text-zinc-500">
-                            Visualização rápida da cor principal aplicada a um CTA.
-                          </p>
-
-                          <div className="mt-4 rounded-2xl border border-white/10 bg-[#0d0807] p-4">
-                            <button
-                              type="button"
-                              className="w-full rounded-2xl px-4 py-3 text-sm font-semibold text-white"
-                              style={{ backgroundColor: companyForm.primary_color || "#138946" }}
-                            >
-                              Botão principal
-                            </button>
-                          </div>
-                        </div>
                       </aside>
                     </div>
                   </div>
@@ -634,10 +620,9 @@ export default function ConfiguracoesPage() {
                 {activeTab === "nomenclaturas" && (
                   <div className="space-y-8">
                     <div className="border-b border-white/10 pb-5">
-                      <h2 className="text-xl font-semibold text-white">Nomenclaturas do Sistema</h2>
+                      <h2 className="text-xl font-semibold text-white">Nomenclaturas</h2>
                       <p className="mt-2 text-sm leading-6 text-zinc-400">
-                        Ajuste os rótulos usados em menus, formulários, dashboards e fluxos
-                        operacionais da plataforma.
+                        Defina como o sistema deve chamar clientes, orçamentos e a área educacional.
                       </p>
                     </div>
 
@@ -712,68 +697,73 @@ export default function ConfiguracoesPage() {
                         />
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {activeTab === "modulos" && (
+                  <div className="space-y-8">
+                    <div className="border-b border-white/10 pb-5">
+                      <h2 className="text-xl font-semibold text-white">Módulos</h2>
+                      <p className="mt-2 text-sm leading-6 text-zinc-400">
+                        Controle quais áreas ficam disponíveis na navegação e no uso diário do sistema.
+                      </p>
+                    </div>
 
                     <div className="rounded-3xl border border-white/10 bg-[#120e0d] p-5">
-                      <h3 className="text-sm font-semibold text-white">Prévia de uso</h3>
+                      <h3 className="text-sm font-semibold text-white">Módulos habilitados</h3>
                       <p className="mt-1 text-sm text-zinc-500">
-                        Veja como os rótulos podem aparecer na interface.
+                        Quando um módulo for desativado, ele deve desaparecer da navegação que consome essas preferências.
                       </p>
 
-                      <div className="mt-4 grid gap-4 md:grid-cols-2">
-                        <div className="rounded-2xl border border-white/10 bg-[#0d0807] p-4">
-                          <span className="text-xs uppercase tracking-[0.18em] text-zinc-500">Menu</span>
-                          <p className="mt-3 text-sm text-zinc-300">
-                            Gerenciar {preferencesForm.custom_labels.client_plural}
-                          </p>
-                          <p className="mt-1 text-sm text-zinc-300">
-                            Nova {preferencesForm.custom_labels.quote_singular}
-                          </p>
-                        </div>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        {Object.keys(DEFAULT_FEATURE_TOGGLES).map((key) => {
+                          const enabled = Boolean(preferencesForm.feature_toggles[key]);
 
-                        <div className="rounded-2xl border border-white/10 bg-[#0d0807] p-4">
-                          <span className="text-xs uppercase tracking-[0.18em] text-zinc-500">
-                            Dashboard
-                          </span>
-                          <p className="mt-3 text-sm text-zinc-300">
-                            Total de {preferencesForm.custom_labels.client_plural}
-                          </p>
-                          <p className="mt-1 text-sm text-zinc-300">
-                            Área {preferencesForm.custom_labels.academy_name}
-                          </p>
-                        </div>
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              onClick={() => toggleFeature(key)}
+                              className={cn(
+                                "rounded-2xl border px-4 py-3 text-left text-sm transition-all",
+                                enabled
+                                  ? "border-[#138946]/40 bg-[#138946]/10 text-white"
+                                  : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10"
+                              )}
+                            >
+                              <span className="block font-medium">{FEATURE_LABELS[key]}</span>
+                              <span className="mt-1 block text-xs">
+                                {enabled ? "Ativado" : "Desativado"}
+                              </span>
+                            </button>
+                          );
+                        })}
                       </div>
+                    </div>
+                  </div>
+                )}
 
-                      <div className="mt-6 rounded-3xl border border-white/10 bg-[#0d0807] p-4">
-                        <h4 className="text-sm font-semibold text-white">Módulos habilitados</h4>
-                        <p className="mt-1 text-sm text-zinc-500">
-                          Clique nos botões abaixo para alternar os módulos.
-                        </p>
+                {activeTab === "documentos" && (
+                  <div className="space-y-8">
+                    <div className="border-b border-white/10 pb-5">
+                      <h2 className="text-xl font-semibold text-white">Documentos Comerciais</h2>
+                      <p className="mt-2 text-sm leading-6 text-zinc-400">
+                        Área preparada para centralizar contratos, propostas, observações padrão e demais modelos comerciais.
+                      </p>
+                    </div>
 
-                        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                          {Object.keys(DEFAULT_FEATURE_TOGGLES).map((key) => {
-                            const enabled = Boolean(preferencesForm.feature_toggles[key]);
-
-                            return (
-                              <button
-                                key={key}
-                                type="button"
-                                onClick={() => toggleFeature(key)}
-                                className={cn(
-                                  "rounded-2xl border px-4 py-3 text-left text-sm transition-all",
-                                  enabled
-                                    ? "border-[#138946]/40 bg-[#138946]/10 text-white"
-                                    : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10"
-                                )}
-                              >
-                                <span className="block font-medium">
-                                  {FEATURE_LABELS[key] || key.replace(/^enable_/, "").replace(/_/g, " ")}
-                                </span>
-                                <span className="mt-1 block text-xs">
-                                  {enabled ? "Ativado" : "Desativado"}
-                                </span>
-                              </button>
-                            );
-                          })}
+                    <div className="rounded-3xl border border-dashed border-white/10 bg-[#120e0d] p-6">
+                      <div className="flex items-start gap-4">
+                        <div className="rounded-2xl border border-[#138946]/20 bg-[#138946]/10 p-3 text-[#72d39c]">
+                          <FileBadge className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-semibold text-white">Próxima etapa</h3>
+                          <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
+                            Os termos de contrato saíram desta página. Esta nova aba deixa o caminho aberto
+                            para configurar contrato, proposta comercial, cláusulas padrão e outros textos
+                            operacionais sem misturar isso com identidade visual e nomenclaturas.
+                          </p>
                         </div>
                       </div>
                     </div>
