@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "../lib/supabase";
 import {
@@ -26,15 +26,69 @@ import {
 import Link from "next/link";
 import { useSettings } from "../providers/SettingsProvider";
 
+type UserProfile = {
+  id: string;
+  email: string;
+  full_name?: string | null;
+  role?: string | null;
+  avatar_url?: string | null;
+};
+
+function buildUserInitials(profile: UserProfile | null): string {
+  const fullName = profile?.full_name?.trim() || "";
+  const email = profile?.email?.trim() || "";
+
+  if (fullName) {
+    return fullName
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join("");
+  }
+
+  if (email) {
+    return email.substring(0, 2).toUpperCase();
+  }
+
+  return "AX";
+}
+
+function getHeaderTitle(pathname: string): string {
+  const normalized = pathname.replace(/^\/+/, "");
+
+  const labels: Record<string, string> = {
+    dashboard: "Dashboard",
+    calendario: "Calendário",
+    crm: "CRM / Vendas",
+    financeiro: "Financeiro",
+    marketing: "Marketing",
+    treinamentos: "Treinamentos",
+    clientes: "Clientes",
+    inventario: "Inventário",
+    orcamentos: "Orçamentos",
+    os: "Ordens de Serviço",
+    suporte: "Suporte Técnico",
+    equipe: "Equipe e Acessos",
+    perfil: "Meu Perfil",
+    configuracoes: "Configurações",
+  };
+
+  const firstSegment = normalized.split("/")[0] || "dashboard";
+  return labels[firstSegment] || firstSegment.replace(/-/g, " ");
+}
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [userProfile, setUserProfile] = useState<any>(null);
+
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [authorized, setAuthorized] = useState(false);
-
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [avatarImageError, setAvatarImageError] = useState(false);
+
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -45,38 +99,43 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     const checkUser = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      try {
+        const sessionResponse = await supabase.auth.getSession();
+        const session = sessionResponse.data.session;
 
-      if (!session) {
-        router.push("/login");
-        return;
+        if (!session) {
+          router.push("/login");
+          return;
+        }
+
+        const profileResponse = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", session.user.id)
+          .single();
+
+        if (profileResponse.error || !profileResponse.data) {
+          await supabase.auth.signOut();
+          router.push("/login");
+          return;
+        }
+
+        const profile = profileResponse.data as UserProfile;
+
+        if (["client", "student", "subscriber"].includes(profile.role || "")) {
+          router.push("/portal");
+          return;
+        }
+
+        setUserProfile(profile);
+        setAvatarImageError(false);
+        setAuthorized(true);
+      } finally {
+        setLoading(false);
       }
-
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", session.user.id)
-        .single();
-
-      if (error || !profile) {
-        await supabase.auth.signOut();
-        router.push("/login");
-        return;
-      }
-
-      if (["client", "student", "subscriber"].includes(profile.role)) {
-        router.push("/portal");
-        return;
-      }
-
-      setUserProfile(profile);
-      setAuthorized(true);
-      setLoading(false);
     };
 
-    checkUser();
+    void checkUser();
   }, [router]);
 
   useEffect(() => {
@@ -93,6 +152,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push("/login");
+  };
+
+  const handleDropdownNavigate = () => {
+    setIsDropdownOpen(false);
   };
 
   const allNavItems = [
@@ -164,9 +227,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     },
   ];
 
+  const allowedNavItems = allNavItems.filter((item) =>
+    userProfile ? item.roles.includes(userProfile.role || "") : false
+  );
+
+  const userInitials = useMemo(() => buildUserInitials(userProfile), [userProfile]);
+  const avatarUrl = userProfile?.avatar_url?.trim() || "";
+  const showAvatarImage = Boolean(avatarUrl) && !avatarImageError;
+  const headerTitle = useMemo(() => getHeaderTitle(pathname), [pathname]);
+
   if (loading || settingsLoading) {
     return (
-      <div className="h-screen w-full bg-background flex items-center justify-center">
+      <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="animate-spin text-cs-green" size={48} />
       </div>
     );
@@ -174,27 +246,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (!authorized) return null;
 
-  const allowedNavItems = allNavItems.filter((item) =>
-    userProfile ? item.roles.includes(userProfile.role) : false
-  );
-
   return (
-    <div className="h-screen w-full bg-background text-text-primary flex overflow-hidden print:bg-white">
+    <div className="flex h-screen w-full overflow-hidden bg-background text-text-primary print:bg-white">
       <aside
         className={`${
           isSidebarCollapsed ? "w-20" : "w-64"
-        } bg-surface border-r border-surface/50 flex flex-col transition-all duration-300 ease-in-out shrink-0 print:hidden relative`}
+        } relative flex shrink-0 flex-col border-r border-surface/50 bg-surface transition-all duration-300 ease-in-out print:hidden`}
       >
         <button
           onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-          className="absolute -right-3 top-6 bg-cs-green text-white rounded-full p-1 shadow-lg hover:scale-110 transition-transform z-50"
+          className="absolute -right-3 top-6 z-50 rounded-full bg-cs-green p-1 text-white shadow-lg transition-transform hover:scale-110"
         >
           {isSidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
         </button>
 
-        <div className="h-16 flex items-center justify-center border-b border-surface/50 shrink-0 overflow-hidden">
+        <div className="flex h-16 shrink-0 items-center justify-center overflow-hidden border-b border-surface/50">
           <div
-            className={`w-full px-3 transition-all duration-300 flex items-center justify-center ${
+            className={`flex w-full items-center justify-center px-3 transition-all duration-300 ${
               isSidebarCollapsed ? "" : "gap-2"
             }`}
           >
@@ -206,8 +274,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               />
             ) : (
               <span
-                className={`font-bold text-white whitespace-nowrap transition-all duration-300 ${
-                  isSidebarCollapsed ? "text-sm" : "text-xl px-0"
+                className={`whitespace-nowrap font-bold text-white transition-all duration-300 ${
+                  isSidebarCollapsed ? "text-sm" : "px-0 text-xl"
                 }`}
               >
                 {isSidebarCollapsed
@@ -218,9 +286,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         </div>
 
-        <nav className="flex-1 py-4 space-y-2 overflow-y-auto overflow-x-hidden">
+        <nav className="flex-1 space-y-2 overflow-y-auto overflow-x-hidden py-4">
           {allowedNavItems.map((item) => {
-            const isActive = pathname === item.href;
+            const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
             const Icon = item.icon;
 
             return (
@@ -228,10 +296,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 key={item.name}
                 href={item.href}
                 title={isSidebarCollapsed ? item.name : ""}
-                className={`flex items-center gap-3 mx-3 px-3 py-3 rounded-md transition-colors ${
+                className={`mx-3 flex items-center gap-3 rounded-md px-3 py-3 transition-colors ${
                   isActive
-                    ? "bg-cs-green/10 text-cs-green font-medium"
-                    : "text-text-secondary hover:bg-surface hover:text-white font-medium"
+                    ? "bg-cs-green/10 font-medium text-cs-green"
+                    : "font-medium text-text-secondary hover:bg-surface hover:text-white"
                 } ${isSidebarCollapsed ? "justify-center" : ""}`}
               >
                 <Icon size={20} className="shrink-0" />
@@ -242,56 +310,75 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </nav>
       </aside>
 
-      <main className="flex-1 flex flex-col h-screen overflow-hidden print:h-auto print:overflow-visible print:bg-white">
-        <header className="h-16 bg-surface border-b border-surface/50 flex items-center px-8 justify-between shrink-0 print:hidden">
-          <h2 className="text-lg font-medium text-white capitalize">
-            {pathname.replace("/", "") || "Dashboard"}
+      <main className="flex h-screen flex-1 flex-col overflow-hidden print:h-auto print:overflow-visible print:bg-white">
+        <header className="flex h-16 shrink-0 items-center justify-between border-b border-surface/50 bg-surface px-8 print:hidden">
+          <h2 className="text-lg font-medium capitalize text-white">
+            {headerTitle}
           </h2>
 
-          <div className="flex items-center gap-4" ref={dropdownRef}>
+          <div className="relative flex items-center gap-4" ref={dropdownRef}>
             <button
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="h-9 w-9 rounded-full bg-cs-green/20 border border-cs-green/50 flex items-center justify-center text-sm font-bold text-cs-green uppercase hover:bg-cs-green hover:text-white transition-colors focus:outline-none"
+              className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-cs-green/50 bg-cs-green/20 text-sm font-bold uppercase text-cs-green transition-colors hover:bg-cs-green hover:text-white focus:outline-none"
             >
-              {userProfile?.email?.substring(0, 2)}
+              {showAvatarImage ? (
+                <img
+                  src={avatarUrl}
+                  alt="Avatar do usuário"
+                  className="h-full w-full object-cover"
+                  onError={() => setAvatarImageError(true)}
+                />
+              ) : (
+                userInitials
+              )}
             </button>
 
             {isDropdownOpen && (
-              <div className="absolute top-14 right-8 w-64 bg-surface border border-surface/50 rounded-lg shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
-                <div className="px-4 py-3 border-b border-surface/50 mb-2">
-                  <p className="text-sm font-bold text-white truncate">
+              <div className="absolute right-0 top-14 z-50 w-64 animate-in rounded-lg border border-surface/50 bg-surface py-2 shadow-2xl fade-in slide-in-from-top-2">
+                <div className="mb-2 border-b border-surface/50 px-4 py-3">
+                  <p className="truncate text-sm font-bold text-white">
                     {userProfile?.full_name || "Usuário AXON"}
                   </p>
-                  <p className="text-xs text-text-secondary truncate mt-0.5">
+                  <p className="mt-0.5 truncate text-xs text-text-secondary">
                     {userProfile?.email}
                   </p>
-                  <span className="inline-block mt-2 px-2 py-0.5 bg-cs-gold/10 border border-cs-gold/20 text-cs-gold text-[10px] font-bold uppercase rounded">
-                    {userProfile?.role.replace("_", " ")}
+                  <span className="mt-2 inline-block rounded bg-cs-gold/10 px-2 py-0.5 text-[10px] font-bold uppercase text-cs-gold border border-cs-gold/20">
+                    {(userProfile?.role || "admin").replace("_", " ")}
                   </span>
                 </div>
 
-                <div className="px-2 space-y-1">
-                  <button className="w-full flex items-center gap-3 px-3 py-2 text-sm text-text-secondary hover:bg-background hover:text-white rounded-md transition-colors">
+                <div className="space-y-1 px-2">
+                  <Link
+                    href="/perfil"
+                    onClick={handleDropdownNavigate}
+                    className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-background hover:text-white"
+                  >
                     <User size={16} /> Meu Perfil
-                  </button>
-                  <button className="w-full flex items-center gap-3 px-3 py-2 text-sm text-text-secondary hover:bg-background hover:text-white rounded-md transition-colors">
+                  </Link>
+
+                  <Link
+                    href="/configuracoes"
+                    onClick={handleDropdownNavigate}
+                    className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-background hover:text-white"
+                  >
                     <Settings size={16} /> Configurações
-                  </button>
-                  {["super_admin", "admin"].includes(userProfile?.role) && (
+                  </Link>
+
+                  {["super_admin", "admin"].includes(userProfile?.role || "") && (
                     <Link
                       href="/equipe"
-                      onClick={() => setIsDropdownOpen(false)}
-                      className="w-full flex items-center gap-3 px-3 py-2 text-sm text-text-secondary hover:bg-background hover:text-white rounded-md transition-colors"
+                      onClick={handleDropdownNavigate}
+                      className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-background hover:text-white"
                     >
                       <ShieldCheck size={16} /> Equipe e Acessos
                     </Link>
                   )}
                 </div>
 
-                <div className="px-2 mt-2 pt-2 border-t border-surface/50">
+                <div className="mt-2 border-t border-surface/50 px-2 pt-2">
                   <button
                     onClick={handleLogout}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 rounded-md transition-colors"
+                    className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300"
                   >
                     <LogOut size={16} /> Sair do Sistema
                   </button>
@@ -301,7 +388,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         </header>
 
-        <div className="p-8 flex-1 overflow-y-auto print:p-0 print:overflow-visible print:bg-white">
+        <div className="flex-1 overflow-y-auto p-8 print:overflow-visible print:bg-white print:p-0">
           {children}
         </div>
       </main>
