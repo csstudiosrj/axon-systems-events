@@ -1,0 +1,90 @@
+.
+├── app
+│   ├── (admin)
+│   │   ├── calendario
+│   │   │   └── page.tsx
+│   │   ├── clientes
+│   │   │   └── page.tsx
+│   │   ├── configuracoes
+│   │   │   └── page.tsx
+│   │   ├── crm
+│   │   │   └── page.tsx
+│   │   ├── dashboard
+│   │   │   └── page.tsx
+│   │   ├── equipe
+│   │   │   └── page.tsx
+│   │   ├── financeiro
+│   │   │   └── page.tsx
+│   │   ├── inventario
+│   │   │   └── page.tsx
+│   │   ├── marketing
+│   │   │   └── page.tsx
+│   │   ├── orcamentos
+│   │   │   ├── [id]
+│   │   │   │   └── page.tsx
+│   │   │   └── page.tsx
+│   │   ├── os
+│   │   │   └── page.tsx
+│   │   ├── perfil
+│   │   │   └── page.tsx
+│   │   ├── suporte
+│   │   │   └── page.tsx
+│   │   ├── treinamentos
+│   │   │   └── page.tsx
+│   │   └── layout.tsx
+│   ├── (auth)
+│   │   ├── academy
+│   │   │   └── page.tsx
+│   │   ├── acesso
+│   │   │   └── page.tsx
+│   │   ├── login
+│   │   │   └── page.tsx
+│   │   └── setup
+│   │       └── page.tsx
+│   ├── (cliente)
+│   │   ├── portal
+│   │   │   ├── equipe
+│   │   │   │   └── page.tsx
+│   │   │   ├── faturas
+│   │   │   │   └── page.tsx
+│   │   │   ├── perfil
+│   │   │   │   └── page.tsx
+│   │   │   ├── suporte
+│   │   │   │   └── page.tsx
+│   │   │   ├── treinamentos
+│   │   │   │   ├── [id]
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── page.tsx
+│   │   │   └── page.tsx
+│   │   └── layout.tsx
+│   ├── api
+│   │   ├── invite
+│   │   │   └── route.ts
+│   │   └── leads
+│   │       └── route.ts
+│   ├── lib
+│   │   └── supabase.ts
+│   ├── providers
+│   │   └── SettingsProvider.tsx
+│   ├── favicon.ico
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.tsx
+├── public
+│   ├── file.svg
+│   ├── globe.svg
+│   ├── next.svg
+│   ├── vercel.svg
+│   └── window.svg
+├── .gitignore
+├── AGENTS.md
+├── CLAUDE.md
+├── README.md
+├── eslint.config.mjs
+├── file-tree.txt
+├── next.config.ts
+├── package.json
+├── postcss.config.mjs
+└── tsconfig.json
+
+37 directories, 51 files
