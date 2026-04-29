@@ -30,22 +30,35 @@ interface CustomLabels {
   [key: string]: string;
 }
 
-interface SystemSettingsRow {
+interface FeatureToggles {
+  [key: string]: boolean | string | number | null;
+}
+
+interface CompanyProfileRow {
   id?: string | number;
   company_name: string | null;
   cnpj: string | null;
   logo_url: string | null;
   primary_color: string | null;
-  default_contract_terms: string | null;
-  custom_labels: CustomLabels | null;
+  contract_terms: string | null;
 }
 
-interface SettingsFormData {
+interface SystemPreferencesRow {
+  id?: string | number;
+  feature_toggles: FeatureToggles | null;
+  custom_labels: Partial<CustomLabels> | null;
+}
+
+interface CompanyProfileForm {
   company_name: string;
   cnpj: string;
   logo_url: string;
   primary_color: string;
-  default_contract_terms: string;
+  contract_terms: string;
+}
+
+interface SystemPreferencesForm {
+  feature_toggles: FeatureToggles;
   custom_labels: CustomLabels;
 }
 
@@ -61,15 +74,29 @@ const DEFAULT_CUSTOM_LABELS: CustomLabels = {
   client_plural: "Clientes",
   quote_singular: "Orçamento",
   quote_plural: "Orçamentos",
-  academy_name: "Academy",
+  academy_name: "Treinamentos",
 };
 
-const DEFAULT_FORM_DATA: SettingsFormData = {
+const DEFAULT_FEATURE_TOGGLES: FeatureToggles = {
+  enable_crm: true,
+  enable_financial: true,
+  enable_inventory: true,
+  enable_service_orders: true,
+  enable_training: true,
+  enable_marketing: true,
+  enable_calendar: true,
+};
+
+const DEFAULT_COMPANY_PROFILE: CompanyProfileForm = {
   company_name: "",
   cnpj: "",
   logo_url: "",
   primary_color: "#138946",
-  default_contract_terms: "",
+  contract_terms: "",
+};
+
+const DEFAULT_SYSTEM_PREFERENCES: SystemPreferencesForm = {
+  feature_toggles: DEFAULT_FEATURE_TOGGLES,
   custom_labels: DEFAULT_CUSTOM_LABELS,
 };
 
@@ -108,18 +135,14 @@ function sanitizeCustomLabels(input: unknown): CustomLabels {
   };
 }
 
-function normalizeSettings(row: SystemSettingsRow | null): SettingsFormData {
-  if (!row) {
-    return { ...DEFAULT_FORM_DATA, custom_labels: { ...DEFAULT_CUSTOM_LABELS } };
+function sanitizeFeatureToggles(input: unknown): FeatureToggles {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ...DEFAULT_FEATURE_TOGGLES };
   }
 
   return {
-    company_name: row.company_name ?? "",
-    cnpj: row.cnpj ?? "",
-    logo_url: row.logo_url ?? "",
-    primary_color: row.primary_color ?? "#138946",
-    default_contract_terms: row.default_contract_terms ?? "",
-    custom_labels: sanitizeCustomLabels(row.custom_labels),
+    ...DEFAULT_FEATURE_TOGGLES,
+    ...(input as Record<string, boolean | string | number | null>),
   };
 }
 
@@ -135,54 +158,78 @@ function formatCnpj(value: string): string {
 
 export default function ConfiguracoesPage() {
   const [activeTab, setActiveTab] = useState<TabId>("identidade");
-  const [formData, setFormData] = useState<SettingsFormData>(DEFAULT_FORM_DATA);
-  const [settingsRowId, setSettingsRowId] = useState<string | number | null>(null);
+  const [companyRowId, setCompanyRowId] = useState<string | number | null>(null);
+  const [preferencesRowId, setPreferencesRowId] = useState<string | number | null>(null);
+
+  const [companyForm, setCompanyForm] = useState<CompanyProfileForm>(DEFAULT_COMPANY_PROFILE);
+  const [preferencesForm, setPreferencesForm] = useState<SystemPreferencesForm>(
+    DEFAULT_SYSTEM_PREFERENCES
+  );
 
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [uploadingLogo, setUploadingLogo] = useState<boolean>(false);
-
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const addToast = useCallback((type: ToastType, title: string, message: string) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
-    const toast: ToastItem = { id, type, title, message };
-
-    setToasts((current) => [...current, toast]);
+    setToasts((current) => [...current, { id, type, title, message }]);
 
     window.setTimeout(() => {
-      setToasts((current) => current.filter((item) => item.id !== id));
-    }, 4000);
+      setToasts((current) => current.filter((toast) => toast.id !== id));
+    }, 4500);
   }, []);
 
   const removeToast = useCallback((id: number) => {
-    setToasts((current) => current.filter((item) => item.id !== id));
+    setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
 
   const fetchSettings = useCallback(async () => {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase
-        .from("system_settings")
-        .select("*")
-        .limit(1)
-        .maybeSingle<SystemSettingsRow>();
+      const [companyResult, preferencesResult] = await Promise.all([
+        supabase
+          .from("company_profile")
+          .select("id, company_name, cnpj, logo_url, primary_color, contract_terms")
+          .limit(1)
+          .maybeSingle<CompanyProfileRow>(),
+        supabase
+          .from("system_preferences")
+          .select("id, feature_toggles, custom_labels")
+          .limit(1)
+          .maybeSingle<SystemPreferencesRow>(),
+      ]);
 
-      if (error) {
-        throw error;
-      }
+      if (companyResult.error) throw companyResult.error;
+      if (preferencesResult.error) throw preferencesResult.error;
 
-      if (data) {
-        setSettingsRowId(data.id ?? null);
-        setFormData(normalizeSettings(data));
-      } else {
-        setSettingsRowId(null);
-        setFormData({
-          ...DEFAULT_FORM_DATA,
-          custom_labels: { ...DEFAULT_CUSTOM_LABELS },
-        });
-      }
+      const company = companyResult.data ?? null;
+      const preferences = preferencesResult.data ?? null;
+
+      setCompanyRowId(company?.id ?? null);
+      setPreferencesRowId(preferences?.id ?? null);
+
+      setCompanyForm(
+        company
+          ? {
+              company_name: company.company_name ?? "",
+              cnpj: company.cnpj ?? "",
+              logo_url: company.logo_url ?? "",
+              primary_color: company.primary_color ?? "#138946",
+              contract_terms: company.contract_terms ?? "",
+            }
+          : DEFAULT_COMPANY_PROFILE
+      );
+
+      setPreferencesForm(
+        preferences
+          ? {
+              feature_toggles: sanitizeFeatureToggles(preferences.feature_toggles),
+              custom_labels: sanitizeCustomLabels(preferences.custom_labels),
+            }
+          : DEFAULT_SYSTEM_PREFERENCES
+      );
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Não foi possível carregar as configurações.";
@@ -196,9 +243,9 @@ export default function ConfiguracoesPage() {
     void fetchSettings();
   }, [fetchSettings]);
 
-  const updateField = useCallback(
-    <K extends keyof SettingsFormData>(field: K, value: SettingsFormData[K]) => {
-      setFormData((current) => ({
+  const updateCompanyField = useCallback(
+    <K extends keyof CompanyProfileForm>(field: K, value: CompanyProfileForm[K]) => {
+      setCompanyForm((current) => ({
         ...current,
         [field]: value,
       }));
@@ -207,7 +254,7 @@ export default function ConfiguracoesPage() {
   );
 
   const updateCustomLabel = useCallback((field: keyof CustomLabels, value: string) => {
-    setFormData((current) => ({
+    setPreferencesForm((current) => ({
       ...current,
       custom_labels: {
         ...current.custom_labels,
@@ -216,14 +263,22 @@ export default function ConfiguracoesPage() {
     }));
   }, []);
 
+  const toggleFeature = useCallback((key: string) => {
+    setPreferencesForm((current) => ({
+      ...current,
+      feature_toggles: {
+        ...current.feature_toggles,
+        [key]: !Boolean(current.feature_toggles[key]),
+      },
+    }));
+  }, []);
+
   const handleLogoUpload = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
-
       if (!file) return;
 
-      const isImage = file.type.startsWith("image/");
-      if (!isImage) {
+      if (!file.type.startsWith("image/")) {
         addToast("error", "Arquivo inválido", "Selecione uma imagem para a logo.");
         event.target.value = "";
         return;
@@ -242,9 +297,7 @@ export default function ConfiguracoesPage() {
             upsert: true,
           });
 
-        if (uploadError) {
-          throw uploadError;
-        }
+        if (uploadError) throw uploadError;
 
         const { data } = supabase.storage.from("axon-assets").getPublicUrl(filePath);
         const publicUrl = data.publicUrl;
@@ -253,15 +306,14 @@ export default function ConfiguracoesPage() {
           throw new Error("Não foi possível gerar a URL pública da logo.");
         }
 
-        setFormData((current) => ({
+        setCompanyForm((current) => ({
           ...current,
           logo_url: publicUrl,
         }));
 
         addToast("success", "Logo enviada", "A nova logo foi carregada com sucesso.");
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Falha no upload da logo.";
+        const message = error instanceof Error ? error.message : "Falha no upload da logo.";
         addToast("error", "Erro no upload", message);
       } finally {
         setUploadingLogo(false);
@@ -275,37 +327,65 @@ export default function ConfiguracoesPage() {
     setSaving(true);
 
     try {
-      const payload = {
-        company_name: formData.company_name.trim() || null,
-        cnpj: formData.cnpj.trim() || null,
-        logo_url: formData.logo_url.trim() || null,
-        primary_color: formData.primary_color.trim() || "#138946",
-        default_contract_terms: formData.default_contract_terms.trim() || null,
+      const companyPayload = {
+        company_name: companyForm.company_name.trim() || null,
+        cnpj: companyForm.cnpj.trim() || null,
+        logo_url: companyForm.logo_url.trim() || null,
+        primary_color: companyForm.primary_color.trim() || "#138946",
+        contract_terms: companyForm.contract_terms.trim() || null,
+      };
+
+      const preferencesPayload = {
+        feature_toggles: preferencesForm.feature_toggles,
         custom_labels: {
-          client_singular: formData.custom_labels.client_singular.trim() || DEFAULT_CUSTOM_LABELS.client_singular,
-          client_plural: formData.custom_labels.client_plural.trim() || DEFAULT_CUSTOM_LABELS.client_plural,
-          quote_singular: formData.custom_labels.quote_singular.trim() || DEFAULT_CUSTOM_LABELS.quote_singular,
-          quote_plural: formData.custom_labels.quote_plural.trim() || DEFAULT_CUSTOM_LABELS.quote_plural,
-          academy_name: formData.custom_labels.academy_name.trim() || DEFAULT_CUSTOM_LABELS.academy_name,
+          client_singular:
+            preferencesForm.custom_labels.client_singular.trim() ||
+            DEFAULT_CUSTOM_LABELS.client_singular,
+          client_plural:
+            preferencesForm.custom_labels.client_plural.trim() ||
+            DEFAULT_CUSTOM_LABELS.client_plural,
+          quote_singular:
+            preferencesForm.custom_labels.quote_singular.trim() ||
+            DEFAULT_CUSTOM_LABELS.quote_singular,
+          quote_plural:
+            preferencesForm.custom_labels.quote_plural.trim() ||
+            DEFAULT_CUSTOM_LABELS.quote_plural,
+          academy_name:
+            preferencesForm.custom_labels.academy_name.trim() ||
+            DEFAULT_CUSTOM_LABELS.academy_name,
         },
       };
 
-      if (settingsRowId !== null) {
+      if (companyRowId !== null) {
         const { error } = await supabase
-          .from("system_settings")
-          .update(payload)
-          .eq("id", settingsRowId);
-
+          .from("company_profile")
+          .update(companyPayload)
+          .eq("id", companyRowId);
         if (error) throw error;
       } else {
         const { data, error } = await supabase
-          .from("system_settings")
-          .insert(payload)
-          .select("*")
-          .single<SystemSettingsRow>();
-
+          .from("company_profile")
+          .insert(companyPayload)
+          .select("id")
+          .single<{ id?: string | number }>();
         if (error) throw error;
-        setSettingsRowId(data.id ?? null);
+        setCompanyRowId(data?.id ?? null);
+      }
+
+      if (preferencesRowId !== null) {
+        const { error } = await supabase
+          .from("system_preferences")
+          .update(preferencesPayload)
+          .eq("id", preferencesRowId);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase
+          .from("system_preferences")
+          .insert(preferencesPayload)
+          .select("id")
+          .single<{ id?: string | number }>();
+        if (error) throw error;
+        setPreferencesRowId(data?.id ?? null);
       }
 
       addToast("success", "Configurações salvas", "As alterações foram persistidas com sucesso.");
@@ -317,7 +397,7 @@ export default function ConfiguracoesPage() {
     } finally {
       setSaving(false);
     }
-  }, [fetchSettings, formData, settingsRowId, addToast]);
+  }, [addToast, companyForm, companyRowId, fetchSettings, preferencesForm, preferencesRowId]);
 
   const tabs = useMemo(
     () => [
@@ -432,8 +512,8 @@ export default function ConfiguracoesPage() {
                     <div className="border-b border-white/10 pb-5">
                       <h2 className="text-xl font-semibold text-white">Identidade e Contrato</h2>
                       <p className="mt-2 text-sm leading-6 text-zinc-400">
-                        Defina a marca principal exibida no sistema, a cor de destaque e o
-                        modelo padrão de termos contratuais.
+                        Defina a marca principal exibida no sistema, a cor de destaque e o modelo
+                        padrão de termos contratuais.
                       </p>
                     </div>
 
@@ -447,8 +527,8 @@ export default function ConfiguracoesPage() {
                             </label>
                             <input
                               type="text"
-                              value={formData.company_name}
-                              onChange={(e) => updateField("company_name", e.target.value)}
+                              value={companyForm.company_name}
+                              onChange={(e) => updateCompanyField("company_name", e.target.value)}
                               placeholder="Ex.: Axon Academy"
                               className="w-full rounded-2xl border border-white/10 bg-[#0d0807] px-4 py-3 text-sm text-white outline-none transition focus:border-[#138946]/70 focus:ring-2 focus:ring-[#138946]/20"
                             />
@@ -461,8 +541,8 @@ export default function ConfiguracoesPage() {
                             </label>
                             <input
                               type="text"
-                              value={formData.cnpj}
-                              onChange={(e) => updateField("cnpj", formatCnpj(e.target.value))}
+                              value={companyForm.cnpj}
+                              onChange={(e) => updateCompanyField("cnpj", formatCnpj(e.target.value))}
                               placeholder="00.000.000/0000-00"
                               className="w-full rounded-2xl border border-white/10 bg-[#0d0807] px-4 py-3 text-sm text-white outline-none transition focus:border-[#138946]/70 focus:ring-2 focus:ring-[#138946]/20"
                             />
@@ -476,14 +556,14 @@ export default function ConfiguracoesPage() {
                             <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#0d0807] px-3 py-2">
                               <input
                                 type="color"
-                                value={formData.primary_color}
-                                onChange={(e) => updateField("primary_color", e.target.value)}
+                                value={companyForm.primary_color}
+                                onChange={(e) => updateCompanyField("primary_color", e.target.value)}
                                 className="h-10 w-12 cursor-pointer rounded-lg border border-white/10 bg-transparent"
                               />
                               <input
                                 type="text"
-                                value={formData.primary_color}
-                                onChange={(e) => updateField("primary_color", e.target.value)}
+                                value={companyForm.primary_color}
+                                onChange={(e) => updateCompanyField("primary_color", e.target.value)}
                                 placeholder="#138946"
                                 className="w-full bg-transparent text-sm text-white outline-none placeholder:text-zinc-500"
                               />
@@ -497,8 +577,8 @@ export default function ConfiguracoesPage() {
                             </label>
                             <input
                               type="url"
-                              value={formData.logo_url}
-                              onChange={(e) => updateField("logo_url", e.target.value)}
+                              value={companyForm.logo_url}
+                              onChange={(e) => updateCompanyField("logo_url", e.target.value)}
                               placeholder="https://..."
                               className="w-full rounded-2xl border border-white/10 bg-[#0d0807] px-4 py-3 text-sm text-white outline-none transition focus:border-[#138946]/70 focus:ring-2 focus:ring-[#138946]/20"
                             />
@@ -510,8 +590,8 @@ export default function ConfiguracoesPage() {
                               Termos padrão de contrato
                             </label>
                             <textarea
-                              value={formData.default_contract_terms}
-                              onChange={(e) => updateField("default_contract_terms", e.target.value)}
+                              value={companyForm.contract_terms}
+                              onChange={(e) => updateCompanyField("contract_terms", e.target.value)}
                               placeholder="Insira aqui as cláusulas, observações ou termos padrões..."
                               rows={10}
                               className="w-full rounded-2xl border border-white/10 bg-[#0d0807] px-4 py-3 text-sm leading-6 text-white outline-none transition focus:border-[#138946]/70 focus:ring-2 focus:ring-[#138946]/20"
@@ -531,14 +611,14 @@ export default function ConfiguracoesPage() {
                             </div>
                             <div
                               className="h-10 w-10 rounded-2xl border border-white/10"
-                              style={{ backgroundColor: formData.primary_color || "#138946" }}
+                              style={{ backgroundColor: companyForm.primary_color || "#138946" }}
                             />
                           </div>
 
                           <div className="flex min-h-[220px] items-center justify-center rounded-3xl border border-dashed border-white/10 bg-[#0d0807] p-6">
-                            {formData.logo_url ? (
+                            {companyForm.logo_url ? (
                               <img
-                                src={formData.logo_url}
+                                src={companyForm.logo_url}
                                 alt="Logo atual"
                                 className="max-h-32 w-auto object-contain"
                               />
@@ -577,7 +657,7 @@ export default function ConfiguracoesPage() {
                             <button
                               type="button"
                               className="w-full rounded-2xl px-4 py-3 text-sm font-semibold text-white"
-                              style={{ backgroundColor: formData.primary_color || "#138946" }}
+                              style={{ backgroundColor: companyForm.primary_color || "#138946" }}
                             >
                               Botão principal
                             </button>
@@ -593,8 +673,8 @@ export default function ConfiguracoesPage() {
                     <div className="border-b border-white/10 pb-5">
                       <h2 className="text-xl font-semibold text-white">Nomenclaturas do Sistema</h2>
                       <p className="mt-2 text-sm leading-6 text-zinc-400">
-                        Ajuste os rótulos globais usados em menus, formulários, dashboards e
-                        fluxos operacionais da plataforma.
+                        Ajuste os rótulos globais usados em menus, formulários, dashboards e fluxos
+                        operacionais da plataforma.
                       </p>
                     </div>
 
@@ -606,7 +686,7 @@ export default function ConfiguracoesPage() {
                         </label>
                         <input
                           type="text"
-                          value={formData.custom_labels.client_singular}
+                          value={preferencesForm.custom_labels.client_singular}
                           onChange={(e) => updateCustomLabel("client_singular", e.target.value)}
                           placeholder="Cliente"
                           className="w-full rounded-2xl border border-white/10 bg-[#0d0807] px-4 py-3 text-sm text-white outline-none transition focus:border-[#138946]/70 focus:ring-2 focus:ring-[#138946]/20"
@@ -620,7 +700,7 @@ export default function ConfiguracoesPage() {
                         </label>
                         <input
                           type="text"
-                          value={formData.custom_labels.client_plural}
+                          value={preferencesForm.custom_labels.client_plural}
                           onChange={(e) => updateCustomLabel("client_plural", e.target.value)}
                           placeholder="Clientes"
                           className="w-full rounded-2xl border border-white/10 bg-[#0d0807] px-4 py-3 text-sm text-white outline-none transition focus:border-[#138946]/70 focus:ring-2 focus:ring-[#138946]/20"
@@ -634,7 +714,7 @@ export default function ConfiguracoesPage() {
                         </label>
                         <input
                           type="text"
-                          value={formData.custom_labels.quote_singular}
+                          value={preferencesForm.custom_labels.quote_singular}
                           onChange={(e) => updateCustomLabel("quote_singular", e.target.value)}
                           placeholder="Orçamento"
                           className="w-full rounded-2xl border border-white/10 bg-[#0d0807] px-4 py-3 text-sm text-white outline-none transition focus:border-[#138946]/70 focus:ring-2 focus:ring-[#138946]/20"
@@ -648,7 +728,7 @@ export default function ConfiguracoesPage() {
                         </label>
                         <input
                           type="text"
-                          value={formData.custom_labels.quote_plural}
+                          value={preferencesForm.custom_labels.quote_plural}
                           onChange={(e) => updateCustomLabel("quote_plural", e.target.value)}
                           placeholder="Orçamentos"
                           className="w-full rounded-2xl border border-white/10 bg-[#0d0807] px-4 py-3 text-sm text-white outline-none transition focus:border-[#138946]/70 focus:ring-2 focus:ring-[#138946]/20"
@@ -662,7 +742,7 @@ export default function ConfiguracoesPage() {
                         </label>
                         <input
                           type="text"
-                          value={formData.custom_labels.academy_name}
+                          value={preferencesForm.custom_labels.academy_name}
                           onChange={(e) => updateCustomLabel("academy_name", e.target.value)}
                           placeholder="Academy"
                           className="w-full rounded-2xl border border-white/10 bg-[#0d0807] px-4 py-3 text-sm text-white outline-none transition focus:border-[#138946]/70 focus:ring-2 focus:ring-[#138946]/20"
@@ -682,10 +762,10 @@ export default function ConfiguracoesPage() {
                             Menu
                           </span>
                           <p className="mt-3 text-sm text-zinc-300">
-                            Gerenciar {formData.custom_labels.client_plural}
+                            Gerenciar {preferencesForm.custom_labels.client_plural}
                           </p>
                           <p className="mt-1 text-sm text-zinc-300">
-                            Novo {formData.custom_labels.quote_singular}
+                            Novo {preferencesForm.custom_labels.quote_singular}
                           </p>
                         </div>
 
@@ -694,11 +774,45 @@ export default function ConfiguracoesPage() {
                             Dashboard
                           </span>
                           <p className="mt-3 text-sm text-zinc-300">
-                            Total de {formData.custom_labels.client_plural}
+                            Total de {preferencesForm.custom_labels.client_plural}
                           </p>
                           <p className="mt-1 text-sm text-zinc-300">
-                            Área {formData.custom_labels.academy_name}
+                            Área {preferencesForm.custom_labels.academy_name}
                           </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-6 rounded-3xl border border-white/10 bg-[#0d0807] p-4">
+                        <h4 className="text-sm font-semibold text-white">Módulos habilitados</h4>
+                        <p className="mt-1 text-sm text-zinc-500">
+                          Clique nos botões abaixo para alternar os módulos.
+                        </p>
+
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                          {Object.keys(DEFAULT_FEATURE_TOGGLES).map((key) => {
+                            const enabled = Boolean(preferencesForm.feature_toggles[key]);
+
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                onClick={() => toggleFeature(key)}
+                                className={cn(
+                                  "rounded-2xl border px-4 py-3 text-left text-sm transition-all",
+                                  enabled
+                                    ? "border-[#138946]/40 bg-[#138946]/10 text-white"
+                                    : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10"
+                                )}
+                              >
+                                <span className="block font-medium">
+                                  {key.replace(/^enable_/, "").replace(/_/g, " ")}
+                                </span>
+                                <span className="mt-1 block text-xs">
+                                  {enabled ? "Ativado" : "Desativado"}
+                                </span>
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     </div>
