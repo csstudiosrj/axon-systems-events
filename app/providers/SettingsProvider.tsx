@@ -6,8 +6,10 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import { Loader2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
 type JsonPrimitive = string | number | boolean | null;
@@ -68,10 +70,19 @@ interface SystemPreferencesRow {
   custom_labels: Partial<CustomLabels> | null;
 }
 
+interface ProfileIdentityRow {
+  id: string;
+  client_id: string | null;
+  role: string | null;
+}
+
 interface SettingsContextValue {
   companyProfile: CompanyProfile;
   systemPreferences: SystemPreferences;
   loading: boolean;
+  resolvedUserId: string | null;
+  resolvedClientId: string | null;
+  refreshSettings: () => Promise<void>;
   hasPermission: (module: string, userRole: UserRole) => boolean;
 }
 
@@ -100,11 +111,44 @@ const SettingsContext = createContext<SettingsContextValue>({
   companyProfile: defaultCompanyProfile,
   systemPreferences: defaultSystemPreferences,
   loading: true,
+  resolvedUserId: null,
+  resolvedClientId: null,
+  refreshSettings: async () => undefined,
   hasPermission: () => false,
 });
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function safeString(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim().length > 0 ? value : fallback;
+}
+
+function mergeCustomLabels(input: Partial<CustomLabels> | null | undefined): CustomLabels {
+  const source = isPlainObject(input) ? input : {};
+
+  return {
+    client_singular: safeString(source.client_singular, defaultCustomLabels.client_singular),
+    client_plural: safeString(source.client_plural, defaultCustomLabels.client_plural),
+    quote_singular: safeString(source.quote_singular, defaultCustomLabels.quote_singular),
+    quote_plural: safeString(source.quote_plural, defaultCustomLabels.quote_plural),
+    academy_name: safeString(source.academy_name, defaultCustomLabels.academy_name),
+  };
+}
+
+function mergeFeatureToggles(input: FeatureToggles | null | undefined): FeatureToggles {
+  if (!isPlainObject(input)) {
+    return { ...defaultSystemPreferences.feature_toggles };
+  }
+
+  return { ...input };
+}
+
 function normalizeCompanyProfile(row: CompanyProfileRow | null): CompanyProfile {
-  if (!row) return defaultCompanyProfile;
+  if (!row) {
+    return { ...defaultCompanyProfile };
+  }
 
   return {
     company_name: row.company_name ?? defaultCompanyProfile.company_name,
@@ -115,25 +159,17 @@ function normalizeCompanyProfile(row: CompanyProfileRow | null): CompanyProfile 
   };
 }
 
-function normalizeCustomLabels(input: Partial<CustomLabels> | null | undefined): CustomLabels {
-  return {
-    client_singular: input?.client_singular ?? defaultCustomLabels.client_singular,
-    client_plural: input?.client_plural ?? defaultCustomLabels.client_plural,
-    quote_singular: input?.quote_singular ?? defaultCustomLabels.quote_singular,
-    quote_plural: input?.quote_plural ?? defaultCustomLabels.quote_plural,
-    academy_name: input?.academy_name ?? defaultCustomLabels.academy_name,
-  };
-}
-
 function normalizeSystemPreferences(row: SystemPreferencesRow | null): SystemPreferences {
-  if (!row) return defaultSystemPreferences;
+  if (!row) {
+    return {
+      feature_toggles: { ...defaultSystemPreferences.feature_toggles },
+      custom_labels: { ...defaultCustomLabels },
+    };
+  }
 
   return {
-    feature_toggles:
-      row.feature_toggles && typeof row.feature_toggles === "object"
-        ? row.feature_toggles
-        : defaultSystemPreferences.feature_toggles,
-    custom_labels: normalizeCustomLabels(row.custom_labels),
+    feature_toggles: mergeFeatureToggles(row.feature_toggles),
+    custom_labels: mergeCustomLabels(row.custom_labels),
   };
 }
 
@@ -141,17 +177,20 @@ export const useSettings = () => useContext(SettingsContext);
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile>(defaultCompanyProfile);
-  const [systemPreferences, setSystemPreferences] = useState<SystemPreferences>(
-    defaultSystemPreferences
-  );
+  const [systemPreferences, setSystemPreferences] =
+    useState<SystemPreferences>(defaultSystemPreferences);
   const [loading, setLoading] = useState<boolean>(true);
+  const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
+  const [resolvedClientId, setResolvedClientId] = useState<string | null>(null);
+  const [refreshNonce, setRefreshNonce] = useState<number>(0);
+
+  const activeRequestRef = useRef<number>(0);
 
   const hasPermission = useCallback((module: string, userRole: UserRole): boolean => {
     const normalizedModule = module.trim().toLowerCase();
     const normalizedRole = userRole.trim().toLowerCase();
 
     if (!normalizedModule || !normalizedRole) return false;
-
     if (normalizedRole === "super_admin") return true;
 
     if (normalizedRole === "admin") {
@@ -162,16 +201,65 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       commercial: ["crm", "clients", "quotes"],
       financial: ["financial", "quotes"],
       logistics: ["inventory", "service_orders"],
+      training: ["academy", "trainings", "courses"],
+      support: ["support", "tickets"],
+      client: ["portal"],
+      student: ["academy"],
+      subscriber: ["academy"],
     };
 
     return permissionMatrix[normalizedRole]?.includes(normalizedModule) ?? false;
   }, []);
 
+  const refreshSettings = useCallback(async () => {
+    setRefreshNonce((current) => current + 1);
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
+    const requestId = activeRequestRef.current + 1;
+    activeRequestRef.current = requestId;
 
-    const fetchSettings = async () => {
+    const run = async () => {
+      setLoading(true);
+
       try {
+        const userResponse = await supabase.auth.getUser();
+        const authUser = userResponse.data.user;
+
+        if (userResponse.error || !authUser) {
+          if (!isMounted || activeRequestRef.current !== requestId) return;
+
+          setResolvedUserId(null);
+          setResolvedClientId(null);
+          setCompanyProfile({ ...defaultCompanyProfile });
+          setSystemPreferences({
+            feature_toggles: { ...defaultSystemPreferences.feature_toggles },
+            custom_labels: { ...defaultCustomLabels },
+          });
+          return;
+        }
+
+        if (!isMounted || activeRequestRef.current !== requestId) return;
+
+        setResolvedUserId(authUser.id);
+
+        const profileResponse = await supabase
+          .from("profiles")
+          .select("id, client_id, role")
+          .eq("id", authUser.id)
+          .maybeSingle<ProfileIdentityRow>();
+
+        if (!isMounted || activeRequestRef.current !== requestId) return;
+
+        if (profileResponse.error) {
+          throw profileResponse.error;
+        }
+
+        const profile = profileResponse.data ?? null;
+        const clientId = profile?.client_id ?? null;
+        setResolvedClientId(clientId);
+
         const [companyResult, preferencesResult] = await Promise.all([
           supabase
             .from("company_profile")
@@ -185,6 +273,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             .maybeSingle<SystemPreferencesRow>(),
         ]);
 
+        if (!isMounted || activeRequestRef.current !== requestId) return;
+
         if (companyResult.error) {
           throw companyResult.error;
         }
@@ -193,38 +283,63 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           throw preferencesResult.error;
         }
 
-        if (!isMounted) return;
-
         setCompanyProfile(normalizeCompanyProfile(companyResult.data ?? null));
         setSystemPreferences(normalizeSystemPreferences(preferencesResult.data ?? null));
       } catch (error) {
         console.error("Erro ao carregar configurações do sistema:", error);
-        if (!isMounted) return;
-        setCompanyProfile(defaultCompanyProfile);
-        setSystemPreferences(defaultSystemPreferences);
+
+        if (!isMounted || activeRequestRef.current !== requestId) return;
+
+        setCompanyProfile({ ...defaultCompanyProfile });
+        setSystemPreferences({
+          feature_toggles: { ...defaultSystemPreferences.feature_toggles },
+          custom_labels: { ...defaultCustomLabels },
+        });
       } finally {
-        if (isMounted) {
+        if (isMounted && activeRequestRef.current === requestId) {
           setLoading(false);
         }
       }
     };
 
-    void fetchSettings();
+    void run();
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [refreshNonce]);
 
   const value = useMemo<SettingsContextValue>(
     () => ({
       companyProfile,
       systemPreferences,
       loading,
+      resolvedUserId,
+      resolvedClientId,
+      refreshSettings,
       hasPermission,
     }),
-    [companyProfile, systemPreferences, loading, hasPermission]
+    [
+      companyProfile,
+      systemPreferences,
+      loading,
+      resolvedUserId,
+      resolvedClientId,
+      refreshSettings,
+      hasPermission,
+    ]
   );
+
+  if (loading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-black">
+        <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-sm text-white">
+          <Loader2 className="h-5 w-5 animate-spin text-[#138946]" />
+          Carregando configurações do sistema...
+        </div>
+      </div>
+    );
+  }
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
 }
