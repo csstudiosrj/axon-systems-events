@@ -1,10 +1,9 @@
 "use client";
 
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
+import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Building2,
   CheckCircle2,
-  FileText,
   ImageIcon,
   Loader2,
   Palette,
@@ -15,11 +14,12 @@ import {
   X,
   AlertCircle,
   Type,
+  Sparkles,
 } from "lucide-react";
 import { supabase } from "@/app/lib/supabase";
 import { useSettings } from "@/app/providers/SettingsProvider";
 
-type TabId = "identidade" | "nomenclaturas";
+type TabId = "perfil-corporativo" | "nomenclaturas";
 type ToastType = "success" | "error" | "info";
 
 interface CustomLabels {
@@ -40,7 +40,6 @@ interface CompanyProfileForm {
   cnpj: string;
   logo_url: string;
   primary_color: string;
-  contract_terms: string;
 }
 
 interface SystemPreferencesForm {
@@ -82,12 +81,21 @@ const DEFAULT_COMPANY_PROFILE: CompanyProfileForm = {
   cnpj: "",
   logo_url: "",
   primary_color: "#138946",
-  contract_terms: "",
 };
 
 const DEFAULT_SYSTEM_PREFERENCES: SystemPreferencesForm = {
   feature_toggles: DEFAULT_FEATURE_TOGGLES,
   custom_labels: DEFAULT_CUSTOM_LABELS,
+};
+
+const FEATURE_LABELS: Record<string, string> = {
+  enable_crm: "CRM / Vendas",
+  enable_financial: "Financeiro",
+  enable_inventory: "Inventário",
+  enable_service_orders: "Ordens de Serviço",
+  enable_training: "Treinamentos",
+  enable_marketing: "Marketing",
+  enable_calendar: "Calendário",
 };
 
 function cn(...classes: Array<string | false | null | undefined>) {
@@ -152,15 +160,10 @@ function isValidHexColor(value: string): boolean {
 }
 
 export default function ConfiguracoesPage() {
-  const {
-    companyProfile,
-    systemPreferences,
-    loading,
-    refreshSettings,
-    resolvedClientId,
-  } = useSettings();
+  const { companyProfile, systemPreferences, loading, refreshSettings, resolvedClientId } =
+    useSettings();
 
-  const [activeTab, setActiveTab] = useState<TabId>("identidade");
+  const [activeTab, setActiveTab] = useState<TabId>("perfil-corporativo");
   const [companyRowId, setCompanyRowId] = useState<string | number | null>(null);
   const [preferencesRowId, setPreferencesRowId] = useState<string | number | null>(null);
   const [companyForm, setCompanyForm] = useState<CompanyProfileForm>(DEFAULT_COMPANY_PROFILE);
@@ -192,13 +195,8 @@ export default function ConfiguracoesPage() {
         supabase.from("system_preferences").select("id").limit(1).maybeSingle<RowIdResult>(),
       ]);
 
-      if (companyResult.error) {
-        throw companyResult.error;
-      }
-
-      if (preferencesResult.error) {
-        throw preferencesResult.error;
-      }
+      if (companyResult.error) throw companyResult.error;
+      if (preferencesResult.error) throw preferencesResult.error;
 
       setCompanyRowId(companyResult.data?.id ?? null);
       setPreferencesRowId(preferencesResult.data?.id ?? null);
@@ -217,7 +215,6 @@ export default function ConfiguracoesPage() {
       cnpj: companyProfile.cnpj ?? "",
       logo_url: companyProfile.logo_url ?? "",
       primary_color: companyProfile.primary_color ?? "#138946",
-      contract_terms: companyProfile.contract_terms ?? "",
     });
 
     setPreferencesForm({
@@ -295,16 +292,12 @@ export default function ConfiguracoesPage() {
           upsert: true,
         });
 
-        if (uploadResponse.error) {
-          throw uploadResponse.error;
-        }
+        if (uploadResponse.error) throw uploadResponse.error;
 
         const publicUrlResponse = supabase.storage.from("axon-assets").getPublicUrl(filePath);
         const publicUrl = publicUrlResponse.data.publicUrl ?? "";
 
-        if (!publicUrl) {
-          throw new Error("Não foi possível gerar a URL pública da logo.");
-        }
+        if (!publicUrl) throw new Error("Não foi possível gerar a URL pública da logo.");
 
         setCompanyForm((current) => ({
           ...current,
@@ -336,7 +329,6 @@ export default function ConfiguracoesPage() {
         cnpj: companyForm.cnpj.trim() || null,
         logo_url: companyForm.logo_url.trim() || null,
         primary_color: normalizedPrimaryColor,
-        contract_terms: companyForm.contract_terms.trim() || null,
       };
 
       const preferencesPayload = {
@@ -347,11 +339,7 @@ export default function ConfiguracoesPage() {
       const companyPromise =
         companyRowId !== null
           ? supabase.from("company_profile").update(companyPayload).eq("id", companyRowId)
-          : supabase
-              .from("company_profile")
-              .insert(companyPayload)
-              .select("id")
-              .single<RowIdResult>();
+          : supabase.from("company_profile").insert(companyPayload).select("id").single<RowIdResult>();
 
       const preferencesPromise =
         preferencesRowId !== null
@@ -367,13 +355,8 @@ export default function ConfiguracoesPage() {
         preferencesPromise,
       ]);
 
-      if (companyResult.error) {
-        throw companyResult.error;
-      }
-
-      if (preferencesResult.error) {
-        throw preferencesResult.error;
-      }
+      if (companyResult.error) throw companyResult.error;
+      if (preferencesResult.error) throw preferencesResult.error;
 
       if ("data" in companyResult) {
         setCompanyRowId(companyResult.data?.id ?? companyRowId);
@@ -384,7 +367,6 @@ export default function ConfiguracoesPage() {
       }
 
       await refreshSettings();
-
       addToast("success", "Configurações salvas", "As alterações foram persistidas com sucesso.");
     } catch (error) {
       const message =
@@ -398,13 +380,15 @@ export default function ConfiguracoesPage() {
   const tabs = useMemo(
     () => [
       {
-        id: "identidade" as const,
-        label: "Identidade e Contrato",
+        id: "perfil-corporativo" as const,
+        label: "Perfil Corporativo",
+        description: "Marca, identidade visual e apresentação da empresa",
         icon: Settings2,
       },
       {
         id: "nomenclaturas" as const,
         label: "Nomenclaturas do Sistema",
+        description: "Rótulos dos módulos e nomes exibidos no produto",
         icon: Type,
       },
     ],
@@ -420,8 +404,8 @@ export default function ConfiguracoesPage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-3">
               <span className="inline-flex w-fit items-center gap-2 rounded-full border border-[#138946]/30 bg-[#138946]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#72d39c]">
-                <Palette className="h-3.5 w-3.5" />
-                White-Label
+                <Sparkles className="h-3.5 w-3.5" />
+                Personalização
               </span>
 
               <div>
@@ -429,8 +413,8 @@ export default function ConfiguracoesPage() {
                   Configurações do Sistema
                 </h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400 sm:text-base">
-                  Personalize a identidade visual, os termos contratuais e as nomenclaturas
-                  utilizadas em toda a plataforma.
+                  Ajuste a identidade da empresa e os nomes usados na plataforma. A navegação já
+                  respeita essas preferências; as páginas internas serão refatoradas em seguida.
                 </p>
               </div>
             </div>
@@ -484,9 +468,7 @@ export default function ConfiguracoesPage() {
                     <span className="min-w-0">
                       <span className="block text-sm font-semibold">{tab.label}</span>
                       <span className={cn("block text-xs", isActive ? "text-white/75" : "text-zinc-500")}>
-                        {tab.id === "identidade"
-                          ? "Marca, cor principal e termos"
-                          : "Nomes exibidos para módulos"}
+                        {tab.description}
                       </span>
                     </span>
                   </button>
@@ -505,13 +487,13 @@ export default function ConfiguracoesPage() {
               </div>
             ) : (
               <>
-                {activeTab === "identidade" && (
+                {activeTab === "perfil-corporativo" && (
                   <div className="space-y-8">
                     <div className="border-b border-white/10 pb-5">
-                      <h2 className="text-xl font-semibold text-white">Identidade e Contrato</h2>
+                      <h2 className="text-xl font-semibold text-white">Perfil Corporativo</h2>
                       <p className="mt-2 text-sm leading-6 text-zinc-400">
-                        Defina a marca principal exibida no sistema, a cor de destaque e o modelo
-                        padrão de termos contratuais.
+                        Defina a apresentação da empresa dentro do sistema: nome, documento,
+                        cor principal e identidade visual da marca.
                       </p>
                     </div>
 
@@ -534,7 +516,7 @@ export default function ConfiguracoesPage() {
 
                           <div className="space-y-2">
                             <label className="flex items-center gap-2 text-sm font-medium text-zinc-200">
-                              <FileText className="h-4 w-4 text-[#72d39c]" />
+                              <Tag className="h-4 w-4 text-[#72d39c]" />
                               CNPJ
                             </label>
                             <input
@@ -571,29 +553,12 @@ export default function ConfiguracoesPage() {
                           <div className="space-y-2 sm:col-span-2">
                             <label className="flex items-center gap-2 text-sm font-medium text-zinc-200">
                               <ImageIcon className="h-4 w-4 text-[#72d39c]" />
-                              URL pública da logo
+                              Logo da empresa
                             </label>
-                            <input
-                              type="url"
-                              value={companyForm.logo_url}
-                              onChange={(e) => updateCompanyField("logo_url", e.target.value)}
-                              placeholder="https://..."
-                              className="w-full rounded-2xl border border-white/10 bg-[#0d0807] px-4 py-3 text-sm text-white outline-none transition focus:border-[#138946]/70 focus:ring-2 focus:ring-[#138946]/20"
-                            />
-                          </div>
-
-                          <div className="space-y-2 sm:col-span-2">
-                            <label className="flex items-center gap-2 text-sm font-medium text-zinc-200">
-                              <FileText className="h-4 w-4 text-[#72d39c]" />
-                              Termos padrão de contrato
-                            </label>
-                            <textarea
-                              value={companyForm.contract_terms}
-                              onChange={(e) => updateCompanyField("contract_terms", e.target.value)}
-                              placeholder="Insira aqui as cláusulas, observações ou termos padrões..."
-                              rows={10}
-                              className="w-full rounded-2xl border border-white/10 bg-[#0d0807] px-4 py-3 text-sm leading-6 text-white outline-none transition focus:border-[#138946]/70 focus:ring-2 focus:ring-[#138946]/20"
-                            />
+                            <div className="rounded-2xl border border-dashed border-white/10 bg-[#0d0807] p-4 text-sm text-zinc-400">
+                              A logo é definida pelo upload abaixo. O campo manual de URL foi removido
+                              para evitar inconsistência e centralizar o fluxo no storage.
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -756,14 +721,12 @@ export default function ConfiguracoesPage() {
 
                       <div className="mt-4 grid gap-4 md:grid-cols-2">
                         <div className="rounded-2xl border border-white/10 bg-[#0d0807] p-4">
-                          <span className="text-xs uppercase tracking-[0.18em] text-zinc-500">
-                            Menu
-                          </span>
+                          <span className="text-xs uppercase tracking-[0.18em] text-zinc-500">Menu</span>
                           <p className="mt-3 text-sm text-zinc-300">
                             Gerenciar {preferencesForm.custom_labels.client_plural}
                           </p>
                           <p className="mt-1 text-sm text-zinc-300">
-                            Novo {preferencesForm.custom_labels.quote_singular}
+                            Nova {preferencesForm.custom_labels.quote_singular}
                           </p>
                         </div>
 
@@ -803,7 +766,7 @@ export default function ConfiguracoesPage() {
                                 )}
                               >
                                 <span className="block font-medium">
-                                  {key.replace(/^enable_/, "").replace(/_/g, " ")}
+                                  {FEATURE_LABELS[key] || key.replace(/^enable_/, "").replace(/_/g, " ")}
                                 </span>
                                 <span className="mt-1 block text-xs">
                                   {enabled ? "Ativado" : "Desativado"}
