@@ -3,12 +3,11 @@
 import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle,
   ArrowRight,
   BookOpen,
-  Briefcase,
   CalendarClock,
   CheckCircle2,
+  Clock3,
   FileText,
   Headset,
   LayoutDashboard,
@@ -16,18 +15,61 @@ import {
   RefreshCcw,
   ShieldAlert,
   Ticket,
+  TrendingDown,
+  TrendingUp,
   Users,
+  Wallet,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { useSettings } from "../../providers/SettingsProvider";
 
-type MetricCard = {
-  title: string;
-  value: number;
-  description: string;
-  href: string;
-  icon: React.ComponentType<{ className?: string; size?: number }>;
-  tone: "green" | "gold" | "red" | "blue";
+type DashboardState = {
+  pendingQuotes: number;
+  upcomingServiceOrders: number;
+  openTickets: number;
+  overdueTickets: number;
+  activeClients: number;
+  teamMembers: number;
+  activeCourses: number;
+  lessonsPublished: number;
+  revenueThisMonth: number;
+  revenueOpen: number;
+  overdueRevenue: number;
+  financialItemsOpen: number;
+};
+
+type QuoteRow = {
+  id: string;
+  title: string | null;
+  status: string | null;
+  final_amount: number | string | null;
+  valid_until: string | null;
+  created_at: string | null;
+};
+
+type ServiceOrderRow = {
+  id: string;
+  status: string | null;
+  event_start_date: string | null;
+  event_end_date: string | null;
+  quote_id: string | null;
+};
+
+type TicketRow = {
+  id: string;
+  title: string | null;
+  status: string | null;
+  priority: string | null;
+  category: string | null;
+  sla_deadline: string | null;
+  created_at: string | null;
+};
+
+type SettingsShape = {
+  systemPreferences?: {
+    feature_toggles?: Record<string, boolean | undefined> | null;
+    custom_labels?: Record<string, string | undefined> | null;
+  } | null;
 };
 
 type AlertItem = {
@@ -38,52 +80,25 @@ type AlertItem = {
   level: "critical" | "warning" | "info";
 };
 
-type UpcomingServiceOrder = {
-  id: string;
-  status: string | null;
-  event_start_date: string | null;
-  event_end_date: string | null;
-  quote_id: string | null;
+type SimpleCard = {
+  title: string;
+  value: number;
+  description: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string; size?: number }>;
+  tone: "green" | "gold" | "red" | "blue";
 };
 
-type RecentQuote = {
-  id: string;
-  title: string | null;
-  status: string | null;
-  final_amount: number | null;
-  valid_until: string | null;
-  created_at: string | null;
+type FeaturedCard = {
+  title: string;
+  value: number;
+  description: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string; size?: number }>;
+  tone: "green" | "gold" | "red";
 };
 
-type PriorityTicket = {
-  id: string;
-  title: string | null;
-  status: string | null;
-  priority: string | null;
-  category: string | null;
-  sla_deadline: string | null;
-  created_at: string | null;
-};
-
-type DashboardMetrics = {
-  pendingQuotes: number;
-  upcomingServiceOrders: number;
-  openTickets: number;
-  overdueTickets: number;
-  activeClients: number;
-  teamMembers: number;
-  activeCourses: number;
-  lessonsPublished: number;
-};
-
-type SettingsContextShape = {
-  systemPreferences?: {
-    feature_toggles?: Record<string, boolean | undefined>;
-    custom_labels?: Record<string, string | undefined>;
-  } | null;
-};
-
-const INITIAL_METRICS: DashboardMetrics = {
+const INITIAL_STATE: DashboardState = {
   pendingQuotes: 0,
   upcomingServiceOrders: 0,
   openTickets: 0,
@@ -92,6 +107,10 @@ const INITIAL_METRICS: DashboardMetrics = {
   teamMembers: 0,
   activeCourses: 0,
   lessonsPublished: 0,
+  revenueThisMonth: 0,
+  revenueOpen: 0,
+  overdueRevenue: 0,
+  financialItemsOpen: 0,
 };
 
 function startOfTodayIso() {
@@ -106,6 +125,13 @@ function endOfTodayIso() {
   return d.toISOString();
 }
 
+function startOfMonthIso() {
+  const d = new Date();
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
 function addDaysIso(days: number) {
   const d = new Date();
   d.setDate(d.getDate() + days);
@@ -114,61 +140,74 @@ function addDaysIso(days: number) {
 
 function formatDateTime(value: string | null) {
   if (!value) return "Sem data";
-  return new Date(value).toLocaleString("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  });
+  return new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
-function formatCurrency(value: number | null) {
-  if (typeof value !== "number") return "—";
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(value);
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 }
 
-function getDaysUntil(value: string | null) {
+function toNumber(value: number | string | null) {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") return Number(value) || 0;
+  return 0;
+}
+
+function daysUntil(value: string | null) {
   if (!value) return null;
-  const now = new Date().getTime();
-  const target = new Date(value).getTime();
-  return Math.ceil((target - now) / (1000 * 60 * 60 * 24));
+  const diff = new Date(value).getTime() - Date.now();
+  return Math.ceil(diff / 86400000);
 }
 
-function getToneClasses(tone: MetricCard["tone"]) {
-  if (tone === "green") {
-    return {
-      icon: "bg-cs-green/10 text-cs-green",
-      border: "border-cs-green/15",
-    };
+function toneClasses(tone: FeaturedCard["tone"] | SimpleCard["tone"]) {
+  switch (tone) {
+    case "green":
+      return { chip: "bg-cs-green/10 text-cs-green", border: "border-cs-green/20" };
+    case "gold":
+      return { chip: "bg-cs-gold/10 text-cs-gold", border: "border-cs-gold/20" };
+    case "red":
+      return { chip: "bg-red-500/10 text-red-300", border: "border-red-500/20" };
+    default:
+      return { chip: "bg-blue-500/10 text-blue-300", border: "border-blue-500/20" };
   }
-  if (tone === "gold") {
-    return {
-      icon: "bg-cs-gold/10 text-cs-gold",
-      border: "border-cs-gold/15",
-    };
-  }
-  if (tone === "red") {
-    return {
-      icon: "bg-red-500/10 text-red-400",
-      border: "border-red-500/15",
-    };
-  }
-  return {
-    icon: "bg-blue-500/10 text-blue-400",
-    border: "border-blue-500/15",
-  };
+}
+
+function EmptyState({
+  title,
+  description,
+  href,
+  cta,
+}: {
+  title: string;
+  description: string;
+  href: string;
+  cta: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-dashed border-white/10 bg-background px-4 py-6 text-center">
+      <Clock3 className="mx-auto h-6 w-6 text-text-secondary" />
+      <p className="mt-3 text-sm font-medium text-white">{title}</p>
+      <p className="mt-1 text-xs text-text-secondary">{description}</p>
+      <Link
+        href={href}
+        className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white transition hover:bg-white/10"
+      >
+        {cta}
+        <ArrowRight className="h-4 w-4" />
+      </Link>
+    </div>
+  );
 }
 
 export default function DashboardPage() {
-  const { systemPreferences } = (useSettings() as SettingsContextShape) ?? {};
+  const { systemPreferences } = (useSettings() as SettingsShape) ?? {};
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [metrics, setMetrics] = useState<DashboardMetrics>(INITIAL_METRICS);
+  const [state, setState] = useState<DashboardState>(INITIAL_STATE);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
-  const [upcomingOrders, setUpcomingOrders] = useState<UpcomingServiceOrder[]>([]);
-  const [recentQuotes, setRecentQuotes] = useState<RecentQuote[]>([]);
-  const [priorityTickets, setPriorityTickets] = useState<PriorityTicket[]>([]);
+  const [recentQuotes, setRecentQuotes] = useState<QuoteRow[]>([]);
+  const [upcomingOrders, setUpcomingOrders] = useState<ServiceOrderRow[]>([]);
+  const [priorityTickets, setPriorityTickets] = useState<TicketRow[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const customLabels = systemPreferences?.custom_labels ?? {};
@@ -176,182 +215,154 @@ export default function DashboardPage() {
 
   const labels = useMemo(
     () => ({
+      dashboard: customLabels.menu_dashboard || "Visão Geral",
       quotes: customLabels.menu_quotes || "Orçamentos",
       serviceOrders: customLabels.menu_service_orders || "Ordens de Serviço",
       support: customLabels.menu_support || "Suporte",
       training: customLabels.menu_training || "Treinamentos",
       clients: customLabels.entity_client_plural || customLabels.client_plural || "Clientes",
-      dashboard: customLabels.menu_dashboard || "Visão Geral",
+      revenue: customLabels.menu_financial || "Financeiro",
+      team: customLabels.menu_team || "Equipe",
     }),
     [customLabels]
   );
 
   const loadDashboard = useCallback(async () => {
     setErrorMessage(null);
-
-    const nowIso = new Date().toISOString();
+    const now = new Date().toISOString();
     const todayStart = startOfTodayIso();
     const todayEnd = endOfTodayIso();
     const next7Days = addDaysIso(7);
+    const monthStart = startOfMonthIso();
 
     try {
       const [
-        pendingQuotesResult,
-        upcomingOrdersResult,
-        openTicketsResult,
-        overdueTicketsResult,
-        clientsResult,
-        teamResult,
-        activeCoursesResult,
-        lessonsResult,
-        upcomingOrdersListResult,
-        recentQuotesResult,
-        priorityTicketsResult,
+        quotesPending,
+        ordersUpcoming,
+        ticketsOpen,
+        ticketsOverdue,
+        clientsCount,
+        teamCount,
+        coursesPublished,
+        lessonsCount,
+        revenueThisMonth,
+        revenueOpen,
+        revenueOverdue,
+        financialOpen,
+        quotesRecent,
+        ordersList,
+        ticketsList,
       ] = await Promise.all([
-        supabase
-          .from("quotes")
-          .select("*", { count: "exact", head: true })
-          .in("status", ["draft", "pending_approval"]),
-
-        supabase
-          .from("service_orders")
-          .select("*", { count: "exact", head: true })
-          .gte("event_start_date", nowIso)
-          .lte("event_start_date", next7Days),
-
-        supabase
-          .from("tickets")
-          .select("*", { count: "exact", head: true })
-          .in("status", ["open", "pending", "in_progress"]),
-
-        supabase
-          .from("tickets")
-          .select("*", { count: "exact", head: true })
-          .in("status", ["open", "pending", "in_progress"])
-          .lt("sla_deadline", nowIso),
-
+        supabase.from("quotes").select("*", { count: "exact", head: true }).in("status", ["draft", "pending_approval"]),
+        supabase.from("service_orders").select("*", { count: "exact", head: true }).gte("event_start_date", now).lte("event_start_date", next7Days),
+        supabase.from("tickets").select("*", { count: "exact", head: true }).in("status", ["open", "pending", "in_progress"]),
+        supabase.from("tickets").select("*", { count: "exact", head: true }).in("status", ["open", "pending", "in_progress"]).lt("sla_deadline", now),
         supabase.from("clients").select("*", { count: "exact", head: true }),
-
         supabase.from("profiles").select("*", { count: "exact", head: true }),
-
-        supabase
-          .from("courses")
-          .select("*", { count: "exact", head: true })
-          .eq("status", "published"),
-
+        supabase.from("courses").select("*", { count: "exact", head: true }).eq("status", "published"),
         supabase.from("lessons").select("*", { count: "exact", head: true }),
-
-        supabase
-          .from("service_orders")
-          .select("id, status, event_start_date, event_end_date, quote_id")
-          .gte("event_start_date", nowIso)
-          .order("event_start_date", { ascending: true })
-          .limit(5),
-
-        supabase
-          .from("quotes")
-          .select("id, title, status, final_amount, valid_until, created_at")
-          .order("created_at", { ascending: false })
-          .limit(5),
-
-        supabase
-          .from("tickets")
-          .select("id, title, status, priority, category, sla_deadline, created_at")
-          .in("status", ["open", "pending", "in_progress"])
-          .order("created_at", { ascending: false })
-          .limit(5),
+        supabase.from("financial_transactions").select("*", { count: "exact", head: true }).gte("created_at", monthStart).in("status", ["paid", "received", "confirmed"]),
+        supabase.from("financial_transactions").select("*", { count: "exact", head: true }).in("status", ["open", "pending", "overdue"]),
+        supabase.from("financial_transactions").select("*", { count: "exact", head: true }).eq("status", "overdue"),
+        supabase.from("financial_transactions").select("*", { count: "exact", head: true }).in("status", ["open", "pending", "overdue"]),
+        supabase.from("quotes").select("id, title, status, final_amount, valid_until, created_at").order("created_at", { ascending: false }).limit(5),
+        supabase.from("service_orders").select("id, status, event_start_date, event_end_date, quote_id").gte("event_start_date", todayStart).lte("event_start_date", next7Days).order("event_start_date", { ascending: true }).limit(5),
+        supabase.from("tickets").select("id, title, status, priority, category, sla_deadline, created_at").in("status", ["open", "pending", "in_progress"]).order("created_at", { ascending: false }).limit(5),
       ]);
 
-      const possibleErrors = [
-        pendingQuotesResult.error,
-        upcomingOrdersResult.error,
-        openTicketsResult.error,
-        overdueTicketsResult.error,
-        clientsResult.error,
-        teamResult.error,
-        activeCoursesResult.error,
-        lessonsResult.error,
-        upcomingOrdersListResult.error,
-        recentQuotesResult.error,
-        priorityTicketsResult.error,
-      ].filter(Boolean);
+      const error = [
+        quotesPending.error,
+        ordersUpcoming.error,
+        ticketsOpen.error,
+        ticketsOverdue.error,
+        clientsCount.error,
+        teamCount.error,
+        coursesPublished.error,
+        lessonsCount.error,
+        revenueThisMonth.error,
+        revenueOpen.error,
+        revenueOverdue.error,
+        financialOpen.error,
+        quotesRecent.error,
+        ordersList.error,
+        ticketsList.error,
+      ].find(Boolean);
 
-      if (possibleErrors.length > 0) {
-        throw possibleErrors[0];
-      }
+      if (error) throw error;
 
-      const nextMetrics: DashboardMetrics = {
-        pendingQuotes: pendingQuotesResult.count ?? 0,
-        upcomingServiceOrders: upcomingOrdersResult.count ?? 0,
-        openTickets: openTicketsResult.count ?? 0,
-        overdueTickets: overdueTicketsResult.count ?? 0,
-        activeClients: clientsResult.count ?? 0,
-        teamMembers: teamResult.count ?? 0,
-        activeCourses: activeCoursesResult.count ?? 0,
-        lessonsPublished: lessonsResult.count ?? 0,
+      const nextState: DashboardState = {
+        pendingQuotes: quotesPending.count ?? 0,
+        upcomingServiceOrders: ordersUpcoming.count ?? 0,
+        openTickets: ticketsOpen.count ?? 0,
+        overdueTickets: ticketsOverdue.count ?? 0,
+        activeClients: clientsCount.count ?? 0,
+        teamMembers: teamCount.count ?? 0,
+        activeCourses: coursesPublished.count ?? 0,
+        lessonsPublished: lessonsCount.count ?? 0,
+        revenueThisMonth: revenueThisMonth.count ?? 0,
+        revenueOpen: revenueOpen.count ?? 0,
+        overdueRevenue: revenueOverdue.count ?? 0,
+        financialItemsOpen: financialOpen.count ?? 0,
       };
 
-      setMetrics(nextMetrics);
-      setUpcomingOrders((upcomingOrdersListResult.data as UpcomingServiceOrder[] | null) ?? []);
-      setRecentQuotes((recentQuotesResult.data as RecentQuote[] | null) ?? []);
-      setPriorityTickets((priorityTicketsResult.data as PriorityTicket[] | null) ?? []);
+      setState(nextState);
+      setRecentQuotes((quotesRecent.data as QuoteRow[] | null) ?? []);
+      setUpcomingOrders((ordersList.data as ServiceOrderRow[] | null) ?? []);
+      setPriorityTickets((ticketsList.data as TicketRow[] | null) ?? []);
 
       const nextAlerts: AlertItem[] = [];
 
-      if (nextMetrics.overdueTickets > 0) {
+      if (nextState.overdueTickets > 0) {
         nextAlerts.push({
-          id: "overdue-tickets",
-          title: `${nextMetrics.overdueTickets} chamado(s) fora do SLA`,
-          description: "Priorize atendimento imediato para evitar escalonamento.",
+          id: "sla",
+          title: `${nextState.overdueTickets} ticket(s) fora do SLA`,
+          description: "Priorize atendimento imediato.",
           href: "/suporte",
           level: "critical",
         });
       }
 
-      const ticketsTodayCritical =
-        ((priorityTicketsResult.data as PriorityTicket[] | null) ?? []).filter(
-          (ticket) =>
-            (ticket.priority || "").toLowerCase() === "high" ||
-            (ticket.priority || "").toLowerCase() === "critical"
-        ).length;
+      const criticalTickets = (ticketsList.data as TicketRow[] | null) ?? [];
+      const highPriorityCount = criticalTickets.filter((t) =>
+        ["high", "critical"].includes((t.priority || "").toLowerCase())
+      ).length;
 
-      if (ticketsTodayCritical > 0) {
+      if (highPriorityCount > 0) {
         nextAlerts.push({
-          id: "critical-tickets",
-          title: `${ticketsTodayCritical} ticket(s) prioritário(s)`,
-          description: "Existem atendimentos críticos aguardando atuação.",
+          id: "priority",
+          title: `${highPriorityCount} ticket(s) prioritário(s)`,
+          description: "Fila com prioridade alta precisa de ação.",
           href: "/suporte",
           level: "warning",
         });
       }
 
-      const ordersTodayCount =
-        ((upcomingOrdersListResult.data as UpcomingServiceOrder[] | null) ?? []).filter((order) => {
-          if (!order.event_start_date) return false;
-          return order.event_start_date >= todayStart && order.event_start_date <= todayEnd;
-        }).length;
+      const ordersTodayCount = (ordersList.data as ServiceOrderRow[] | null) ?? [];
+      const ordersToday = ordersTodayCount.filter(
+        (o) => o.event_start_date && o.event_start_date >= todayStart && o.event_start_date <= todayEnd
+      ).length;
 
-      if (ordersTodayCount > 0) {
+      if (ordersToday > 0) {
         nextAlerts.push({
-          id: "orders-today",
-          title: `${ordersTodayCount} operação(ões) programada(s) para hoje`,
-          description: "Confira equipe, horário e execução das OS do dia.",
+          id: "today-orders",
+          title: `${ordersToday} operação(ões) hoje`,
+          description: "Confira equipe e horários das OS de hoje.",
           href: "/os",
           level: "info",
         });
       }
 
-      const quotesExpiringSoon =
-        ((recentQuotesResult.data as RecentQuote[] | null) ?? []).filter((quote) => {
-          const days = getDaysUntil(quote.valid_until);
-          return days !== null && days >= 0 && days <= 3;
-        }).length;
+      const expiringQuotes = (quotesRecent.data as QuoteRow[] | null) ?? [];
+      const expiringSoon = expiringQuotes.filter((q) => {
+        const d = daysUntil(q.valid_until);
+        return d !== null && d >= 0 && d <= 3;
+      }).length;
 
-      if (quotesExpiringSoon > 0) {
+      if (expiringSoon > 0) {
         nextAlerts.push({
-          id: "quotes-expiring",
-          title: `${quotesExpiringSoon} orçamento(s) vencendo em até 3 dias`,
-          description: "Hora de follow-up comercial para não perder oportunidade.",
+          id: "expiring-quotes",
+          title: `${expiringSoon} orçamento(s) vencendo`,
+          description: "Faça follow-up comercial agora.",
           href: "/orcamentos",
           level: "warning",
         });
@@ -359,9 +370,9 @@ export default function DashboardPage() {
 
       if (nextAlerts.length === 0) {
         nextAlerts.push({
-          id: "all-good",
-          title: "Operação sem alertas críticos",
-          description: "Nenhum item urgente detectado neste momento.",
+          id: "ok",
+          title: "Operação estável",
+          description: "Nenhum alerta crítico no momento.",
           href: "/dashboard",
           level: "info",
         });
@@ -390,85 +401,122 @@ export default function DashboardPage() {
     };
   }, [loadDashboard]);
 
-  const handleRefresh = async () => {
+  const refresh = async () => {
     setRefreshing(true);
     await loadDashboard();
     setRefreshing(false);
   };
 
-  const metricCards: MetricCard[] = [
+  const featured: FeaturedCard[] = [
     {
       title: `${labels.quotes} pendentes`,
-      value: metrics.pendingQuotes,
+      value: state.pendingQuotes,
       description: "Rascunho ou aguardando aprovação.",
       href: "/orcamentos",
       icon: FileText,
       tone: "green",
     },
     {
-      title: `${labels.serviceOrders} em 7 dias`,
-      value: metrics.upcomingServiceOrders,
-      description: "Janela operacional da próxima semana.",
+      title: `${labels.serviceOrders} próximas`,
+      value: state.upcomingServiceOrders,
+      description: "Programação dos próximos 7 dias.",
       href: "/os",
       icon: CalendarClock,
       tone: "gold",
     },
     {
       title: "Chamados abertos",
-      value: metrics.openTickets,
-      description: "Fila ativa de suporte.",
+      value: state.openTickets,
+      description: "Fila de suporte ativa.",
       href: "/suporte",
       icon: Ticket,
       tone: "red",
     },
+  ];
+
+  const supportCards: SimpleCard[] = [
     {
       title: `${labels.clients} cadastrados`,
-      value: metrics.activeClients,
-      description: "Base disponível no sistema.",
+      value: state.activeClients,
+      description: "Base principal do sistema.",
       href: "/clientes",
       icon: Users,
       tone: "blue",
     },
     {
-      title: "Equipe cadastrada",
-      value: metrics.teamMembers,
-      description: "Usuários no ambiente.",
-      href: "/equipe",
-      icon: Briefcase,
-      tone: "blue",
-    },
-    {
       title: `${labels.training} ativos`,
-      value: metrics.activeCourses,
-      description: "Cursos publicados para consumo.",
+      value: state.activeCourses,
+      description: "Conteúdo publicado para consumo.",
       href: "/treinamentos",
       icon: BookOpen,
       tone: "green",
     },
+    {
+      title: "Equipe cadastrada",
+      value: state.teamMembers,
+      description: "Usuários e responsáveis.",
+      href: "/equipe",
+      icon: LayoutDashboard,
+      tone: "blue",
+    },
+    {
+      title: "Aulas publicadas",
+      value: state.lessonsPublished,
+      description: "Volume de conteúdo disponível.",
+      href: "/treinamentos",
+      icon: Headset,
+      tone: "gold",
+    },
   ];
 
-  const quickLinks = [
-    { label: "Novo cliente", href: "/clientes" },
-    { label: `Novo ${customLabels.entity_quote_singular || "orçamento"}`, href: "/orcamentos" },
-    { label: "Nova OS", href: "/os" },
-    { label: "Novo ticket", href: "/suporte" },
-    { label: "Gerenciar equipe", href: "/equipe" },
-    { label: "Abrir treinamentos", href: "/treinamentos" },
+  const financialCards: SimpleCard[] = [
+    {
+      title: "Receita do mês",
+      value: state.revenueThisMonth,
+      description: "Valores confirmados neste período.",
+      href: "/financeiro",
+      icon: Wallet,
+      tone: "green",
+    },
+    {
+      title: "Receita em aberto",
+      value: state.revenueOpen,
+      description: "Contas pendentes de baixa.",
+      href: "/financeiro",
+      icon: TrendingUp,
+      tone: "gold",
+    },
+    {
+      title: "Receita vencida",
+      value: state.overdueRevenue,
+      description: "Valores que já passaram do prazo.",
+      href: "/financeiro",
+      icon: TrendingDown,
+      tone: "red",
+    },
+    {
+      title: "Lançamentos em aberto",
+      value: state.financialItemsOpen,
+      description: "Pendências financeiras ativas.",
+      href: "/financeiro",
+      icon: Clock3,
+      tone: "blue",
+    },
   ];
 
-  const moduleVisibility = {
-    crm: featureToggles.enable_crm !== false,
-    clients: featureToggles.enable_clients !== false,
+  const visibleModules = {
     quotes: featureToggles.enable_quotes !== false,
     serviceOrders: featureToggles.enable_service_orders !== false,
     support: featureToggles.enable_support !== false,
+    clients: featureToggles.enable_clients !== false,
     training: featureToggles.enable_training !== false,
     team: featureToggles.enable_team !== false,
+    financial: true,
   };
 
   if (loading) {
     return (
-      <div className="flex h-full min-h-[60vh] items-center justify-center">
+      <div className="flex min-h-[60vh] items-center justify-center">
         <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-surface px-5 py-4 text-sm text-white">
           <Loader2 className="h-5 w-5 animate-spin text-cs-green" />
           Carregando visão geral...
@@ -486,17 +534,14 @@ export default function DashboardPage() {
               <LayoutDashboard className="h-3.5 w-3.5" />
               {labels.dashboard}
             </div>
-            <h1 className="text-2xl font-semibold text-white">
-              Painel operacional do sistema
-            </h1>
+            <h1 className="text-2xl font-semibold text-white">Painel operacional do sistema</h1>
             <p className="mt-1 text-sm text-text-secondary">
-              Visão rápida de operação, comercial, suporte e treinamento com atalhos reais.
+              Visão rápida de comercial, financeiro, operação, suporte e treinamento com atalhos reais.
             </p>
           </div>
-
           <button
             type="button"
-            onClick={handleRefresh}
+            onClick={refresh}
             disabled={refreshing}
             className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10 disabled:opacity-60"
           >
@@ -504,21 +549,51 @@ export default function DashboardPage() {
             Atualizar painel
           </button>
         </div>
-
-        {errorMessage && (
+        {errorMessage ? (
           <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
             {errorMessage}
           </div>
-        )}
+        ) : null}
       </section>
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.35fr_0.65fr]">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {featured
+          .filter((card) => {
+            if (card.href === "/orcamentos") return visibleModules.quotes;
+            if (card.href === "/os") return visibleModules.serviceOrders;
+            if (card.href === "/suporte") return visibleModules.support;
+            return true;
+          })
+          .map((card) => {
+            const Icon = card.icon;
+            const tones = toneClasses(card.tone);
+            return (
+              <Link
+                key={card.title}
+                href={card.href}
+                className={`rounded-3xl border bg-surface p-5 transition hover:-translate-y-0.5 hover:bg-white/[0.03] ${tones.border}`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm text-text-secondary">{card.title}</p>
+                    <p className="mt-2 text-3xl font-bold text-white">{card.value}</p>
+                    <p className="mt-2 text-xs text-text-secondary">{card.description}</p>
+                  </div>
+                  <div className={`rounded-2xl p-3 ${tones.chip}`}>
+                    <Icon size={22} />
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
         <div className="rounded-3xl border border-white/10 bg-surface p-5">
           <div className="mb-4 flex items-center gap-2">
             <ShieldAlert className="h-4 w-4 text-cs-gold" />
             <h2 className="text-base font-semibold text-white">Ações imediatas</h2>
           </div>
-
           <div className="grid gap-3">
             {alerts.map((alert) => (
               <Link
@@ -551,14 +626,22 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid gap-3">
-            {quickLinks
+            {[
+              { label: `Novo ${labels.clients.slice(0, -1).toLowerCase()}`, href: "/clientes" },
+              { label: `Novo ${customLabels.entity_quote_singular || "orçamento"}`, href: "/orcamentos" },
+              { label: "Nova OS", href: "/os" },
+              { label: "Novo ticket", href: "/suporte" },
+              { label: "Gerenciar equipe", href: "/equipe" },
+              { label: `Abrir ${labels.training.toLowerCase()}`, href: "/treinamentos" },
+              { label: "Ir para financeiro", href: "/financeiro" },
+            ]
               .filter((item) => {
-                if (item.href === "/clientes") return moduleVisibility.clients;
-                if (item.href === "/orcamentos") return moduleVisibility.quotes;
-                if (item.href === "/os") return moduleVisibility.serviceOrders;
-                if (item.href === "/suporte") return moduleVisibility.support;
-                if (item.href === "/equipe") return moduleVisibility.team;
-                if (item.href === "/treinamentos") return moduleVisibility.training;
+                if (item.href === "/clientes") return visibleModules.clients;
+                if (item.href === "/orcamentos") return visibleModules.quotes;
+                if (item.href === "/os") return visibleModules.serviceOrders;
+                if (item.href === "/suporte") return visibleModules.support;
+                if (item.href === "/equipe") return visibleModules.team;
+                if (item.href === "/treinamentos") return visibleModules.training;
                 return true;
               })
               .map((item) => (
@@ -575,43 +658,40 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {metricCards
-          .filter((card) => {
-            if (card.href === "/clientes") return moduleVisibility.clients;
-            if (card.href === "/orcamentos") return moduleVisibility.quotes;
-            if (card.href === "/os") return moduleVisibility.serviceOrders;
-            if (card.href === "/suporte") return moduleVisibility.support;
-            if (card.href === "/equipe") return moduleVisibility.team;
-            if (card.href === "/treinamentos") return moduleVisibility.training;
-            return true;
-          })
-          .map((card) => {
-            const tone = getToneClasses(card.tone);
+      <section className="rounded-3xl border border-white/10 bg-surface p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-white">Financeiro</h2>
+          <Link href="/financeiro" className="text-sm text-cs-green transition hover:opacity-80">
+            Abrir financeiro
+          </Link>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {financialCards.map((card) => {
             const Icon = card.icon;
-
+            const tones = toneClasses(card.tone);
             return (
               <Link
                 key={card.title}
                 href={card.href}
-                className={`rounded-3xl border bg-surface p-5 transition hover:-translate-y-0.5 hover:bg-white/[0.03] ${tone.border}`}
+                className={`rounded-3xl border bg-background p-4 transition hover:bg-white/5 ${tones.border}`}
               >
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm text-text-secondary">{card.title}</p>
-                    <p className="mt-2 text-3xl font-bold text-white">{card.value}</p>
+                    <p className="mt-2 text-2xl font-bold text-white">{formatCurrency(card.value)}</p>
                     <p className="mt-2 text-xs text-text-secondary">{card.description}</p>
                   </div>
-                  <div className={`rounded-2xl p-3 ${tone.icon}`}>
-                    <Icon size={22} />
+                  <div className={`rounded-2xl p-3 ${tones.chip}`}>
+                    <Icon size={20} />
                   </div>
                 </div>
               </Link>
             );
           })}
+        </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_1fr]">
+      <section className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
         <div className="rounded-3xl border border-white/10 bg-surface p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-base font-semibold text-white">Próximas operações</h2>
@@ -619,7 +699,6 @@ export default function DashboardPage() {
               Ver todas
             </Link>
           </div>
-
           <div className="space-y-3">
             {upcomingOrders.length === 0 ? (
               <EmptyState
@@ -664,7 +743,6 @@ export default function DashboardPage() {
               Ver fila
             </Link>
           </div>
-
           <div className="space-y-3">
             {priorityTickets.length === 0 ? (
               <EmptyState
@@ -720,7 +798,6 @@ export default function DashboardPage() {
             Ver {labels.quotes.toLowerCase()}
           </Link>
         </div>
-
         <div className="space-y-3">
           {recentQuotes.length === 0 ? (
             <EmptyState
@@ -731,8 +808,7 @@ export default function DashboardPage() {
             />
           ) : (
             recentQuotes.map((quote) => {
-              const daysUntil = getDaysUntil(quote.valid_until);
-
+              const d = daysUntil(quote.valid_until);
               return (
                 <Link
                   key={quote.id}
@@ -747,29 +823,22 @@ export default function DashboardPage() {
                       Criado em {formatDateTime(quote.created_at)}
                     </p>
                   </div>
-
                   <div>
                     <p className="text-xs uppercase tracking-wide text-text-secondary">Status</p>
                     <p className="mt-1 text-sm text-white">{quote.status || "Sem status"}</p>
                   </div>
-
                   <div>
                     <p className="text-xs uppercase tracking-wide text-text-secondary">Valor</p>
-                    <p className="mt-1 text-sm text-white">{formatCurrency(quote.final_amount)}</p>
+                    <p className="mt-1 text-sm text-white">{formatCurrency(toNumber(quote.final_amount))}</p>
                   </div>
-
                   <div>
                     <p className="text-xs uppercase tracking-wide text-text-secondary">Validade</p>
                     <p className="mt-1 text-sm text-white">
                       {quote.valid_until ? formatDateTime(quote.valid_until) : "Sem validade"}
                     </p>
-                    {daysUntil !== null && (
+                    {d !== null && (
                       <p className="mt-1 text-xs text-text-secondary">
-                        {daysUntil < 0
-                          ? "Expirado"
-                          : daysUntil === 0
-                          ? "Vence hoje"
-                          : `${daysUntil} dia(s) restantes`}
+                        {d < 0 ? "Expirado" : d === 0 ? "Vence hoje" : `${d} dia(s) restantes`}
                       </p>
                     )}
                   </div>
@@ -779,33 +848,6 @@ export default function DashboardPage() {
           )}
         </div>
       </section>
-    </div>
-  );
-}
-
-function EmptyState({
-  title,
-  description,
-  href,
-  cta,
-}: {
-  title: string;
-  description: string;
-  href: string;
-  cta: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-dashed border-white/10 bg-background px-4 py-6 text-center">
-      <AlertTriangle className="mx-auto h-6 w-6 text-text-secondary" />
-      <p className="mt-3 text-sm font-medium text-white">{title}</p>
-      <p className="mt-1 text-xs text-text-secondary">{description}</p>
-      <Link
-        href={href}
-        className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white transition hover:bg-white/10"
-      >
-        {cta}
-        <ArrowRight className="h-4 w-4" />
-      </Link>
     </div>
   );
 }
