@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../lib/supabase";
+import { useRouter } from "next/navigation";
 import { 
   Truck, Plus, Loader2, ArrowLeft, Calendar, Clock, 
   Play, CheckCircle, AlertCircle, User, FileText, 
-  PackagePlus, Trash2, Save, Eye, Building2, AlertTriangle, Check
+  PackagePlus, Trash2, Save, Eye, Building2, AlertTriangle, Check, Printer
 } from "lucide-react";
 import { useSettings } from "@/app/providers/SettingsProvider";
 
@@ -21,12 +22,20 @@ interface QuoteItem {
   quantity: number;
 }
 
+interface InternalProfile {
+  id: string;
+  full_name: string | null;
+  email: string;
+  role: string;
+}
+
 interface Toast {
   message: string;
   type: "success" | "error" | "info";
 }
 
 export default function OSPage() {
+  const router = useRouter();
   const { systemPreferences } = useSettings();
   
   // --- LABELS DINÂMICAS (WHITE-LABEL ARXUM) ---
@@ -35,12 +44,11 @@ export default function OSPage() {
   const osPlural = labels.entity_service_order_plural || "Ordens de Serviço";
   const quoteSingular = labels.entity_quote_singular || "Orçamento";
   const quotePlural = labels.entity_quote_plural || "Orçamentos";
-  const clientSingular = labels.entity_client_singular || "Cliente";
 
   const [view, setView] = useState<"list" | "create" | "details">("list");
   const [orders, setOrders] = useState<any[]>([]);
   const [availableQuotes, setAvailableQuotes] = useState<any[]>([]);
-  const [internalTeam, setInternalTeam] = useState<any[]>([]);
+  const [internalTeam, setInternalTeam] = useState<InternalProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -66,12 +74,15 @@ export default function OSPage() {
     setTimeout(() => setToast(null), 4000);
   }, []);
 
+  // --- BUSCA DE DADOS REAIS ---
   const fetchInternalTeam = useCallback(async () => {
-    const { data } = await supabase
+    const staffRoles = ['super_admin', 'admin', 'commercial', 'financial', 'logistics', 'marketing', 'training', 'support'];
+    const { data, error } = await supabase
       .from("profiles")
       .select("id, full_name, email, role")
-      .not("role", "in", "('client', 'student', 'subscriber')");
-    if (data) setInternalTeam(data);
+      .in("role", staffRoles);
+    
+    if (!error && data) setInternalTeam(data as InternalProfile[]);
   }, []);
 
   const fetchOrders = useCallback(async () => {
@@ -107,6 +118,7 @@ export default function OSPage() {
     fetchInternalTeam();
   }, [view, fetchOrders, fetchAvailableQuotes, fetchInternalTeam]);
 
+  // --- LÓGICA OPERACIONAL ---
   const handleQuoteSelection = (selectedId: string) => {
     setQuoteId(selectedId);
     const selectedQuote = availableQuotes.find(q => q.id === selectedId);
@@ -156,11 +168,6 @@ export default function OSPage() {
       const start = new Date(startDate);
       const end = new Date(endDate);
 
-      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-        showToast("Por favor, insira datas válidas.", "error");
-        return;
-      }
-
       const { error } = await supabase.from("service_orders").insert([{
         quote_id: quoteId,
         event_start_date: start.toISOString(),
@@ -169,10 +176,10 @@ export default function OSPage() {
       }]);
 
       if (!error) {
-        showToast(`${osSingular} gerada com sucesso!`, "success");
+        showToast(`${osSingular} gerada com sucesso no sistema ARXUM!`, "success");
         setView("list");
       } else {
-        showToast(`Erro ao criar ${osSingular}: ${error.message}`, "error");
+        showToast(`Erro ao criar: ${error.message}`, "error");
       }
     } finally {
       setIsSubmitting(false);
@@ -180,17 +187,24 @@ export default function OSPage() {
   };
 
   const handleUpdateOSInfo = async () => {
+    if (!activeOS) return;
     setIsSubmitting(true);
+    
     const { error } = await supabase
       .from("service_orders")
-      .update({ logistics_notes: logisticsNotes, producer_id: producerId || null })
+      .update({ 
+        logistics_notes: logisticsNotes, 
+        producer_id: producerId || null 
+      })
       .eq("id", activeOS.id);
       
     if (!error) {
-      showToast("Briefing e responsabilidade atualizados!", "success");
+      showToast("Dados de logística atualizados com sucesso.", "success");
+      // Atualiza o estado local para refletir a mudança sem recarregar tudo
+      setActiveOS({ ...activeOS, logistics_notes: logisticsNotes, producer_id: producerId });
       fetchOrders();
     } else {
-      showToast("Erro ao atualizar informações.", "error");
+      showToast(`Erro ao salvar: ${error.message}`, "error");
     }
     setIsSubmitting(false);
   };
@@ -201,7 +215,11 @@ export default function OSPage() {
 
     const { data, error } = await supabase
       .from("os_extra_items")
-      .insert([{ service_order_id: activeOS.id, item_name: newItemName, quantity: Number(newItemQty) }])
+      .insert([{ 
+        service_order_id: activeOS.id, 
+        item_name: newItemName, 
+        quantity: Number(newItemQty) 
+      }])
       .select()
       .single();
       
@@ -209,22 +227,22 @@ export default function OSPage() {
       setExtraItems([...extraItems, data]);
       setNewItemName("");
       setNewItemQty("1");
-      showToast("Item adicionado à lista de separação.", "success");
+      showToast("Item extra adicionado à carga.", "success");
+    } else {
+      showToast("Erro ao adicionar item.", "error");
     }
   };
 
   const requestDeleteExtraItem = (id: string) => {
     setConfirmModal({
       isOpen: true,
-      title: "Remover Item Extra?",
-      message: "Este item será removido da lista de separação do galpão.",
+      title: "Remover Item?",
+      message: "Deseja retirar este item da lista de separação?",
       onConfirm: async () => {
         const { error } = await supabase.from("os_extra_items").delete().eq("id", id);
         if (!error) {
           setExtraItems(extraItems.filter(item => item.id !== id));
-          showToast("Item removido com sucesso.", "success");
-        } else {
-          showToast("Erro ao remover item.", "error");
+          showToast("Item removido.", "success");
         }
         setConfirmModal(null);
       }
@@ -243,9 +261,9 @@ export default function OSPage() {
   const getStatusBadge = (status: string) => {
     const statusConfig: Record<string, { label: string, color: string, icon: any }> = {
       pending: { label: "Pendente", color: "bg-gray-500/10 text-gray-400 border-gray-500/20", icon: Clock },
-      load_in: { label: "Load-in (Montagem)", color: "bg-blue-500/10 text-blue-400 border-blue-500/20", icon: Truck },
+      load_in: { label: "Load-in", color: "bg-blue-500/10 text-blue-400 border-blue-500/20", icon: Truck },
       execution: { label: "Em Execução", color: "bg-cs-gold/10 text-cs-gold border-cs-gold/20", icon: Play },
-      load_out: { label: "Load-out (Desmontagem)", color: "bg-orange-500/10 text-orange-400 border-orange-500/20", icon: AlertCircle },
+      load_out: { label: "Load-out", color: "bg-orange-500/10 text-orange-400 border-orange-500/20", icon: AlertCircle },
       completed: { label: "Concluído", color: "bg-cs-green/10 text-cs-green border-cs-green/20", icon: CheckCircle },
     };
     const config = statusConfig[status] || statusConfig.pending;
@@ -256,7 +274,7 @@ export default function OSPage() {
   return (
     <div className="space-y-6 relative pb-12">
       
-      {/* Sistema de Toasts Premium */}
+      {/* Sistema de Toasts Premium ARXUM */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-[100] px-4 py-3 rounded-md shadow-lg flex items-center gap-2 border animate-in fade-in slide-in-from-bottom-4 ${
           toast.type === 'success' ? 'bg-cs-green/10 border-cs-green/20 text-cs-green' : 
@@ -268,7 +286,7 @@ export default function OSPage() {
         </div>
       )}
 
-      {/* Modal de Confirmação Customizado */}
+      {/* Modal de Confirmação Premium */}
       {confirmModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200 text-center">
@@ -278,7 +296,7 @@ export default function OSPage() {
             <h3 className="text-xl font-bold text-white mb-2">{confirmModal.title}</h3>
             <p className="text-sm text-text-secondary mb-6">{confirmModal.message}</p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmModal(null)} className="flex-1 py-2 rounded-md border border-surface text-text-secondary hover:text-white hover:bg-background transition-colors font-medium text-sm">
+              <button onClick={() => setConfirmModal(null)} className="flex-1 py-2 rounded-md border border-surface text-text-secondary hover:text-white transition-colors font-medium text-sm">
                 Cancelar
               </button>
               <button onClick={confirmModal.onConfirm} className="flex-1 py-2 rounded-md bg-red-500 text-white font-medium text-sm hover:bg-opacity-90 transition-colors shadow-lg">
@@ -295,18 +313,23 @@ export default function OSPage() {
             <button onClick={() => setView("list")} className="flex items-center gap-2 text-text-secondary hover:text-white transition-colors">
               <ArrowLeft size={20} /> Voltar para {osPlural}
             </button>
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-text-secondary">Status da Operação:</span>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => router.push(`/os/${activeOS.id}`)}
+                className="flex items-center gap-2 bg-background border border-surface/50 text-text-secondary hover:text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+              >
+                <Printer size={18} /> Gerar PDF da {osSingular}
+              </button>
               <select
                 value={activeOS.status}
                 onChange={(e) => updateOrderStatus(activeOS.id, e.target.value)}
                 className="bg-surface border border-surface/50 text-white text-sm rounded-md px-4 py-2 focus:border-cs-green focus:outline-none font-bold cursor-pointer"
               >
-                <option value="pending">Pendente (Aguardando)</option>
-                <option value="load_in">Load-in (Montagem)</option>
-                <option value="execution">Em Execução (Rodando)</option>
-                <option value="load_out">Load-out (Desmontagem)</option>
-                <option value="completed">Concluído (Retornou)</option>
+                <option value="pending">Pendente</option>
+                <option value="load_in">Load-in</option>
+                <option value="execution">Em Execução</option>
+                <option value="load_out">Load-out</option>
+                <option value="completed">Concluído</option>
               </select>
             </div>
           </div>
@@ -323,7 +346,6 @@ export default function OSPage() {
                 <h2 className="text-2xl font-bold text-white mb-1">{activeOS.quotes?.title}</h2>
                 <p className="text-text-secondary flex items-center gap-2">
                   <Building2 size={16} /> {activeOS.quotes?.clients?.company_name} 
-                  {activeOS.quotes?.clients?.contact_name && ` • A/C: ${activeOS.quotes.clients.contact_name}`}
                 </p>
               </div>
               
@@ -331,11 +353,11 @@ export default function OSPage() {
                 <div className="space-y-3 text-sm">
                   <div className="flex justify-between items-center">
                     <span className="text-text-secondary flex items-center gap-2"><Calendar size={14}/> Início:</span>
-                    <span className="font-medium text-white">{new Date(activeOS.event_start_date).toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'})}</span>
+                    <span className="font-medium text-white">{new Date(activeOS.event_start_date).toLocaleString('pt-BR')}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-text-secondary flex items-center gap-2"><Calendar size={14}/> Fim:</span>
-                    <span className="font-medium text-white">{new Date(activeOS.event_end_date).toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'})}</span>
+                    <span className="font-medium text-white">{new Date(activeOS.event_end_date).toLocaleString('pt-BR')}</span>
                   </div>
                 </div>
               </div>
@@ -358,7 +380,7 @@ export default function OSPage() {
                     >
                       <option value="">Não atribuído</option>
                       {internalTeam.map(user => (
-                        <option key={user.id} value={user.id}>{user.full_name || user.email} ({user.role})</option>
+                        <option key={user.id} value={user.id}>{user.full_name || user.email}</option>
                       ))}
                     </select>
                   </div>
@@ -370,23 +392,20 @@ export default function OSPage() {
                   <FileText className="text-cs-gold" size={18} /> Briefing Logístico
                 </h3>
                 <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-medium text-text-secondary mb-1">Observações para o Galpão</label>
-                    <textarea
-                      rows={6}
-                      value={logisticsNotes}
-                      onChange={(e) => setLogisticsNotes(e.target.value)}
-                      placeholder="Ex: Palco a 50m da house mix. Levar multicabo extra..."
-                      className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none resize-none text-sm custom-scrollbar"
-                    />
-                  </div>
+                  <textarea
+                    rows={6}
+                    value={logisticsNotes}
+                    onChange={(e) => setLogisticsNotes(e.target.value)}
+                    placeholder="Ex: Palco a 50m da house mix. Levar multicabo extra..."
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none resize-none text-sm custom-scrollbar"
+                  />
                   <button 
                     onClick={handleUpdateOSInfo}
                     disabled={isSubmitting}
-                    className="w-full flex justify-center items-center gap-2 rounded-md bg-surface border border-surface/50 py-2 text-sm font-medium text-white hover:bg-background transition-all disabled:opacity-50"
+                    className="w-full flex justify-center items-center gap-2 rounded-md bg-cs-green py-2 text-sm font-bold text-white hover:bg-opacity-90 transition-all disabled:opacity-50"
                   >
                     {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-                    Salvar Briefing
+                    Salvar Alterações
                   </button>
                 </div>
               </div>
@@ -401,18 +420,14 @@ export default function OSPage() {
                   </h3>
                 </div>
                 <div className="p-4">
-                  {quoteItems.length === 0 ? (
-                    <p className="text-sm text-text-secondary text-center py-4">Nenhum equipamento no {quoteSingular.toLowerCase()}.</p>
-                  ) : (
-                    <ul className="space-y-2">
-                      {quoteItems.map((item, idx) => (
-                        <li key={idx} className="flex items-center justify-between bg-background border border-surface/50 p-3 rounded-md">
-                          <span className="text-sm font-medium text-white">{item.description}</span>
-                          <span className="text-xs font-bold bg-surface px-2 py-1 rounded text-text-secondary">Qtd: {item.quantity}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                  <ul className="space-y-2">
+                    {quoteItems.map((item, idx) => (
+                      <li key={idx} className="flex items-center justify-between bg-background border border-surface/50 p-3 rounded-md">
+                        <span className="text-sm font-medium text-white">{item.description}</span>
+                        <span className="text-xs font-bold bg-surface px-2 py-1 rounded text-text-secondary">Qtd: {item.quantity}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               </div>
 
@@ -420,7 +435,7 @@ export default function OSPage() {
                 <div className="p-4 border-b border-surface/50 bg-background/30 flex justify-between items-center">
                   <h3 className="text-md font-bold text-white flex items-center gap-2">
                     <Truck className="text-cs-green" size={18} />
-                    Itens Extras de Logística (Cabos, Fitas, Backups)
+                    Itens Extras de Logística
                   </h3>
                 </div>
                 
@@ -449,26 +464,22 @@ export default function OSPage() {
                 </div>
 
                 <div className="p-4">
-                  {extraItems.length === 0 ? (
-                    <p className="text-sm text-text-secondary text-center py-4">Nenhum item extra adicionado para este evento.</p>
-                  ) : (
-                    <ul className="space-y-2">
-                      {extraItems.map((item) => (
-                        <li key={item.id} className="flex items-center justify-between bg-background border border-surface/50 p-3 rounded-md group">
-                          <div className="flex items-center gap-3">
-                            <span className="text-cs-green font-bold text-xs">EXTRA</span>
-                            <span className="text-sm font-medium text-white">{item.item_name}</span>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <span className="text-xs font-bold bg-surface px-2 py-1 rounded text-text-secondary">Qtd: {item.quantity}</span>
-                            <button onClick={() => requestDeleteExtraItem(item.id)} className="text-text-secondary hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                  <ul className="space-y-2">
+                    {extraItems.map((item) => (
+                      <li key={item.id} className="flex items-center justify-between bg-background border border-surface/50 p-3 rounded-md group">
+                        <div className="flex items-center gap-3">
+                          <span className="text-cs-green font-bold text-xs">EXTRA</span>
+                          <span className="text-sm font-medium text-white">{item.item_name}</span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-xs font-bold bg-surface px-2 py-1 rounded text-text-secondary">Qtd: {item.quantity}</span>
+                          <button onClick={() => requestDeleteExtraItem(item.id)} className="text-text-secondary hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               </div>
             </div>
@@ -480,7 +491,7 @@ export default function OSPage() {
         <div className="space-y-6 max-w-3xl mx-auto">
           <div className="flex items-center justify-between">
             <button onClick={() => setView("list")} className="flex items-center gap-2 text-text-secondary hover:text-white transition-colors">
-              <ArrowLeft size={20} /> Voltar para {osPlural}
+              <ArrowLeft size={20} /> Voltar para lista
             </button>
           </div>
 
@@ -499,22 +510,22 @@ export default function OSPage() {
                     <option key={q.id} value={q.id}>{q.title} - {q.clients?.company_name}</option>
                   ))}
                 </select>
-                <p className="text-xs text-cs-gold mt-2">Apenas {quotePlural.toLowerCase()} com status "Aprovado" aparecem nesta lista.</p>
+                <p className="text-xs text-cs-gold mt-2">Apenas {quotePlural.toLowerCase()} aprovados no sistema ARXUM aparecem aqui.</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-text-secondary mb-1 flex items-center gap-2"><Calendar size={14} /> Início do Evento (Load-in) *</label>
-                  <input type="datetime-local" required max="2099-12-31T23:59" value={startDate} onChange={(e) => { if (e.target.value.length <= 16) setStartDate(e.target.value); }} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  <label className="block text-sm font-medium text-text-secondary mb-1 flex items-center gap-2"><Calendar size={14} /> Início (Load-in) *</label>
+                  <input type="datetime-local" required value={startDate} onChange={(e) => setStartDate(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-text-secondary mb-1 flex items-center gap-2"><Calendar size={14} /> Fim do Evento (Load-out) *</label>
-                  <input type="datetime-local" required max="2099-12-31T23:59" value={endDate} onChange={(e) => { if (e.target.value.length <= 16) setEndDate(e.target.value); }} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  <label className="block text-sm font-medium text-text-secondary mb-1 flex items-center gap-2"><Calendar size={14} /> Fim (Load-out) *</label>
+                  <input type="datetime-local" required value={endDate} onChange={(e) => setEndDate(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm" />
                 </div>
               </div>
 
               <div className="flex justify-end pt-4 border-t border-surface/50">
-                <button type="submit" disabled={isSubmitting} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50">
+                <button type="submit" disabled={isSubmitting} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-bold text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50">
                   {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : `Gerar ${osSingular}`}
                 </button>
               </div>
@@ -531,9 +542,9 @@ export default function OSPage() {
                 <Truck className="text-cs-green" size={20} />
                 Painel de Logística / {osPlural}
               </h3>
-              <p className="text-xs text-text-secondary mt-1">Controle de separação, montagem e desmontagem operacional.</p>
+              <p className="text-xs text-text-secondary mt-1">Gestão operacional da frota e equipamentos ARXUM.</p>
             </div>
-            <button onClick={() => setView("create")} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all">
+            <button onClick={() => setView("create")} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-4 text-sm font-bold text-white shadow-sm hover:bg-opacity-90 transition-all">
               <Plus size={18} /> Gerar {osSingular}
             </button>
           </div>
@@ -554,7 +565,7 @@ export default function OSPage() {
                   {loading ? (
                     <tr><td colSpan={5} className="px-6 py-8 text-center"><Loader2 className="animate-spin mx-auto mb-2 text-cs-green" size={24} /></td></tr>
                   ) : orders.length === 0 ? (
-                    <tr><td colSpan={5} className="px-6 py-8 text-center text-text-secondary">Nenhuma {osSingular.toLowerCase()} gerada.</td></tr>
+                    <tr><td colSpan={5} className="px-6 py-8 text-center text-text-secondary">Nenhuma {osSingular.toLowerCase()} ativa.</td></tr>
                   ) : (
                     orders.map((os) => (
                       <tr key={os.id} className="hover:bg-background/50 transition-colors">
@@ -567,14 +578,12 @@ export default function OSPage() {
                           {os.producer ? (
                             <span className="flex items-center gap-1.5 text-xs font-medium text-white"><User size={14} className="text-cs-gold"/> {os.producer.full_name}</span>
                           ) : (
-                            <span className="text-xs text-red-400 font-medium">Não atribuído</span>
+                            <span className="text-xs text-red-400 font-bold">Pendente</span>
                           )}
                         </td>
-                        <td className="px-6 py-4">
-                          <div className="space-y-1 text-xs">
-                            <p><span className="text-gray-500">Início:</span> {new Date(os.event_start_date).toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'})}</p>
-                            <p><span className="text-gray-500">Fim:</span> {new Date(os.event_end_date).toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'})}</p>
-                          </div>
+                        <td className="px-6 py-4 text-xs">
+                          <p><span className="text-gray-500">De:</span> {new Date(os.event_start_date).toLocaleString('pt-BR')}</p>
+                          <p><span className="text-gray-500">Até:</span> {new Date(os.event_end_date).toLocaleString('pt-BR')}</p>
                         </td>
                         <td className="px-6 py-4">
                           {getStatusBadge(os.status)}
