@@ -77,6 +77,7 @@ export default function ClientesPage() {
   });
 
   // Estados do Formulário
+  const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [formData, setForm] = useState({
     company_name: "", document: "", website: "",
     contact_name: "", contact_role: "", email: "", phone: "", phone_secondary: "",
@@ -109,7 +110,7 @@ export default function ClientesPage() {
       const res = await fetch("https://servicodados.ibge.gov.br/api/v1/localidades/estados");
       const data = await res.json();
       setStates(data.sort((a: IbgeState, b: IbgeState) => a.nome.localeCompare(b.nome)));
-    } catch (err) { console.error("IBGE Error"); }
+    } catch (err) { console.error("IBGE States Error"); }
   }, []);
 
   useEffect(() => {
@@ -211,7 +212,7 @@ export default function ClientesPage() {
   const handleSave = async () => {
     setIsSubmitting(true);
     try {
-      // Validação de Duplicidade Preventiva
+      // Validação de Duplicidade Preventiva (apenas para novos registros)
       if (!editingClientId) {
         const { data: existing } = await supabase
           .from("clients")
@@ -220,7 +221,7 @@ export default function ClientesPage() {
           .maybeSingle();
         
         if (existing) {
-          showToast(`O documento ${formData.document} já está vinculado a outro cadastro.`, "error");
+          showToast(`O documento ${formData.document} já está vinculado a outro cadastro no ARXUM.`, "error");
           setIsSubmitting(false);
           setConfirmSave(false);
           return;
@@ -234,13 +235,13 @@ export default function ClientesPage() {
 
       if (error) throw error;
 
-      showToast(`${clientSingular} sincronizado com a ARXUM Cloud!`, "success");
+      showToast(`${clientSingular} sincronizado com sucesso na ARXUM Cloud!`, "success");
       setConfirmSave(false);
       setEditingClientId(null);
       setView("list");
       fetchClients();
     } catch (err: any) {
-      showToast(err.message, "error");
+      showToast(`Falha na gravação: ${err.message}`, "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -281,7 +282,7 @@ export default function ClientesPage() {
 
   return (
     <div className="space-y-6 relative pb-12">
-      {/* TOASTS ARXUM */}
+      {/* TOASTS ARXUM PREMIUM */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-[100] px-4 py-3 rounded-md shadow-2xl flex items-center gap-2 border animate-in fade-in slide-in-from-bottom-4 ${
           toast.type === 'success' ? 'bg-cs-green/10 border-cs-green/20 text-cs-green' : 
@@ -387,7 +388,7 @@ export default function ClientesPage() {
             </h2>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-              {/* BLOCO EMPRESA */}
+              {/* BLOCO EMPRESA (DADOS INSTITUCIONAIS) */}
               <div className="space-y-6">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-1.5 h-6 bg-cs-green rounded-full"></div>
@@ -436,7 +437,7 @@ export default function ClientesPage() {
                 </div>
               </div>
 
-              {/* BLOCO CONTATO */}
+              {/* BLOCO CONTATO (GESTÃO DE PESSOA) */}
               <div className="space-y-6">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-1.5 h-6 bg-cs-gold rounded-full"></div>
@@ -467,7 +468,7 @@ export default function ClientesPage() {
         </div>
       )}
 
-      {/* MODAL DOSSIÊ (DETALHES) */}
+      {/* MODAL DOSSIÊ (DETALHES E HISTÓRICO) */}
       {selectedClient && view === "list" && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 overflow-y-auto">
           <div className="bg-surface border border-surface/50 w-full max-w-6xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
