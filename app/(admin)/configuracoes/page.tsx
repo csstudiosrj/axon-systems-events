@@ -614,7 +614,7 @@ export default function ConfiguracoesPage() {
         ...values,
       },
     }));
-    showToast("Preset aplicado.", "info");
+    showToast("Preset aplicado. Clique em Salvar Alterações para confirmar.", "info");
   };
 
   const handleZipcodeChange = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -732,17 +732,19 @@ export default function ConfiguracoesPage() {
       invoice_footer: companyForm.invoice_footer || "",
     };
 
-    const { data: existing, error: fetchError } = await supabase.from("company_profile").select("id").limit(1).maybeSingle();
-    if (fetchError) throw fetchError;
+    let targetId = companyProfile?.id;
 
-    if (existing?.id) {
-      const { data, error } = await supabase.from("company_profile").update(payload).eq("id", existing.id).select();
+    if (!targetId) {
+      const { data } = await supabase.from("company_profile").select("id").limit(1).maybeSingle();
+      targetId = data?.id;
+    }
+
+    if (targetId) {
+      const { error } = await supabase.from("company_profile").update(payload).eq("id", targetId);
       if (error) throw error;
-      if (!data || data.length === 0) throw new Error("Atualização bloqueada pela política de segurança (RLS).");
     } else {
-      const { data, error } = await supabase.from("company_profile").insert(payload).select();
+      const { error } = await supabase.from("company_profile").insert(payload);
       if (error) throw error;
-      if (!data || data.length === 0) throw new Error("Criação bloqueada pela política de segurança (RLS).");
     }
   };
 
@@ -753,17 +755,19 @@ export default function ConfiguracoesPage() {
       commercial_documents: preferencesForm.commercial_documents || {},
     };
 
-    const { data: existing, error: fetchError } = await supabase.from("system_preferences").select("id").limit(1).maybeSingle();
-    if (fetchError) throw fetchError;
+    let targetId = systemPreferences?.id;
 
-    if (existing?.id) {
-      const { data, error } = await supabase.from("system_preferences").update(payload).eq("id", existing.id).select();
+    if (!targetId) {
+      const { data } = await supabase.from("system_preferences").select("id").limit(1).maybeSingle();
+      targetId = data?.id;
+    }
+
+    if (targetId) {
+      const { error } = await supabase.from("system_preferences").update(payload).eq("id", targetId);
       if (error) throw error;
-      if (!data || data.length === 0) throw new Error("Atualização bloqueada pela política de segurança (RLS).");
     } else {
-      const { data, error } = await supabase.from("system_preferences").insert(payload).select();
+      const { error } = await supabase.from("system_preferences").insert(payload);
       if (error) throw error;
-      if (!data || data.length === 0) throw new Error("Criação bloqueada pela política de segurança (RLS).");
     }
   };
 
