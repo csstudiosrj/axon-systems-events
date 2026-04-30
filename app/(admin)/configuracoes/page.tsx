@@ -30,6 +30,23 @@ interface CompanyProfileRecord {
   logo_url?: string | null;
   primary_color?: string | null;
   contract_terms?: string | null;
+  legal_name?: string | null;
+  trade_name?: string | null;
+  website?: string | null;
+  contact_email?: string | null;
+  phone_landline?: string | null;
+  phone_mobile?: string | null;
+  whatsapp_number?: string | null;
+  zipcode?: string | null;
+  street?: string | null;
+  street_number?: string | null;
+  complement?: string | null;
+  district?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  proposal_footer?: string | null;
+  invoice_footer?: string | null;
 }
 
 interface SystemPreferencesRecord {
@@ -188,23 +205,6 @@ const DEFAULT_COMMERCIAL_DOCUMENTS: CommercialDocuments = {
   default_contract_template: "",
   default_proposal_template: "",
   default_operational_notes: "",
-  company_legal_name: "",
-  company_trade_name: "",
-  website: "",
-  contact_email: "",
-  phone_landline: "",
-  phone_mobile: "",
-  whatsapp_number: "",
-  zipcode: "",
-  street: "",
-  street_number: "",
-  complement: "",
-  district: "",
-  city: "",
-  state: "",
-  country: "Brasil",
-  proposal_footer: "",
-  invoice_footer: "",
 };
 
 const MODULES = [
@@ -460,56 +460,6 @@ function getErrorMessage(error: unknown) {
   return "Erro inesperado";
 }
 
-function buildCommercialDocumentsFromCompany(
-  form: CompanyForm,
-  current: CommercialDocuments
-): CommercialDocuments {
-  return {
-    ...DEFAULT_COMMERCIAL_DOCUMENTS,
-    ...current,
-    company_legal_name: form.legal_name || "",
-    company_trade_name: form.trade_name || "",
-    website: form.website || "",
-    contact_email: form.contact_email || "",
-    phone_landline: form.phone_landline || "",
-    phone_mobile: form.phone_mobile || "",
-    whatsapp_number: form.whatsapp_number || "",
-    zipcode: form.zipcode || "",
-    street: form.street || "",
-    street_number: form.street_number || "",
-    complement: form.complement || "",
-    district: form.district || "",
-    city: form.city || "",
-    state: form.state || "",
-    country: form.country || "Brasil",
-    proposal_footer: form.proposal_footer || "",
-    invoice_footer: form.invoice_footer || "",
-  };
-}
-
-function fillCompanyFromCommercialDocuments(docs?: CommercialDocuments | null): Partial<CompanyForm> {
-  const source = docs ?? {};
-  return {
-    legal_name: getString(source.company_legal_name),
-    trade_name: getString(source.company_trade_name),
-    website: getString(source.website),
-    contact_email: getString(source.contact_email),
-    phone_landline: getString(source.phone_landline),
-    phone_mobile: getString(source.phone_mobile),
-    whatsapp_number: getString(source.whatsapp_number),
-    zipcode: getString(source.zipcode),
-    street: getString(source.street),
-    street_number: getString(source.street_number),
-    complement: getString(source.complement),
-    district: getString(source.district),
-    city: getString(source.city),
-    state: getString(source.state),
-    country: getString(source.country, "Brasil") || "Brasil",
-    proposal_footer: getString(source.proposal_footer),
-    invoice_footer: getString(source.invoice_footer),
-  };
-}
-
 export default function ConfiguracoesPage() {
   const { companyProfile, systemPreferences, refreshSettings } = useSettings() as SettingsContextShape;
 
@@ -540,7 +490,23 @@ export default function ConfiguracoesPage() {
       cnpj: getString(companyProfile?.cnpj),
       logo_url: getString(companyProfile?.logo_url),
       contract_terms: getString(companyProfile?.contract_terms),
-      ...fillCompanyFromCommercialDocuments(systemPreferences?.commercial_documents),
+      legal_name: getString(companyProfile?.legal_name),
+      trade_name: getString(companyProfile?.trade_name),
+      website: getString(companyProfile?.website),
+      contact_email: getString(companyProfile?.contact_email),
+      phone_landline: getString(companyProfile?.phone_landline),
+      phone_mobile: getString(companyProfile?.phone_mobile),
+      whatsapp_number: getString(companyProfile?.whatsapp_number),
+      zipcode: getString(companyProfile?.zipcode),
+      street: getString(companyProfile?.street),
+      street_number: getString(companyProfile?.street_number),
+      complement: getString(companyProfile?.complement),
+      district: getString(companyProfile?.district),
+      city: getString(companyProfile?.city),
+      state: getString(companyProfile?.state),
+      country: getString(companyProfile?.country, "Brasil") || "Brasil",
+      proposal_footer: getString(companyProfile?.proposal_footer),
+      invoice_footer: getString(companyProfile?.invoice_footer),
     };
 
     setCompanyForm(companyBase);
@@ -632,7 +598,8 @@ export default function ConfiguracoesPage() {
   };
 
   const masked = (field: keyof CompanyForm, fmt: (v: string) => string) => {
-    return (e: ChangeEvent<HTMLInputElement>) => setField(field, fmt(e.target.value) as CompanyForm[keyof CompanyForm]);
+    return (e: ChangeEvent<HTMLInputElement>) =>
+      setField(field, fmt(e.target.value) as CompanyForm[keyof CompanyForm]);
   };
 
   const applyPreset = (values: Record<string, string>) => {
@@ -742,6 +709,23 @@ export default function ConfiguracoesPage() {
       logo_url: logoUrl || "",
       primary_color: getString(companyProfile?.primary_color, "#138946") || "#138946",
       contract_terms: companyForm.contract_terms || "",
+      legal_name: companyForm.legal_name || "",
+      trade_name: companyForm.trade_name || "",
+      website: companyForm.website || "",
+      contact_email: companyForm.contact_email || "",
+      phone_landline: companyForm.phone_landline || "",
+      phone_mobile: companyForm.phone_mobile || "",
+      whatsapp_number: companyForm.whatsapp_number || "",
+      zipcode: companyForm.zipcode || "",
+      street: companyForm.street || "",
+      street_number: companyForm.street_number || "",
+      complement: companyForm.complement || "",
+      district: companyForm.district || "",
+      city: companyForm.city || "",
+      state: companyForm.state || "",
+      country: companyForm.country || "Brasil",
+      proposal_footer: companyForm.proposal_footer || "",
+      invoice_footer: companyForm.invoice_footer || "",
     };
 
     if (companyProfile?.id) {
@@ -755,12 +739,10 @@ export default function ConfiguracoesPage() {
   };
 
   const savePreferencesRecord = async () => {
-    const commercialDocuments = buildCommercialDocumentsFromCompany(companyForm, preferencesForm.commercial_documents);
-
     const payload = {
       custom_labels: preferencesForm.custom_labels || {},
       feature_toggles: preferencesForm.feature_toggles || {},
-      commercial_documents: commercialDocuments || {},
+      commercial_documents: preferencesForm.commercial_documents || {},
     };
 
     if (systemPreferences?.id) {
@@ -777,7 +759,6 @@ export default function ConfiguracoesPage() {
     setIsSubmitting(true);
     try {
       await saveCompanyProfileRecord();
-      await savePreferencesRecord();
       await refreshSettings?.();
       showToast("Perfil corporativo salvo com sucesso.", "success");
     } catch (error) {
