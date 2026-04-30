@@ -342,7 +342,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             >
               {isSidebarCollapsed
                 ? companyProfile.company_name?.slice(0, 2).toUpperCase() || "AR"
-                : companyProfile.company_name || "Arxum"}
+                : companyProfile.company_name || "ARXUM"}
             </span>
           )}
         </div>
