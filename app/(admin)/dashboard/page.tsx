@@ -16,24 +16,20 @@ import {
   TrendingDown,
   TrendingUp,
   Wallet,
-  CheckCircle2,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { useSettings } from "../../providers/SettingsProvider";
 
 type DashboardState = {
-  pendingIncome: number;
-  pendingExpense: number;
-  overdueIncome: number;
-  overdueExpense: number;
   totalIncomePaid: number;
   totalExpensePaid: number;
   balance: number;
+  pendingQuotes: number;
+  upcomingServiceOrders: number;
   openTickets: number;
   overdueTickets: number;
-  upcomingServiceOrders: number;
-  pendingQuotes: number;
-  activeClients: number;
+  overdueIncome: number;
+  overdueExpense: number;
 };
 
 type QuoteRow = {
@@ -61,6 +57,10 @@ type TicketRow = {
   sla_deadline: string | null;
 };
 
+type FinancialAmountRow = {
+  amount: number | string | null;
+};
+
 type SettingsShape = {
   systemPreferences?: {
     feature_toggles?: Record<string, boolean | undefined> | null;
@@ -69,29 +69,20 @@ type SettingsShape = {
 };
 
 const INITIAL_STATE: DashboardState = {
-  pendingIncome: 0,
-  pendingExpense: 0,
-  overdueIncome: 0,
-  overdueExpense: 0,
   totalIncomePaid: 0,
   totalExpensePaid: 0,
   balance: 0,
+  pendingQuotes: 0,
+  upcomingServiceOrders: 0,
   openTickets: 0,
   overdueTickets: 0,
-  upcomingServiceOrders: 0,
-  pendingQuotes: 0,
-  activeClients: 0,
+  overdueIncome: 0,
+  overdueExpense: 0,
 };
 
 function startOfTodayIso() {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
-  return d.toISOString();
-}
-
-function endOfTodayIso() {
-  const d = new Date();
-  d.setHours(23, 59, 59, 999);
   return d.toISOString();
 }
 
@@ -101,15 +92,11 @@ function addDaysIso(days: number) {
   return d.toISOString();
 }
 
-function startOfMonthIso() {
-  const d = new Date();
-  d.setDate(1);
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
-}
-
 function formatCurrency(value: number) {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(value);
 }
 
 function formatDate(value: string | null) {
@@ -125,10 +112,6 @@ function toNumber(value: number | string | null) {
 
 function shortId(value: string) {
   return value.slice(0, 8).toUpperCase();
-}
-
-function isOverdue(dateStr: string, status: string) {
-  return new Date(dateStr) < new Date(new Date().setHours(0, 0, 0, 0)) && status === "pending";
 }
 
 function CompactRow({
@@ -177,7 +160,9 @@ function SmallToggleSection({
         className="flex w-full items-center justify-between gap-4 text-left"
       >
         <div>
-          <h2 className="text-base font-semibold text-white">{title} ({count})</h2>
+          <h2 className="text-base font-semibold text-white">
+            {title} ({count})
+          </h2>
           <p className="mt-1 text-sm text-text-secondary">
             {open ? "Clique para recolher" : "Clique para expandir"}
           </p>
@@ -218,7 +203,6 @@ export default function DashboardPage() {
       quotes: customLabels.menu_quotes || "Orçamentos",
       serviceOrders: customLabels.menu_service_orders || "Ordens de Serviço",
       support: customLabels.menu_support || "Suporte",
-      clients: customLabels.entity_client_plural || customLabels.client_plural || "Clientes",
     }),
     [customLabels]
   );
@@ -227,118 +211,121 @@ export default function DashboardPage() {
     setErrorMessage(null);
     const now = new Date().toISOString();
     const todayStart = startOfTodayIso();
-    const todayEnd = endOfTodayIso();
     const next7Days = addDaysIso(7);
-    const monthStart = startOfMonthIso();
 
     try {
       const [
-        incomePaid,
-        expensePaid,
-        pendingIncome,
-        pendingExpense,
-        overdueIncome,
-        overdueExpense,
-        openTickets,
-        overdueTickets,
-        upcomingServiceOrders,
-        pendingQuotes,
-        activeClients,
-        quotesRecent,
-        ordersList,
-        ticketsList,
+        paidIncomeRes,
+        paidExpenseRes,
+        overdueIncomeRes,
+        overdueExpenseRes,
+        openTicketsRes,
+        overdueTicketsRes,
+        upcomingOrdersRes,
+        pendingQuotesRes,
+        quotesRecentRes,
+        ordersListRes,
+        ticketsListRes,
       ] = await Promise.all([
         supabase
           .from("financial_transactions")
-          .select("amount", { count: "exact", head: false })
+          .select("amount")
           .eq("type", "income")
-          .eq("status", "paid")
-          .gte("created_at", monthStart),
+          .eq("status", "paid"),
         supabase
           .from("financial_transactions")
-          .select("amount", { count: "exact", head: false })
+          .select("amount")
           .eq("type", "expense")
-          .eq("status", "paid")
-          .gte("created_at", monthStart),
+          .eq("status", "paid"),
         supabase
           .from("financial_transactions")
-          .select("amount", { count: "exact", head: false })
-          .eq("type", "income")
-          .eq("status", "pending"),
-        supabase
-          .from("financial_transactions")
-          .select("amount", { count: "exact", head: false })
-          .eq("type", "expense")
-          .eq("status", "pending"),
-        supabase
-          .from("financial_transactions")
-          .select("amount", { count: "exact", head: false })
+          .select("amount")
           .eq("type", "income")
           .eq("status", "pending")
-          .lt("due_date", todayStart),
+          .lt("due_date", todayStart.slice(0, 10)),
         supabase
           .from("financial_transactions")
-          .select("amount", { count: "exact", head: false })
+          .select("amount")
           .eq("type", "expense")
           .eq("status", "pending")
-          .lt("due_date", todayStart),
-        supabase.from("tickets").select("*", { count: "exact", head: true }).in("status", ["open", "pending", "in_progress"]),
-        supabase.from("tickets").select("*", { count: "exact", head: true }).in("status", ["open", "pending", "in_progress"]).lt("sla_deadline", now),
-        supabase.from("service_orders").select("*", { count: "exact", head: true }).gte("event_start_date", now).lte("event_start_date", next7Days),
-        supabase.from("quotes").select("*", { count: "exact", head: true }).in("status", ["draft", "pending"]),
-        supabase.from("clients").select("*", { count: "exact", head: true }),
-        supabase.from("quotes").select("id, title, status, final_amount, valid_until, created_at").order("created_at", { ascending: false }).limit(3),
-        supabase.from("service_orders").select("id, status, event_start_date, event_end_date").gte("event_start_date", todayStart).lte("event_start_date", next7Days).order("event_start_date", { ascending: true }).limit(3),
-        supabase.from("tickets").select("id, title, status, priority, category, sla_deadline").in("status", ["open", "pending", "in_progress"]).order("created_at", { ascending: false }).limit(3),
+          .lt("due_date", todayStart.slice(0, 10)),
+        supabase
+          .from("tickets")
+          .select("*", { count: "exact", head: true })
+          .in("status", ["open", "pending", "in_progress"]),
+        supabase
+          .from("tickets")
+          .select("*", { count: "exact", head: true })
+          .in("status", ["open", "pending", "in_progress"])
+          .lt("sla_deadline", now),
+        supabase
+          .from("service_orders")
+          .select("*", { count: "exact", head: true })
+          .gte("event_start_date", now)
+          .lte("event_start_date", next7Days),
+        supabase
+          .from("quotes")
+          .select("*", { count: "exact", head: true })
+          .in("status", ["draft", "pending_approval"]),
+        supabase
+          .from("quotes")
+          .select("id, title, status, final_amount, valid_until, created_at")
+          .order("created_at", { ascending: false })
+          .limit(3),
+        supabase
+          .from("service_orders")
+          .select("id, status, event_start_date, event_end_date")
+          .gte("event_start_date", now)
+          .lte("event_start_date", next7Days)
+          .order("event_start_date", { ascending: true })
+          .limit(3),
+        supabase
+          .from("tickets")
+          .select("id, title, status, priority, category, sla_deadline")
+          .in("status", ["open", "pending", "in_progress"])
+          .order("created_at", { ascending: false })
+          .limit(3),
       ]);
 
       const error = [
-        incomePaid.error,
-        expensePaid.error,
-        pendingIncome.error,
-        pendingExpense.error,
-        overdueIncome.error,
-        overdueExpense.error,
-        openTickets.error,
-        overdueTickets.error,
-        upcomingServiceOrders.error,
-        pendingQuotes.error,
-        activeClients.error,
-        quotesRecent.error,
-        ordersList.error,
-        ticketsList.error,
+        paidIncomeRes.error,
+        paidExpenseRes.error,
+        overdueIncomeRes.error,
+        overdueExpenseRes.error,
+        openTicketsRes.error,
+        overdueTicketsRes.error,
+        upcomingOrdersRes.error,
+        pendingQuotesRes.error,
+        quotesRecentRes.error,
+        ordersListRes.error,
+        ticketsListRes.error,
       ].find(Boolean);
 
       if (error) throw error;
 
-      const sumAmount = (rows: Array<{ amount: number | string | null }> | null | undefined) =>
+      const sumAmount = (rows: FinancialAmountRow[] | null) =>
         (rows ?? []).reduce((acc, curr) => acc + toNumber(curr.amount), 0);
 
-      const totalIncomePaid = sumAmount(incomePaid.data as Array<{ amount: number | string | null }> | null);
-      const totalExpensePaid = sumAmount(expensePaid.data as Array<{ amount: number | string | null }> | null);
-      const pendingIncomeValue = sumAmount(pendingIncome.data as Array<{ amount: number | string | null }> | null);
-      const pendingExpenseValue = sumAmount(pendingExpense.data as Array<{ amount: number | string | null }> | null);
-      const overdueIncomeValue = sumAmount(overdueIncome.data as Array<{ amount: number | string | null }> | null);
-      const overdueExpenseValue = sumAmount(overdueExpense.data as Array<{ amount: number | string | null }> | null);
+      const totalIncomePaid = sumAmount((paidIncomeRes.data as FinancialAmountRow[] | null) ?? []);
+      const totalExpensePaid = sumAmount((paidExpenseRes.data as FinancialAmountRow[] | null) ?? []);
+      const overdueIncome = sumAmount((overdueIncomeRes.data as FinancialAmountRow[] | null) ?? []);
+      const overdueExpense = sumAmount((overdueExpenseRes.data as FinancialAmountRow[] | null) ?? []);
 
       setState({
-        pendingIncome: pendingIncomeValue,
-        pendingExpense: pendingExpenseValue,
-        overdueIncome: overdueIncomeValue,
-        overdueExpense: overdueExpenseValue,
         totalIncomePaid,
         totalExpensePaid,
         balance: totalIncomePaid - totalExpensePaid,
-        openTickets: openTickets.count ?? 0,
-        overdueTickets: overdueTickets.count ?? 0,
-        upcomingServiceOrders: upcomingServiceOrders.count ?? 0,
-        pendingQuotes: pendingQuotes.count ?? 0,
-        activeClients: activeClients.count ?? 0,
+        pendingQuotes: pendingQuotesRes.count ?? 0,
+        upcomingServiceOrders: upcomingOrdersRes.count ?? 0,
+        openTickets: openTicketsRes.count ?? 0,
+        overdueTickets: overdueTicketsRes.count ?? 0,
+        overdueIncome,
+        overdueExpense,
       });
 
-      setRecentQuotes((quotesRecent.data as QuoteRow[] | null) ?? []);
-      setUpcomingOrders((ordersList.data as ServiceOrderRow[] | null) ?? []);
-      setPriorityTickets((ticketsList.data as TicketRow[] | null) ?? []);
+      setRecentQuotes((quotesRecentRes.data as QuoteRow[] | null) ?? []);
+      setUpcomingOrders((ordersListRes.data as ServiceOrderRow[] | null) ?? []);
+      setPriorityTickets((ticketsListRes.data as TicketRow[] | null) ?? []);
     } catch (error) {
       console.error("Erro ao carregar dashboard:", error);
       setErrorMessage("Não foi possível carregar o painel agora.");
@@ -347,12 +334,15 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let mounted = true;
+
     const run = async () => {
       setLoading(true);
       await loadDashboard();
       if (mounted) setLoading(false);
     };
+
     void run();
+
     return () => {
       mounted = false;
     };
@@ -364,29 +354,55 @@ export default function DashboardPage() {
     setRefreshing(false);
   };
 
-  const featured = [
+  const topCards = [
     {
       title: "Receitas pagas",
       value: formatCurrency(state.totalIncomePaid),
       href: "/financeiro",
       icon: TrendingUp,
-      visible: true,
+      accent: "text-cs-green bg-cs-green/10",
     },
     {
       title: "Despesas pagas",
       value: formatCurrency(state.totalExpensePaid),
       href: "/financeiro",
       icon: TrendingDown,
-      visible: true,
+      accent: "text-red-400 bg-red-500/10",
     },
     {
       title: "Saldo em caixa",
       value: formatCurrency(state.balance),
       href: "/financeiro",
       icon: Wallet,
-      visible: true,
+      accent: state.balance >= 0 ? "text-cs-green bg-cs-green/10" : "text-red-400 bg-red-500/10",
     },
-  ];
+    {
+      title: `${labels.quotes} pendentes`,
+      value: String(state.pendingQuotes),
+      href: "/orcamentos",
+      icon: FileText,
+      accent: "text-cs-gold bg-cs-gold/10",
+    },
+    {
+      title: `${labels.serviceOrders} próximas`,
+      value: String(state.upcomingServiceOrders),
+      href: "/os",
+      icon: CalendarClock,
+      accent: "text-blue-300 bg-blue-500/10",
+    },
+    {
+      title: "Tickets abertos",
+      value: String(state.openTickets),
+      href: "/suporte",
+      icon: Ticket,
+      accent: "text-orange-300 bg-orange-500/10",
+    },
+  ].filter((card) => {
+    if (card.href === "/orcamentos") return featureToggles.enable_quotes !== false;
+    if (card.href === "/os") return featureToggles.enable_service_orders !== false;
+    if (card.href === "/suporte") return featureToggles.enable_support !== false;
+    return true;
+  });
 
   const alerts = [
     state.overdueIncome > 0
@@ -406,7 +422,7 @@ export default function DashboardPage() {
     state.overdueTickets > 0
       ? {
           title: "Tickets fora do SLA",
-          description: `${state.overdueTickets} chamado(s) requerem ação.`,
+          description: `${state.overdueTickets} chamado(s) requerem ação imediata.`,
           href: "/suporte",
         }
       : null,
@@ -428,7 +444,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5 pb-10">
+    <div className="mx-auto max-w-7xl space-y-5 pb-10">
       <section className="rounded-3xl border border-white/10 bg-surface p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -437,8 +453,11 @@ export default function DashboardPage() {
               {labels.dashboard}
             </div>
             <h1 className="text-2xl font-semibold text-white">Painel operacional</h1>
-            <p className="mt-1 text-sm text-text-secondary">Resumo rápido do que exige atenção agora.</p>
+            <p className="mt-1 text-sm text-text-secondary">
+              Visão rápida com prioridades reais, sem duplicar as abas do sistema.
+            </p>
           </div>
+
           <button
             type="button"
             onClick={refresh}
@@ -457,8 +476,8 @@ export default function DashboardPage() {
         ) : null}
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        {featured.map((card) => {
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {topCards.map((card) => {
           const Icon = card.icon;
           return (
             <Link
@@ -471,7 +490,7 @@ export default function DashboardPage() {
                   <p className="text-sm text-text-secondary">{card.title}</p>
                   <p className="mt-2 text-3xl font-bold text-white">{card.value}</p>
                 </div>
-                <div className="rounded-2xl bg-cs-green/10 p-3 text-cs-green">
+                <div className={`rounded-2xl p-3 ${card.accent}`}>
                   <Icon size={22} />
                 </div>
               </div>
@@ -480,68 +499,70 @@ export default function DashboardPage() {
         })}
       </section>
 
-      <SmallToggleSection
-        title="Alertas"
-        count={alerts.length}
-        open={openPanels.alerts}
-        onToggle={() => setOpenPanels((p) => ({ ...p, alerts: !p.alerts }))}
-      >
-        {alerts.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-white/10 bg-background px-4 py-5 text-sm text-text-secondary">
-            Nenhum alerta crítico no momento.
-          </div>
-        ) : (
-          alerts.map((alert) => (
-            <CompactRow key={alert.title} href={alert.href} title={alert.title} subtitle={alert.description} meta="ver" />
-          ))
-        )}
-      </SmallToggleSection>
+      <section className="grid gap-4 xl:grid-cols-3">
+        <SmallToggleSection
+          title="Alertas"
+          count={alerts.length}
+          open={openPanels.alerts}
+          onToggle={() => setOpenPanels((p) => ({ ...p, alerts: !p.alerts }))}
+        >
+          {alerts.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-white/10 bg-background px-4 py-5 text-sm text-text-secondary">
+              Nenhum alerta crítico no momento.
+            </div>
+          ) : (
+            alerts.map((alert) => (
+              <CompactRow
+                key={alert.title}
+                href={alert.href}
+                title={alert.title}
+                subtitle={alert.description}
+                meta="ver"
+              />
+            ))
+          )}
+        </SmallToggleSection>
 
-      <SmallToggleSection
-        title="Pendências de suporte"
-        count={priorityTickets.length}
-        open={openPanels.support}
-        onToggle={() => setOpenPanels((p) => ({ ...p, support: !p.support }))}
-      >
-        {topTicket ? (
-          <CompactRow
-            href="/suporte"
-            title={topTicket.title || `Ticket ${shortId(topTicket.id)}`}
-            subtitle={`${topTicket.category || "Sem categoria"} · ${topTicket.priority || "normal"} · SLA ${formatDate(topTicket.sla_deadline)}`}
-            meta={topTicket.status || "open"}
-          />
-        ) : (
-          <div className="rounded-2xl border border-dashed border-white/10 bg-background px-4 py-5 text-sm text-text-secondary">
-            Nenhum ticket em aberto.
-          </div>
-        )}
-        <Link href="/suporte" className="inline-flex items-center gap-2 text-sm text-cs-green transition hover:opacity-80">
-          Ver fila completa <ArrowRight className="h-4 w-4" />
-        </Link>
-      </SmallToggleSection>
+        <SmallToggleSection
+          title="Próxima operação"
+          count={upcomingOrders.length}
+          open={openPanels.operations}
+          onToggle={() => setOpenPanels((p) => ({ ...p, operations: !p.operations }))}
+        >
+          {nextOrder ? (
+            <CompactRow
+              href="/os"
+              title={`OS ${shortId(nextOrder.id)}`}
+              subtitle={`Início ${formatDate(nextOrder.event_start_date)} · Fim ${formatDate(nextOrder.event_end_date)}`}
+              meta={nextOrder.status || "pending"}
+            />
+          ) : (
+            <div className="rounded-2xl border border-dashed border-white/10 bg-background px-4 py-5 text-sm text-text-secondary">
+              Nenhuma operação próxima.
+            </div>
+          )}
+        </SmallToggleSection>
 
-      <SmallToggleSection
-        title="Próximas operações"
-        count={upcomingOrders.length}
-        open={openPanels.operations}
-        onToggle={() => setOpenPanels((p) => ({ ...p, operations: !p.operations }))}
-      >
-        {nextOrder ? (
-          <CompactRow
-            href="/os"
-            title={`OS ${shortId(nextOrder.id)}`}
-            subtitle={`Início ${formatDate(nextOrder.event_start_date)} · Fim ${formatDate(nextOrder.event_end_date)}`}
-            meta={nextOrder.status || "pending"}
-          />
-        ) : (
-          <div className="rounded-2xl border border-dashed border-white/10 bg-background px-4 py-5 text-sm text-text-secondary">
-            Nenhuma operação próxima.
-          </div>
-        )}
-        <Link href="/os" className="inline-flex items-center gap-2 text-sm text-cs-green transition hover:opacity-80">
-          Ver agenda completa <ArrowRight className="h-4 w-4" />
-        </Link>
-      </SmallToggleSection>
+        <SmallToggleSection
+          title="Ticket prioritário"
+          count={priorityTickets.length}
+          open={openPanels.support}
+          onToggle={() => setOpenPanels((p) => ({ ...p, support: !p.support }))}
+        >
+          {topTicket ? (
+            <CompactRow
+              href="/suporte"
+              title={topTicket.title || `Ticket ${shortId(topTicket.id)}`}
+              subtitle={`${topTicket.category || "Sem categoria"} · SLA ${formatDate(topTicket.sla_deadline)}`}
+              meta={topTicket.priority || topTicket.status || "open"}
+            />
+          ) : (
+            <div className="rounded-2xl border border-dashed border-white/10 bg-background px-4 py-5 text-sm text-text-secondary">
+              Nenhum ticket em aberto.
+            </div>
+          )}
+        </SmallToggleSection>
+      </section>
 
       <SmallToggleSection
         title="Comercial recente"
@@ -561,38 +582,7 @@ export default function DashboardPage() {
             Nenhum orçamento recente.
           </div>
         )}
-        <Link href="/orcamentos" className="inline-flex items-center gap-2 text-sm text-cs-green transition hover:opacity-80">
-          Ver orçamentos <ArrowRight className="h-4 w-4" />
-        </Link>
       </SmallToggleSection>
-
-      <section className="rounded-3xl border border-white/10 bg-surface p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-white">Resumo financeiro</h2>
-          <Link href="/financeiro" className="text-sm text-cs-green transition hover:opacity-80">
-            Abrir financeiro
-          </Link>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Link href="/financeiro" className="rounded-3xl border border-white/10 bg-background p-4 transition hover:bg-white/5">
-            <p className="text-sm text-text-secondary">Receitas previstas</p>
-            <p className="mt-2 text-2xl font-bold text-white">{formatCurrency(state.pendingIncome)}</p>
-          </Link>
-          <Link href="/financeiro" className="rounded-3xl border border-white/10 bg-background p-4 transition hover:bg-white/5">
-            <p className="text-sm text-text-secondary">Despesas previstas</p>
-            <p className="mt-2 text-2xl font-bold text-white">{formatCurrency(state.pendingExpense)}</p>
-          </Link>
-          <Link href="/financeiro" className="rounded-3xl border border-white/10 bg-background p-4 transition hover:bg-white/5">
-            <p className="text-sm text-text-secondary">Receitas vencidas</p>
-            <p className="mt-2 text-2xl font-bold text-white">{formatCurrency(state.overdueIncome)}</p>
-          </Link>
-          <Link href="/financeiro" className="rounded-3xl border border-white/10 bg-background p-4 transition hover:bg-white/5">
-            <p className="text-sm text-text-secondary">Despesas vencidas</p>
-            <p className="mt-2 text-2xl font-bold text-white">{formatCurrency(state.overdueExpense)}</p>
-          </Link>
-        </div>
-      </section>
     </div>
   );
 }
