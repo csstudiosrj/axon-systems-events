@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "../../lib/supabase";
+import { useRouter } from "next/navigation";
 import { 
   Building2, Plus, Search, Loader2, User, Mail, 
   Phone, MapPin, X, Check, AlertCircle, Edit2, 
   Globe, Hash, Briefcase, Smartphone, Navigation, 
   Trash2, AlertTriangle, FileText, DollarSign, 
-  TrendingUp, Clock, ChevronRight, ExternalLink
+  TrendingUp, Clock, ChevronRight, ExternalLink, ArrowLeft
 } from "lucide-react";
 import { useSettings } from "@/app/providers/SettingsProvider";
 
@@ -51,10 +52,14 @@ interface IbgeCity { id: number; nome: string; }
 interface Toast { message: string; type: "success" | "error" | "warning" | "info"; }
 
 export default function ClientesPage() {
+  const router = useRouter();
   const { systemPreferences } = useSettings();
+  
+  // --- LABELS DINÂMICAS (ARXUM ENGINE) ---
   const labels = systemPreferences?.custom_labels || {};
   const clientSingular = labels.entity_client_singular || "Cliente";
   const clientPlural = labels.entity_client_plural || "Clientes";
+  const quotePlural = labels.entity_quote_plural || "Orçamentos";
 
   // Estados de Interface
   const [view, setView] = useState<"list" | "create">("list");
@@ -116,13 +121,18 @@ export default function ClientesPage() {
     if (!formData.state) { setCities([]); return; }
     const loadCities = async () => {
       setLoadingCities(true);
-      const res = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${formData.state}/municipios`);
-      const data = await res.json();
-      setCities(data);
-      setLoadingCities(false);
+      try {
+        const res = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${formData.state}/municipios`);
+        const data = await res.json();
+        setCities(data);
+      } catch (err) {
+        showToast("Erro ao carregar cidades do IBGE.", "error");
+      } finally {
+        setLoadingCities(false);
+      }
     };
     loadCities();
-  }, [formData.state]);
+  }, [formData.state, showToast]);
 
   // --- MÁSCARAS ---
   const handleDocumentChange = (val: string) => {
@@ -150,8 +160,18 @@ export default function ClientesPage() {
         const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
         const data = await res.json();
         if (!data.erro) {
-          setForm(prev => ({ ...prev, street: data.logradouro, district: data.bairro, state: data.uf, city: data.localidade }));
+          setForm(prev => ({ 
+            ...prev, 
+            street: data.logradouro, 
+            district: data.bairro, 
+            state: data.uf, 
+            city: data.localidade 
+          }));
+        } else {
+          showToast("CEP não localizado.", "warning");
         }
+      } catch (err) { 
+        showToast("Falha na API de CEP.", "error");
       } finally { setIsLookingUpCep(false); }
     }
   };
@@ -161,12 +181,19 @@ export default function ClientesPage() {
     setLoading(true);
     setSelectedClient(client);
     
-    // 1. Buscar Orçamentos
-    const { data: quotes } = await supabase.from("quotes").select("*").eq("client_id", client.id).order("created_at", { ascending: false });
+    // 1. Buscar Orçamentos vinculados
+    const { data: quotes } = await supabase
+      .from("quotes")
+      .select("id, title, status, final_amount, created_at")
+      .eq("client_id", client.id)
+      .order("created_at", { ascending: false });
     setClientQuotes(quotes || []);
 
-    // 2. Buscar Resumo Financeiro
-    const { data: trans } = await supabase.from("financial_transactions").select("amount, status, type").eq("client_id", client.id);
+    // 2. Buscar Resumo Financeiro Real
+    const { data: trans } = await supabase
+      .from("financial_transactions")
+      .select("amount, status, type")
+      .eq("client_id", client.id);
     
     const summary = (trans || []).reduce((acc, t) => {
       if (t.type === 'income') {
@@ -184,26 +211,32 @@ export default function ClientesPage() {
   const handleSave = async () => {
     setIsSubmitting(true);
     try {
-      // Checar duplicidade se for novo
-      if (!selectedClient && !confirmSave) {
-        const { data: existing } = await supabase.from("clients").select("id").eq("document", formData.document).maybeSingle();
+      // Validação de Duplicidade Preventiva
+      if (!editingClientId) {
+        const { data: existing } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("document", formData.document)
+          .maybeSingle();
+        
         if (existing) {
-          showToast("Este CPF/CNPJ já está cadastrado no ARXUM.", "error");
+          showToast(`O documento ${formData.document} já está vinculado a outro cadastro.`, "error");
           setIsSubmitting(false);
+          setConfirmSave(false);
           return;
         }
       }
 
       const { error } = await supabase.from("clients").upsert({
-        id: selectedClient?.id || undefined,
+        id: editingClientId || undefined,
         ...formData
       });
 
       if (error) throw error;
 
-      showToast(`${clientSingular} salvo com sucesso!`, "success");
+      showToast(`${clientSingular} sincronizado com a ARXUM Cloud!`, "success");
       setConfirmSave(false);
-      setSelectedClient(null);
+      setEditingClientId(null);
       setView("list");
       fetchClients();
     } catch (err: any) {
@@ -211,6 +244,30 @@ export default function ClientesPage() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleEditFromDossier = () => {
+    if (!selectedClient) return;
+    setEditingClientId(selectedClient.id);
+    setForm({
+      company_name: selectedClient.company_name,
+      document: selectedClient.document,
+      website: selectedClient.website || "",
+      contact_name: selectedClient.contact_name || "",
+      contact_role: selectedClient.contact_role || "",
+      email: selectedClient.email || "",
+      phone: selectedClient.phone || "",
+      phone_secondary: selectedClient.phone_secondary || "",
+      zipcode: selectedClient.zipcode || "",
+      street: selectedClient.street || "",
+      street_number: selectedClient.street_number || "",
+      complement: selectedClient.complement || "",
+      district: selectedClient.district || "",
+      city: selectedClient.city || "",
+      state: selectedClient.state || ""
+    });
+    setSelectedClient(null);
+    setView("create");
   };
 
   const filteredClients = useMemo(() => {
@@ -227,7 +284,10 @@ export default function ClientesPage() {
       {/* TOASTS ARXUM */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-[100] px-4 py-3 rounded-md shadow-2xl flex items-center gap-2 border animate-in fade-in slide-in-from-bottom-4 ${
-          toast.type === 'success' ? 'bg-cs-green/10 border-cs-green/20 text-cs-green' : 'bg-red-500/10 border-red-500/20 text-red-500'
+          toast.type === 'success' ? 'bg-cs-green/10 border-cs-green/20 text-cs-green' : 
+          toast.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-500' :
+          toast.type === 'warning' ? 'bg-cs-gold/10 border-cs-gold/20 text-cs-gold' :
+          'bg-blue-500/10 border-blue-500/20 text-blue-400'
         }`}>
           {toast.type === 'success' ? <Check size={18} /> : <AlertCircle size={18} />}
           <span className="text-sm font-bold">{toast.message}</span>
@@ -245,7 +305,7 @@ export default function ClientesPage() {
         </div>
         <button 
           onClick={() => {
-            setSelectedClient(null);
+            setEditingClientId(null);
             setForm({
               company_name: "", document: "", website: "",
               contact_name: "", contact_role: "", email: "", phone: "", phone_secondary: "",
@@ -286,7 +346,7 @@ export default function ClientesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface/50">
-                {loading ? (
+                {loading && clients.length === 0 ? (
                   <tr><td colSpan={4} className="px-8 py-20 text-center"><Loader2 className="animate-spin mx-auto text-cs-green" size={40} /></td></tr>
                 ) : filteredClients.map((client) => (
                   <tr key={client.id} className="hover:bg-background/60 transition-colors group">
@@ -314,7 +374,7 @@ export default function ClientesPage() {
         </div>
       )}
 
-      {/* FORMULÁRIO DE CADASTRO/EDIÇÃO (MODO CREATE/EDIT) */}
+      {/* FORMULÁRIO DE CADASTRO/EDIÇÃO */}
       {view === "create" && (
         <div className="max-w-5xl mx-auto space-y-6">
           <button onClick={() => setView("list")} className="flex items-center gap-2 text-text-secondary hover:text-white transition-colors uppercase text-[10px] font-black tracking-widest">
@@ -323,7 +383,7 @@ export default function ClientesPage() {
 
           <div className="bg-surface border border-surface/50 p-8 rounded-lg shadow-2xl">
             <h2 className="text-2xl font-black text-white mb-8 border-b border-surface/50 pb-4 uppercase tracking-tighter">
-              {selectedClient ? "Atualizar Registro" : `Novo Registro de ${clientSingular}`}
+              {editingClientId ? "Atualizar Registro" : `Novo Registro de ${clientSingular}`}
             </h2>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
@@ -331,7 +391,7 @@ export default function ClientesPage() {
               <div className="space-y-6">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-1.5 h-6 bg-cs-green rounded-full"></div>
-                  <h4 className="text-sm font-black text-white uppercase tracking-[0.2em]">Dados da Empresa</h4>
+                  <h4 className="text-sm font-black text-white uppercase tracking-[0.2em]">Dados Institucionais</h4>
                 </div>
                 <div className="space-y-4">
                   <InputField label="Razão Social / Nome Oficial *" value={formData.company_name} onChange={v => setForm({...formData, company_name: v})} />
@@ -340,8 +400,11 @@ export default function ClientesPage() {
                   
                   <div className="grid grid-cols-3 gap-4">
                     <div className="col-span-1">
-                      <label className="block text-[10px] font-bold text-text-secondary uppercase mb-1.5">CEP</label>
-                      <input type="text" value={formData.zipcode} onChange={e => handleCepLookup(e.target.value)} className="w-full bg-background border border-surface rounded-md px-3 py-2 text-white text-sm focus:border-cs-green outline-none" />
+                      <label className="block text-[10px] font-bold text-text-secondary uppercase mb-1.5 tracking-widest">CEP</label>
+                      <div className="relative">
+                        <input type="text" value={formData.zipcode} onChange={e => handleCepLookup(e.target.value)} className="w-full bg-background border border-surface rounded-md px-3 py-2 text-white text-sm focus:border-cs-green outline-none" />
+                        {isLookingUpCep && <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 animate-spin text-cs-green" size={14} />}
+                      </div>
                     </div>
                     <div className="col-span-2">
                       <InputField label="Logradouro / Rua" value={formData.street} onChange={v => setForm({...formData, street: v})} />
@@ -353,6 +416,23 @@ export default function ClientesPage() {
                       <InputField label="Complemento" value={formData.complement} onChange={v => setForm({...formData, complement: v})} />
                     </div>
                   </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <InputField label="Bairro" value={formData.district} onChange={v => setForm({...formData, district: v})} />
+                    <div>
+                      <label className="block text-[10px] font-bold text-text-secondary uppercase mb-1.5 tracking-widest">Estado (UF)</label>
+                      <select value={formData.state} onChange={e => setForm({...formData, state: e.target.value, city: ""})} className="w-full bg-background border border-surface rounded-md px-3 py-2 text-white text-sm focus:border-cs-green outline-none">
+                        <option value="">--</option>
+                        {states.map(s => <option key={s.id} value={s.sigla}>{s.sigla}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-text-secondary uppercase mb-1.5 tracking-widest">Cidade</label>
+                    <select value={formData.city} onChange={e => setForm({...formData, city: e.target.value})} disabled={!formData.state || loadingCities} className="w-full bg-background border border-surface rounded-md px-3 py-2 text-white text-sm focus:border-cs-green outline-none disabled:opacity-50">
+                      <option value="">{loadingCities ? "Carregando..." : "Selecione a cidade"}</option>
+                      {cities.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -360,15 +440,15 @@ export default function ClientesPage() {
               <div className="space-y-6">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-1.5 h-6 bg-cs-gold rounded-full"></div>
-                  <h4 className="text-sm font-black text-white uppercase tracking-[0.2em]">Pessoa de Contato</h4>
+                  <h4 className="text-sm font-black text-white uppercase tracking-[0.2em]">Gestão de Contato</h4>
                 </div>
                 <div className="space-y-4">
                   <InputField label="Nome do Responsável" value={formData.contact_name} onChange={v => setForm({...formData, contact_name: v})} />
-                  <InputField label="Cargo / Função" value={formData.contact_role} onChange={v => setForm({...formData, contact_role: v})} placeholder="Ex: Gerente de Compras" />
+                  <InputField label="Cargo / Função" value={formData.contact_role} onChange={v => setForm({...formData, contact_role: v})} placeholder="Ex: Diretor de Produção" />
                   <InputField label="E-mail Direto" value={formData.email} onChange={v => setForm({...formData, email: v})} />
                   <div className="grid grid-cols-2 gap-4">
                     <InputField label="WhatsApp / Celular" value={formData.phone} onChange={v => setForm({...formData, phone: maskPhone(v)})} />
-                    <InputField label="Telefone Fixo" value={formData.phone_secondary} onChange={v => setForm({...formData, phone_secondary: maskPhone(v)})} />
+                    <InputField label="Telefone Fixo Sede" value={formData.phone_secondary} onChange={v => setForm({...formData, phone_secondary: maskPhone(v)})} />
                   </div>
                 </div>
               </div>
@@ -392,7 +472,6 @@ export default function ClientesPage() {
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 overflow-y-auto">
           <div className="bg-surface border border-surface/50 w-full max-w-6xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             
-            {/* Header Dossiê */}
             <div className="p-6 bg-background/50 border-b border-surface/50 flex justify-between items-center">
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 bg-cs-green/10 rounded-full flex items-center justify-center border border-cs-green/20">
@@ -407,8 +486,6 @@ export default function ClientesPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
-              
-              {/* Coluna Esquerda: Dados e Edição */}
               <div className="lg:col-span-2 space-y-8">
                 <div className="grid grid-cols-2 gap-8">
                   <div className="space-y-4">
@@ -434,7 +511,6 @@ export default function ClientesPage() {
                   </p>
                 </div>
 
-                {/* Histórico de Orçamentos */}
                 <div className="space-y-4">
                   <h5 className="text-[10px] font-black text-white uppercase tracking-widest border-b border-surface/50 pb-2">Histórico de {quotePlural}</h5>
                   <div className="space-y-2">
@@ -456,7 +532,6 @@ export default function ClientesPage() {
                 </div>
               </div>
 
-              {/* Coluna Direita: Resumo Financeiro */}
               <div className="space-y-6">
                 <div className="bg-background/60 border border-surface/50 p-6 rounded-xl space-y-6">
                   <h5 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
@@ -480,26 +555,7 @@ export default function ClientesPage() {
 
                   <div className="pt-4">
                     <button 
-                      onClick={() => {
-                        setForm({
-                          company_name: selectedClient.company_name,
-                          document: selectedClient.document,
-                          website: selectedClient.website || "",
-                          contact_name: selectedClient.contact_name || "",
-                          contact_role: selectedClient.contact_role || "",
-                          email: selectedClient.email || "",
-                          phone: selectedClient.phone || "",
-                          phone_secondary: selectedClient.phone_secondary || "",
-                          zipcode: selectedClient.zipcode || "",
-                          street: selectedClient.street || "",
-                          street_number: selectedClient.street_number || "",
-                          complement: selectedClient.complement || "",
-                          district: selectedClient.district || "",
-                          city: selectedClient.city || "",
-                          state: selectedClient.state || ""
-                        });
-                        setView("create");
-                      }}
+                      onClick={handleEditFromDossier}
                       className="w-full py-3 bg-cs-gold text-white font-black text-[10px] uppercase tracking-widest rounded-md hover:bg-opacity-90 transition-all"
                     >
                       Editar Cadastro Completo
@@ -507,7 +563,6 @@ export default function ClientesPage() {
                   </div>
                 </div>
               </div>
-
             </div>
           </div>
         </div>
@@ -518,7 +573,7 @@ export default function ClientesPage() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-surface border border-surface/50 p-8 rounded-xl shadow-2xl max-w-sm w-full text-center">
             <div className="w-20 h-20 bg-cs-green/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-cs-green/20">
-              <Save size={40} className="text-cs-green" />
+              <Check size={40} className="text-cs-green" />
             </div>
             <h3 className="text-xl font-black text-white uppercase tracking-tighter mb-2">Confirmar Gravação?</h3>
             <p className="text-sm text-text-secondary mb-8">Os dados serão sincronizados com a base de dados oficial da ARXUM.</p>
@@ -561,13 +616,5 @@ function DataRow({ label, value, isLink = false }: { label: string, value: strin
         <p className="text-sm font-bold text-white/90">{value || '---'}</p>
       )}
     </div>
-  );
-}
-
-function Save({ size, className }: { size: number, className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
-    </svg>
   );
 }
