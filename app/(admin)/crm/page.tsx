@@ -1,153 +1,42 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { supabase } from "../../lib/supabase";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/app/lib/supabase";
 import { useSettings } from "@/app/providers/SettingsProvider";
-import {
-  ArrowLeft,
-  DollarSign,
-  FileOutput,
-  FileText,
-  GripVertical,
-  Loader2,
-  Mail,
-  Maximize2,
-  Minimize2,
-  Phone,
-  Plus,
-  Save,
-  Target,
-  Trash2,
-  X,
-} from "lucide-react";
+import { Target, Plus, Loader2, ArrowLeft, Mail, Phone, DollarSign, GripVertical, Minimize2, Maximize2, X, Save, Trash2, FileText, FileOutput } from "lucide-react";
 
-type LeadStatus = "new" | "contacted" | "proposal" | "negotiation" | "won" | "lost";
-
-interface Lead {
-  id: string;
-  client_name: string | null;
-  company_name: string | null;
-  email: string | null;
-  phone: string | null;
-  event_type: string | null;
-  event_date: string | null;
-  estimated_budget: number | null;
-  notes: string | null;
-  status: LeadStatus | string | null;
-  created_at?: string | null;
-}
-
-interface CustomLabels {
-  menu_crm?: string;
-  entity_client_singular?: string;
-  entity_client_plural?: string;
-  entity_lead_singular?: string;
-  entity_lead_plural?: string;
-  entity_quote_singular?: string;
-  entity_quote_plural?: string;
-  entity_proposal_singular?: string;
-  entity_proposal_plural?: string;
-  entity_salesperson_singular?: string;
-  entity_salesperson_plural?: string;
-  [key: string]: string | undefined;
-}
-
-interface CompanyProfileRecord {
-  company_name?: string | null;
-  primary_color?: string | null;
-}
-
-interface SystemPreferencesRecord {
-  custom_labels?: CustomLabels | null;
-}
-
-interface SettingsContextShape {
-  companyProfile?: CompanyProfileRecord | null;
-  systemPreferences?: SystemPreferencesRecord | null;
-}
-
-const STATUS_COLUMNS: Array<{
-  id: LeadStatus;
-  title: (labels: CustomLabels) => string;
-  colorClass: string;
-}> = [
-  {
-    id: "new",
-    title: (labels) => `Novos ${labels.entity_lead_plural || "Leads"}`,
-    colorClass: "text-blue-400",
-  },
-  {
-    id: "contacted",
-    title: () => "Em Contato",
-    colorClass: "text-purple-400",
-  },
-  {
-    id: "proposal",
-    title: (labels) => `${labels.entity_quote_singular || "Orçamento"} Enviado`,
-    colorClass: "text-yellow-400",
-  },
-  {
-    id: "negotiation",
-    title: () => "Em Negociação",
-    colorClass: "text-cs-gold",
-  },
-  {
-    id: "won",
-    title: () => "Fechado (Ganho)",
-    colorClass: "text-cs-green",
-  },
-  {
-    id: "lost",
-    title: () => "Perdido",
-    colorClass: "text-red-400",
-  },
+const COLUMNS =[
+  { id: "new", title: "Novos Leads", color: "border-blue-500/30", bg: "bg-blue-500/10", text: "text-blue-400" },
+  { id: "contacted", title: "Em Contato", color: "border-purple-500/30", bg: "bg-purple-500/10", text: "text-purple-400" },
+  { id: "proposal", title: "Proposta Enviada", color: "border-yellow-500/30", bg: "bg-yellow-500/10", text: "text-yellow-400" },
+  { id: "negotiation", title: "Em Negociação", color: "border-cs-gold/30", bg: "bg-cs-gold/10", text: "text-cs-gold" },
+  { id: "won", title: "Fechado (Ganho)", color: "border-cs-green/30", bg: "bg-cs-green/10", text: "text-cs-green" },
+  { id: "lost", title: "Perdido", color: "border-red-500/30", bg: "bg-red-500/10", text: "text-red-400" }
 ];
-
-function formatPhone(value: string) {
-  const d = value.replace(/\D/g, "").slice(0, 11);
-  if (d.length <= 10) {
-    return d.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{4})(\d)/, "$1-$2");
-  }
-  return d.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2");
-}
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(value);
-}
-
-function getErrorMessage(error: any) {
-  console.error("🔥 ERRO DO SUPABASE:", error);
-  if (error?.message) return error.message;
-  if (error?.details) return error.details;
-  if (typeof error === "string") return error;
-  return JSON.stringify(error);
-}
 
 export default function CRMPage() {
   const router = useRouter();
-  const { companyProfile, systemPreferences } = useSettings() as SettingsContextShape;
+  const { systemPreferences } = useSettings();
 
-  const labels = systemPreferences?.custom_labels ?? {};
-  const leadSingular = labels.entity_lead_singular || "Lead";
-  const leadPlural = labels.entity_lead_plural || "Leads";
-  const clientSingular = labels.entity_client_singular || "Cliente";
-  const clientPlural = labels.entity_client_plural || "Clientes";
-  const quoteSingular = labels.entity_quote_singular || "Orçamento";
-  const quotePlural = labels.entity_quote_plural || "Orçamentos";
-  const crmTitle = labels.menu_crm || "CRM / Vendas";
+  const custom_labels = systemPreferences?.custom_labels || {};
+  const crmLabel = custom_labels.menu_crm || "CRM / Vendas";
+  const leadSingular = custom_labels.entity_lead_singular || "Lead";
+  const leadPlural = custom_labels.entity_lead_plural || "Leads";
+  const clientSingular = custom_labels.entity_client_singular || "Cliente";
+  const clientPlural = custom_labels.entity_client_plural || "Clientes";
+  const quoteSingular = custom_labels.entity_quote_singular || "Orçamento";
+  const quotePlural = custom_labels.entity_quote_plural || "Orçamentos";
 
-  const [viewMode, setViewMode] = useState<"board" | "create">("board");
+  const [view, setView] = useState<"board" | "create">("board");
+  const [leads, setLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
   const [compactView, setCompactView] = useState(false);
 
-  const [leads, setLeads] = useState<Lead[]>([]);
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
 
   const [clientName, setClientName] = useState("");
   const [companyName, setCompanyName] = useState("");
@@ -157,396 +46,228 @@ export default function CRMPage() {
   const [eventDate, setEventDate] = useState("");
   const [estimatedBudget, setEstimatedBudget] = useState("");
   const [notes, setNotes] = useState("");
-  const [leadStatus, setLeadStatus] = useState<LeadStatus>("new");
-
-  const boardRef = useRef<HTMLDivElement | null>(null);
+  const [leadStatus, setLeadStatus] = useState("new");
 
   useEffect(() => {
-    void fetchLeads();
-  }, []);
+    if (view === "board") fetchLeads();
+  }, [view]);
 
   const fetchLeads = async () => {
     setLoading(true);
-
     const { data, error } = await supabase
       .from("leads")
       .select("*")
       .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error(error);
-      setLeads([]);
-      setLoading(false);
-      return;
-    }
-
-    setLeads((data as Lead[]) || []);
+      
+    if (!error && data) setLeads(data);
     setLoading(false);
   };
 
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value.replace(/\D/g, "");
+    if (value.length > 11) value = value.slice(0, 11);
+    value = value.replace(/^(\d{2})(\d)/g, "($1) $2");
+    value = value.replace(/(\d)(\d{4})$/, "$1-$2");
+    setPhone(value);
+  };
+
   const resetForm = () => {
+    setClientName(""); setCompanyName(""); setEmail(""); setPhone(""); 
+    setEventType(""); setEventDate(""); setEstimatedBudget(""); setNotes(""); setLeadStatus("new");
     setEditingLeadId(null);
-    setClientName("");
-    setCompanyName("");
-    setEmail("");
-    setPhone("");
-    setEventType("");
-    setEventDate("");
-    setEstimatedBudget("");
-    setNotes("");
-    setLeadStatus("new");
   };
 
-  const openCreateMode = () => {
-    resetForm();
-    setViewMode("create");
+  const handleSaveLead = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!clientName) return;
+    
+    setIsSubmitting(true);
+
+    const payload = {
+      client_name: clientName,
+      company_name: companyName,
+      email,
+      phone,
+      event_type: eventType,
+      event_date: eventDate ? new Date(eventDate).toISOString() : null,
+      estimated_budget: estimatedBudget ? Number(estimatedBudget) : 0,
+      notes,
+      status: leadStatus
+    };
+
+    let error;
+
+    if (editingLeadId) {
+      const { error: updateError } = await supabase.from("leads").update(payload).eq("id", editingLeadId);
+      error = updateError;
+    } else {
+      const { error: insertError } = await supabase.from("leads").insert([payload]);
+      error = insertError;
+    }
+
+    if (!error) {
+      resetForm();
+      if (view === "create") setView("board");
+      fetchLeads();
+    } else {
+      alert(`Erro ao salvar ${leadSingular.toLowerCase()}: ` + error.message);
+    }
+    setIsSubmitting(false);
   };
 
-  const openBoardMode = () => {
-    resetForm();
-    setViewMode("board");
+  const handleDeleteLead = async () => {
+    if (!editingLeadId) return;
+    if (!window.confirm(`Tem certeza que deseja excluir este(a) ${leadSingular.toLowerCase()} permanentemente?`)) return;
+
+    setIsSubmitting(true);
+    const { error } = await supabase.from("leads").delete().eq("id", editingLeadId);
+    
+    if (!error) {
+      resetForm();
+      fetchLeads();
+    } else {
+      alert(`Erro ao excluir ${leadSingular.toLowerCase()}: ` + error.message);
+    }
+    setIsSubmitting(false);
   };
 
-  const openEditModal = (lead: Lead) => {
+  // A MÁGICA: Converter Lead em Cliente e Orçamento
+  const handleConvertToQuote = async () => {
+    if (!editingLeadId) return;
+    setIsConverting(true);
+
+    try {
+      // 1. Cadastra o cliente na tabela oficial
+      const { data: clientData, error: clientError } = await supabase
+        .from("clients")
+        .insert([{
+          company_name: companyName || clientName,
+          contact_name: clientName,
+          email: email || null,
+          phone: phone || null,
+          document: "00.000.000/0000-00" // Placeholder obrigatório no banco atual
+        }])
+        .select()
+        .single();
+
+      if (clientError) throw clientError;
+
+      // 2. Cria o Orçamento em Rascunho
+      const { error: quoteError } = await supabase
+        .from("quotes")
+        .insert([{
+          client_id: clientData.id,
+          title: eventType ? `${quoteSingular}: ${eventType}` : `${quoteSingular} - ${clientName}`,
+          status: "draft"
+        }]);
+
+      if (quoteError) throw quoteError;
+
+      // 3. Atualiza o status do Lead para "Proposta Enviada"
+      await supabase.from("leads").update({ status: "proposal" }).eq("id", editingLeadId);
+
+      // 4. Redireciona para a tela de orçamentos
+      router.push("/orcamentos");
+
+    } catch (error: any) {
+      alert(`Erro ao converter ${leadSingular.toLowerCase()}: ` + error.message);
+      setIsConverting(false);
+    }
+  };
+
+  const openEditModal = (lead: any) => {
     setEditingLeadId(lead.id);
     setClientName(lead.client_name || "");
     setCompanyName(lead.company_name || "");
     setEmail(lead.email || "");
     setPhone(lead.phone || "");
     setEventType(lead.event_type || "");
-    setEventDate(lead.event_date ? lead.event_date.slice(0, 10) : "");
-    setEstimatedBudget(lead.estimated_budget ? String(lead.estimated_budget) : "");
+    setEventDate(lead.event_date ? lead.event_date.split('T')[0] : "");
+    setEstimatedBudget(lead.estimated_budget?.toString() || "");
     setNotes(lead.notes || "");
-    setLeadStatus((lead.status as LeadStatus) || "new");
+    setLeadStatus(lead.status || "new");
   };
 
-  const handleSaveLead = async (e: React.FormEvent) => {
+  const handleDragStart = (e: React.DragEvent, leadId: string) => {
+    e.dataTransfer.setData("leadId", leadId);
+  };
+
+  const handleDragOverBoard = (e: React.DragEvent) => {
     e.preventDefault();
-
-    if (!clientName.trim()) {
-      alert(`Preencha o nome do ${clientSingular.toLowerCase()}.`);
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    const payload = {
-      client_name: clientName || null,
-      company_name: companyName || null,
-      email: email || null,
-      phone: phone || null,
-      event_type: eventType || null,
-      event_date: eventDate || null,
-      estimated_budget: estimatedBudget ? Number(estimatedBudget) : null,
-      notes: notes || null,
-      status: leadStatus,
-    };
-
-    try {
-      if (editingLeadId) {
-        const { error } = await supabase.from("leads").update(payload).eq("id", editingLeadId);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("leads").insert([payload]);
-        if (error) throw error;
-      }
-
-      await fetchLeads();
-      openBoardMode();
-    } catch (error) {
-      alert(`Erro ao salvar ${leadSingular.toLowerCase()}: ${getErrorMessage(error)}`);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleDeleteLead = async () => {
-    if (!editingLeadId) return;
-
-    const confirmed = window.confirm(
-      `Tem certeza que deseja excluir este ${leadSingular.toLowerCase()}?`
-    );
-
-    if (!confirmed) return;
-
-    setIsSubmitting(true);
-
-    try {
-      const { error } = await supabase.from("leads").delete().eq("id", editingLeadId);
-      if (error) throw error;
-
-      await fetchLeads();
-      resetForm();
-    } catch (error) {
-      alert(`Erro ao excluir ${leadSingular.toLowerCase()}: ${getErrorMessage(error)}`);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleConvertToQuote = async () => {
-    if (!editingLeadId) return;
-
-    setIsConverting(true);
-
-    try {
-      const { data: existingClient } = await supabase
-        .from("clients")
-        .select("id, company_name")
-        .eq("company_name", companyName || clientName)
-        .limit(1)
-        .maybeSingle();
-
-      let clientId = existingClient?.id;
-
-      if (!clientId) {
-        const { data: newClient, error: clientError } = await supabase
-          .from("clients")
-          .insert([
-            {
-              company_name: companyName || clientName,
-              contact_name: clientName || null,
-              email: email || null,
-              phone: phone || null,
-              document: "00000000000000",
-            },
-          ])
-          .select("id")
-          .single();
-
-        if (clientError) throw clientError;
-        clientId = newClient.id;
-      }
-
-      const { error: quoteError } = await supabase.from("quotes").insert([
-        {
-          client_id: clientId,
-          title: eventType
-            ? `${quoteSingular} - ${eventType}`
-            : `${quoteSingular} - ${clientName || companyName}`,
-          status: "draft",
-        },
-      ]);
-
-      if (quoteError) throw quoteError;
-
-      const { error: leadError } = await supabase
-        .from("leads")
-        .update({ status: "proposal" })
-        .eq("id", editingLeadId);
-
-      if (leadError) throw leadError;
-
-      await fetchLeads();
-      resetForm();
-      router.push("/orcamentos");
-    } catch (error) {
-      alert(`Erro ao converter em ${quoteSingular.toLowerCase()}: ${getErrorMessage(error)}`);
-    } finally {
-      setIsConverting(false);
-    }
-  };
-
-  const handleDragStart = (event: React.DragEvent<HTMLDivElement>, leadId: string) => {
-    event.dataTransfer.setData("leadId", leadId);
-  };
-
-  const handleDragOverBoard = (event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-
     if (!boardRef.current) return;
-
+    const scrollSpeed = 15;
+    const threshold = 100;
     const rect = boardRef.current.getBoundingClientRect();
-    const leftEdge = rect.left + 120;
-    const rightEdge = rect.right - 120;
-
-    if (event.clientX < leftEdge) {
-      boardRef.current.scrollLeft -= 18;
-    } else if (event.clientX > rightEdge) {
-      boardRef.current.scrollLeft += 18;
-    }
+    const x = e.clientX - rect.left;
+    if (x < threshold) boardRef.current.scrollLeft -= scrollSpeed;
+    else if (x > rect.width - threshold) boardRef.current.scrollLeft += scrollSpeed;
   };
 
-  const handleDrop = async (event: React.DragEvent<HTMLDivElement>, newStatus: LeadStatus) => {
-    event.preventDefault();
-
-    const leadId = event.dataTransfer.getData("leadId");
-    if (!leadId) return;
-
-    const previous = [...leads];
-    const updated = leads.map((lead) =>
-      lead.id === leadId ? { ...lead, status: newStatus } : lead
-    );
-    setLeads(updated);
-
-    const { error } = await supabase.from("leads").update({ status: newStatus }).eq("id", leadId);
-
-    if (error) {
-      console.error(error);
-      setLeads(previous);
-      alert(`Erro ao mover ${leadSingular.toLowerCase()}: ${getErrorMessage(error)}`);
-    }
+  const handleDrop = async (e: React.DragEvent, newStatus: string) => {
+    e.preventDefault();
+    const leadId = e.dataTransfer.getData("leadId");
+    setLeads(prev => prev.map(lead => lead.id === leadId ? { ...lead, status: newStatus } : lead));
+    await supabase.from("leads").update({ status: newStatus }).eq("id", leadId);
   };
 
-  const groupedColumns = STATUS_COLUMNS.map((column) => ({
-    ...column,
-    cards: leads.filter((lead) => (lead.status || "new") === column.id),
-  }));
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+  };
 
-  if (viewMode === "create") {
+  const getColumnTitle = (colId: string, originalTitle: string) => {
+    if (colId === "new") return `Novos ${leadPlural}`;
+    if (colId === "proposal") return `${quoteSingular} Enviado(a)`;
+    return originalTitle;
+  };
+
+  if (view === "create") {
     return (
-      <div className="relative mx-auto max-w-5xl space-y-6 pb-12">
-        <div className="flex items-center justify-between rounded-lg border border-surface/50 bg-surface p-4">
-          <div>
-            <h3 className="flex items-center gap-2 text-lg font-medium text-white">
-              <Target className="text-cs-green" size={20} />
-              Novo {leadSingular}
-            </h3>
-            <p className="mt-1 text-xs text-text-secondary">
-              Cadastre um novo {leadSingular.toLowerCase()} no funil comercial.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={openBoardMode}
-            className="flex items-center gap-2 rounded-md border border-surface/50 bg-background px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-surface"
-          >
-            <ArrowLeft size={16} />
-            Voltar
+      <div className="space-y-6 max-w-3xl mx-auto">
+        <div className="flex items-center justify-between">
+          <button onClick={() => { resetForm(); setView("board"); }} className="flex items-center gap-2 text-text-secondary hover:text-white transition-colors">
+            <ArrowLeft size={20} /> Voltar para o Funil
           </button>
         </div>
 
-        <div className="rounded-lg border border-surface/50 bg-surface p-6">
+        <div className="bg-surface border border-surface/50 p-6 rounded-lg">
+          <h3 className="text-lg font-medium text-white mb-6 flex items-center gap-2">
+            <Plus className="text-cs-green" size={20} /> Cadastrar Novo {leadSingular}
+          </h3>
+          
           <form onSubmit={handleSaveLead} className="space-y-6">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="mb-1 block text-xs font-medium text-text-secondary">
-                  Nome do contato
-                </label>
-                <input
-                  type="text"
-                  value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
-                  className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                  placeholder={`Nome do ${clientSingular.toLowerCase()}`}
-                />
+                <label className="block text-sm font-medium text-text-secondary mb-1">Nome do Contato *</label>
+                <input type="text" required value={clientName} onChange={(e) => setClientName(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" placeholder="Ex: João Silva" />
               </div>
-
               <div>
-                <label className="mb-1 block text-xs font-medium text-text-secondary">
-                  Empresa / Instituição
-                </label>
-                <input
-                  type="text"
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                  placeholder={`Nome do ${clientSingular.toLowerCase()} ou empresa`}
-                />
+                <label className="block text-sm font-medium text-text-secondary mb-1">Empresa / Instituição</label>
+                <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" placeholder="Ex: Agência XYZ" />
               </div>
-
               <div>
-                <label className="mb-1 block text-xs font-medium text-text-secondary">E-mail</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                  placeholder="contato@email.com"
-                />
+                <label className="block text-sm font-medium text-text-secondary mb-1">E-mail</label>
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" placeholder="joao@agencia.com" />
               </div>
-
               <div>
-                <label className="mb-1 block text-xs font-medium text-text-secondary">
-                  Telefone / WhatsApp
-                </label>
-                <input
-                  type="text"
-                  value={phone}
-                  onChange={(e) => setPhone(formatPhone(e.target.value))}
-                  className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                  placeholder="(21) 99999-9999"
-                />
+                <label className="block text-sm font-medium text-text-secondary mb-1">Telefone / WhatsApp</label>
+                <input type="text" value={phone} onChange={handlePhoneChange} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" placeholder="(11) 99999-9999" />
               </div>
-
               <div>
-                <label className="mb-1 block text-xs font-medium text-text-secondary">
-                  Tipo de evento
-                </label>
-                <input
-                  type="text"
-                  value={eventType}
-                  onChange={(e) => setEventType(e.target.value)}
-                  className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                  placeholder="Festival, show, feira..."
-                />
+                <label className="block text-sm font-medium text-text-secondary mb-1">Tipo de Evento</label>
+                <input type="text" value={eventType} onChange={(e) => setEventType(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" placeholder="Ex: Convenção, Show" />
               </div>
-
               <div>
-                <label className="mb-1 block text-xs font-medium text-text-secondary">
-                  Data do evento
-                </label>
-                <input
-                  type="date"
-                  value={eventDate}
-                  onChange={(e) => setEventDate(e.target.value)}
-                  className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                />
+                <label className="block text-sm font-medium text-text-secondary mb-1">Data Prevista</label>
+                <input type="date" max="2099-12-31" value={eventDate} onChange={(e) => { if (e.target.value.length <= 10) setEventDate(e.target.value); }} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
               </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-medium text-text-secondary">
-                  {quoteSingular} estimado
-                </label>
-                <input
-                  type="number"
-                  value={estimatedBudget}
-                  onChange={(e) => setEstimatedBudget(e.target.value)}
-                  className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                  placeholder="0"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-medium text-text-secondary">
-                  Status inicial
-                </label>
-                <select
-                  value={leadStatus}
-                  onChange={(e) => setLeadStatus(e.target.value as LeadStatus)}
-                  className="block w-full cursor-pointer rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                >
-                  {STATUS_COLUMNS.map((status) => (
-                    <option key={status.id} value={status.id}>
-                      {status.title(labels)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="lg:col-span-3">
-                <label className="mb-1 block text-xs font-medium text-text-secondary">
-                  Observações comerciais
-                </label>
-                <textarea
-                  rows={4}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className="block w-full resize-none rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                  placeholder={`Contexto, briefing e necessidades do ${clientSingular.toLowerCase()}.`}
-                />
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-text-secondary mb-1">{quoteSingular} Estimado (Budget)</label>
+                <input type="number" max="999999999" value={estimatedBudget} onChange={(e) => { if (e.target.value.length <= 10) setEstimatedBudget(e.target.value); }} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" placeholder="R$ 0,00" />
               </div>
             </div>
-
-            <div className="flex justify-end border-t border-surface/50 pt-4">
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="flex items-center gap-2 rounded-md bg-cs-green px-6 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-opacity-90 disabled:opacity-50"
-              >
-                {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-                Salvar {leadSingular}
+            <div className="flex justify-end pt-4 border-t border-surface/50">
+              <button type="submit" disabled={isSubmitting} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50">
+                {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : `Salvar ${leadSingular}`}
               </button>
             </div>
           </form>
@@ -556,299 +277,169 @@ export default function CRMPage() {
   }
 
   return (
-    <div className="relative mx-auto flex h-full max-w-[calc(100vw-2rem)] flex-col space-y-6 pb-6">
-      <div className="flex items-center justify-between rounded-lg border border-surface/50 bg-surface p-4">
-        <div>
-          <h3 className="flex items-center gap-2 text-lg font-medium text-white">
-            <Target className="text-cs-green" size={20} />
-            {crmTitle}
-          </h3>
-          <p className="mt-1 text-xs text-text-secondary">
-            Gerencie {leadPlural.toLowerCase()}, andamento comercial e conversão em {quotePlural.toLowerCase()}.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setCompactView((prev) => !prev)}
-            className="flex items-center gap-2 rounded-md border border-surface/50 bg-background px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-surface"
-          >
+    <div className="space-y-6 h-full flex flex-col relative">
+      <div className="flex justify-between items-center bg-surface p-4 border border-surface/50 rounded-lg shrink-0">
+        <h3 className="text-lg font-medium text-white flex items-center gap-2">
+          <Target className="text-cs-green" size={20} /> {crmLabel}
+        </h3>
+        <div className="flex items-center gap-4">
+          <button onClick={() => setCompactView(!compactView)} className="flex items-center gap-2 text-sm font-medium text-text-secondary hover:text-white transition-colors">
             {compactView ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
-            {compactView ? "Expandir" : "Compactar"}
+            {compactView ? "Visão Detalhada" : "Visão Compacta"}
           </button>
-
-          <button
-            type="button"
-            onClick={openCreateMode}
-            className="flex items-center gap-2 rounded-md bg-cs-green px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-opacity-90"
-          >
-            <Plus size={18} />
-            Novo {leadSingular}
+          <button onClick={() => { resetForm(); setView("create"); }} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all">
+            <Plus size={18} /> Adicionar {leadSingular}
           </button>
         </div>
       </div>
 
       {loading ? (
-        <div className="flex flex-1 items-center justify-center rounded-lg border border-surface/50 bg-surface p-10">
+        <div className="flex-1 flex items-center justify-center">
           <Loader2 className="animate-spin text-cs-green" size={32} />
         </div>
       ) : (
-        <div
-          ref={boardRef}
-          onDragOver={handleDragOverBoard}
-          className="custom-scrollbar flex flex-1 gap-4 overflow-x-auto pb-2"
-        >
-          {groupedColumns.map((column) => (
-            <div
-              key={column.id}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => void handleDrop(e, column.id)}
-              className="flex h-full min-w-[320px] max-w-[320px] flex-col rounded-lg border border-surface/50 bg-surface"
-            >
-              <div className="flex items-center justify-between border-b border-surface/50 p-4">
-                <div>
-                  <h4 className={`text-sm font-bold ${column.colorClass}`}>{column.title(labels)}</h4>
-                  <p className="mt-1 text-xs text-text-secondary">
-                    {column.cards.length} item(ns)
-                  </p>
-                </div>
+        <div ref={boardRef} onDragOver={handleDragOverBoard} className="flex-1 flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
+          {COLUMNS.map(column => (
+            <div key={column.id} className="flex-shrink-0 w-80 flex flex-col bg-surface border border-surface/50 rounded-lg overflow-hidden" onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, column.id)}>
+              <div className={`p-3 border-b border-surface/50 flex justify-between items-center ${column.bg}`}>
+                <h4 className={`font-semibold text-sm ${column.text}`}>{getColumnTitle(column.id, column.title)}</h4>
+                <span className="bg-background text-text-secondary text-xs py-0.5 px-2 rounded-full font-medium">{leads.filter(l => l.status === column.id).length}</span>
               </div>
 
-              <div className="custom-scrollbar flex-1 space-y-3 overflow-y-auto p-3">
-                {column.cards.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-surface/50 bg-background p-4 text-xs text-text-secondary">
-                    Nenhum {leadSingular.toLowerCase()} nesta etapa.
-                  </div>
-                ) : (
-                  column.cards.map((lead) => (
-                    <div
-                      key={lead.id}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, lead.id)}
-                      onClick={() => openEditModal(lead)}
-                      className="cursor-pointer rounded-md border border-surface/50 bg-background p-4 transition-colors hover:border-cs-green/30"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <h5 className="text-sm font-semibold text-white">
-                            {lead.client_name || `Sem nome de ${clientSingular.toLowerCase()}`}
-                          </h5>
-                          {lead.company_name && (
-                            <p className="mt-1 text-xs text-text-secondary">{lead.company_name}</p>
-                          )}
-                        </div>
-
-                        <GripVertical size={14} className="mt-1 shrink-0 text-text-secondary" />
-                      </div>
-
-                      {!compactView && (
-                        <div className="mt-3 space-y-2">
-                          {lead.event_type && (
-                            <p className="text-xs text-cs-gold">{lead.event_type}</p>
-                          )}
-
-                          {lead.phone && (
-                            <div className="flex items-center gap-2 text-xs text-text-secondary">
-                              <Phone size={12} />
-                              <span>{lead.phone}</span>
-                            </div>
-                          )}
-
-                          {lead.email && (
-                            <div className="flex items-center gap-2 text-xs text-text-secondary">
-                              <Mail size={12} />
-                              <span className="truncate">{lead.email}</span>
-                            </div>
-                          )}
-
-                          {typeof lead.estimated_budget === "number" && (
-                            <div className="flex items-center gap-2 text-xs font-medium text-cs-green">
-                              <DollarSign size={12} />
-                              <span>{formatCurrency(lead.estimated_budget)}</span>
-                            </div>
-                          )}
-                        </div>
-                      )}
+              <div className="flex-1 p-3 space-y-3 overflow-y-auto">
+                {leads.filter(l => l.status === column.id).map(lead => (
+                  <div 
+                    key={lead.id} 
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, lead.id)}
+                    onClick={() => openEditModal(lead)}
+                    className="bg-background border border-surface/50 p-4 rounded-md cursor-pointer hover:border-cs-green/50 transition-colors shadow-sm group"
+                  >
+                    <div className="flex justify-between items-start">
+                      <h5 className="font-medium text-white text-sm group-hover:text-cs-green transition-colors">{lead.client_name}</h5>
+                      <GripVertical size={14} className="text-text-secondary shrink-0 cursor-grab active:cursor-grabbing" />
                     </div>
-                  ))
-                )}
+                    
+                    {lead.company_name && <p className={`text-xs text-text-secondary ${compactView ? 'mt-1' : 'mb-3'}`}>{lead.company_name}</p>}
+                    
+                    {!compactView && (
+                      <>
+                        {lead.event_type && <p className="text-xs text-cs-gold mb-3">{lead.event_type}</p>}
+                        <div className="space-y-1.5">
+                          {lead.phone && <div className="flex items-center gap-2 text-xs text-text-secondary"><Phone size={12} /> {lead.phone}</div>}
+                          {lead.email && <div className="flex items-center gap-2 text-xs text-text-secondary"><Mail size={12} /> <span className="truncate">{lead.email}</span></div>}
+                          {lead.estimated_budget > 0 && <div className="flex items-center gap-2 text-xs text-cs-green font-medium mt-2 pt-2 border-t border-surface/50"><DollarSign size={12} /> {formatCurrency(lead.estimated_budget)}</div>}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           ))}
         </div>
       )}
 
+      {/* Modal de Detalhes / Edição do Lead */}
       {editingLeadId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-3xl rounded-lg border border-surface/50 bg-surface shadow-2xl">
-            <div className="flex items-center justify-between border-b border-surface/50 p-4">
-              <div>
-                <h3 className="text-lg font-medium text-white">
-                  Editar {leadSingular}
-                </h3>
-                <p className="mt-1 text-xs text-text-secondary">
-                  Atualize dados do {leadSingular.toLowerCase()} e acompanhe a conversão.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={resetForm}
-                className="rounded-md border border-surface/50 bg-background p-2 text-text-secondary transition-colors hover:text-white"
-              >
-                <X size={18} />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            
+            <div className="flex justify-between items-center p-6 border-b border-surface/50 bg-background/50">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <Target className="text-cs-green" size={24} /> Ficha do(a) {leadSingular}
+              </h2>
+              <button onClick={resetForm} className="text-text-secondary hover:text-white transition-colors">
+                <X size={24} />
               </button>
             </div>
 
-            <form onSubmit={handleSaveLead} className="space-y-6 p-6">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-text-secondary">
-                    Nome do contato
-                  </label>
-                  <input
-                    type="text"
-                    value={clientName}
-                    onChange={(e) => setClientName(e.target.value)}
-                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                  />
+            <div className="p-6 overflow-y-auto flex-1">
+              <form id="edit-lead-form" onSubmit={handleSaveLead} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-1">Nome do Contato *</label>
+                    <input type="text" required value={clientName} onChange={(e) => setClientName(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-1">Empresa / Instituição</label>
+                    <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-1">E-mail</label>
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-1">Telefone / WhatsApp</label>
+                    <input type="text" value={phone} onChange={handlePhoneChange} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-1">Tipo de Evento</label>
+                    <input type="text" value={eventType} onChange={(e) => setEventType(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-1">Data Prevista</label>
+                    <input type="date" max="2099-12-31" value={eventDate} onChange={(e) => { if (e.target.value.length <= 10) setEventDate(e.target.value); }} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-1">{quoteSingular} Estimado (Budget)</label>
+                    <input type="number" max="999999999" value={estimatedBudget} onChange={(e) => { if (e.target.value.length <= 10) setEstimatedBudget(e.target.value); }} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-1">Fase do Funil (Status)</label>
+                    <select value={leadStatus} onChange={(e) => setLeadStatus(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors">
+                      {COLUMNS.map(col => (
+                        <option key={col.id} value={col.id}>{getColumnTitle(col.id, col.title)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-text-secondary mb-1 flex items-center gap-2">
+                      <FileText size={14} /> Anotações / Histórico de Reuniões
+                    </label>
+                    <textarea 
+                      rows={4} 
+                      value={notes} 
+                      onChange={(e) => setNotes(e.target.value)} 
+                      className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors resize-none" 
+                      placeholder={`Registre aqui os detalhes do briefing, necessidades do ${clientSingular.toLowerCase()}, links de referência...`}
+                    />
+                  </div>
                 </div>
+              </form>
+            </div>
 
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-text-secondary">
-                    Empresa / Instituição
-                  </label>
-                  <input
-                    type="text"
-                    value={companyName}
-                    onChange={(e) => setCompanyName(e.target.value)}
-                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-text-secondary">E-mail</label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-text-secondary">
-                    Telefone / WhatsApp
-                  </label>
-                  <input
-                    type="text"
-                    value={phone}
-                    onChange={(e) => setPhone(formatPhone(e.target.value))}
-                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-text-secondary">
-                    Tipo de evento
-                  </label>
-                  <input
-                    type="text"
-                    value={eventType}
-                    onChange={(e) => setEventType(e.target.value)}
-                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-text-secondary">
-                    Data do evento
-                  </label>
-                  <input
-                    type="date"
-                    value={eventDate}
-                    onChange={(e) => setEventDate(e.target.value)}
-                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-text-secondary">
-                    {quoteSingular} estimado
-                  </label>
-                  <input
-                    type="number"
-                    value={estimatedBudget}
-                    onChange={(e) => setEstimatedBudget(e.target.value)}
-                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-text-secondary">
-                    Etapa do funil
-                  </label>
-                  <select
-                    value={leadStatus}
-                    onChange={(e) => setLeadStatus(e.target.value as LeadStatus)}
-                    className="block w-full cursor-pointer rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                  >
-                    {STATUS_COLUMNS.map((status) => (
-                      <option key={status.id} value={status.id}>
-                        {status.title(labels)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="md:col-span-2 lg:col-span-3">
-                  <label className="mb-1 block text-xs font-medium text-text-secondary">
-                    Observações comerciais
-                  </label>
-                  <textarea
-                    rows={4}
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    className="block w-full resize-none rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
-                    placeholder={`Anotações internas sobre este ${leadSingular.toLowerCase()}.`}
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3 border-t border-surface/50 pt-4 md:flex-row md:items-center md:justify-between">
-                <button
+            {/* Footer do Modal com o Botão de Conversão */}
+            <div className="p-6 border-t border-surface/50 bg-background/50 flex justify-between items-center shrink-0">
+              <button 
+                type="button"
+                onClick={handleDeleteLead}
+                disabled={isSubmitting || isConverting}
+                className="flex items-center gap-2 text-sm font-medium text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+              >
+                <Trash2 size={18} /> Excluir
+              </button>
+              <div className="flex gap-3">
+                <button 
                   type="button"
-                  onClick={handleDeleteLead}
+                  onClick={handleConvertToQuote}
                   disabled={isSubmitting || isConverting}
-                  className="flex items-center gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-500 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+                  className="flex items-center gap-2 rounded-md bg-cs-gold/20 text-cs-gold border border-cs-gold/30 py-2 px-4 text-sm font-medium hover:bg-cs-gold/30 transition-all disabled:opacity-50"
                 >
-                  <Trash2 size={16} />
-                  Excluir
+                  {isConverting ? <Loader2 className="animate-spin" size={16} /> : <FileOutput size={16} />}
+                  Converter em {quoteSingular}
                 </button>
-
-                <div className="flex flex-wrap justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={handleConvertToQuote}
-                    disabled={isSubmitting || isConverting}
-                    className="flex items-center gap-2 rounded-md border border-cs-gold/20 bg-cs-gold/10 px-4 py-2 text-sm font-medium text-cs-gold transition-colors hover:bg-cs-gold/20 disabled:opacity-50"
-                  >
-                    {isConverting ? <Loader2 className="animate-spin" size={16} /> : <FileOutput size={16} />}
-                    Converter em {quoteSingular}
-                  </button>
-
-                  <button
-                    type="submit"
-                    disabled={isSubmitting || isConverting}
-                    className="flex items-center gap-2 rounded-md bg-cs-green px-6 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-opacity-90 disabled:opacity-50"
-                  >
-                    {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-                    Salvar
-                  </button>
-                </div>
+                <button 
+                  type="submit"
+                  form="edit-lead-form"
+                  disabled={isSubmitting || isConverting}
+                  className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50"
+                >
+                  {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+                  Salvar
+                </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}
