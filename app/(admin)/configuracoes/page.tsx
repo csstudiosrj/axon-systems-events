@@ -1,6 +1,7 @@
 "use client";
 
 import React, { ChangeEvent, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabase";
 import { useSettings } from "@/app/providers/SettingsProvider";
 import {
@@ -66,6 +67,7 @@ interface CompanyForm {
   company_name: string;
   cnpj: string;
   logo_url: string;
+  primary_color: string;
   contract_terms: string;
   legal_name: string;
   trade_name: string;
@@ -122,6 +124,7 @@ const DEFAULT_COMPANY_FORM: CompanyForm = {
   company_name: "",
   cnpj: "",
   logo_url: "",
+  primary_color: "#138946",
   contract_terms: "",
   legal_name: "",
   trade_name: "",
@@ -207,7 +210,7 @@ const DEFAULT_COMMERCIAL_DOCUMENTS: CommercialDocuments = {
   default_operational_notes: "",
 };
 
-const MODULES = [
+const MODULES =[
   { key: "enable_dashboard", title: "Dashboard", desc: "Visão geral do negócio com métricas." },
   { key: "enable_crm", title: "CRM", desc: "Oportunidades, contatos e funil comercial." },
   { key: "enable_clients", title: "Cadastros", desc: "Registros principais de clientes." },
@@ -223,10 +226,10 @@ const MODULES = [
   { key: "enable_client_portal", title: "Portal do Cliente", desc: "Área exclusiva para o cliente." },
 ] as const;
 
-const LABEL_GROUPS: Array<{ title: string; fields: string[] }> = [
+const LABEL_GROUPS: Array<{ title: string; fields: string[] }> =[
   {
     title: "Menus principais",
-    fields: [
+    fields:[
       "menu_dashboard",
       "menu_calendar",
       "menu_crm",
@@ -243,7 +246,7 @@ const LABEL_GROUPS: Array<{ title: string; fields: string[] }> = [
   },
   {
     title: "Cadastros e relacionamento",
-    fields: [
+    fields:[
       "entity_client_singular",
       "entity_client_plural",
       "entity_lead_singular",
@@ -254,7 +257,7 @@ const LABEL_GROUPS: Array<{ title: string; fields: string[] }> = [
   },
   {
     title: "Comercial e documentos",
-    fields: [
+    fields:[
       "entity_quote_singular",
       "entity_quote_plural",
       "entity_proposal_singular",
@@ -267,7 +270,7 @@ const LABEL_GROUPS: Array<{ title: string; fields: string[] }> = [
   },
   {
     title: "Operação e ensino",
-    fields: [
+    fields:[
       "entity_service_order_singular",
       "entity_service_order_plural",
       "entity_equipment_singular",
@@ -320,10 +323,10 @@ const LABEL_MAP: Record<string, string> = {
 const NOMENCLATURE_PRESETS: Array<{
   title: string;
   options: Array<{ label: string; values: Record<string, string> }>;
-}> = [
+}> =[
   {
     title: "CRM / Serviços",
-    options: [
+    options:[
       {
         label: "Empresarial padrão",
         values: {
@@ -354,7 +357,7 @@ const NOMENCLATURE_PRESETS: Array<{
   },
   {
     title: "Eventos / Produção",
-    options: [
+    options:[
       {
         label: "Eventos corporativos",
         values: {
@@ -386,7 +389,7 @@ const NOMENCLATURE_PRESETS: Array<{
   },
   {
     title: "Educação / Treinamento",
-    options: [
+    options:[
       {
         label: "EAD / Escola",
         values: {
@@ -461,6 +464,7 @@ function getErrorMessage(error: unknown) {
 }
 
 export default function ConfiguracoesPage() {
+  const router = useRouter();
   const { companyProfile, systemPreferences, refreshSettings } = useSettings() as SettingsContextShape;
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("perfil");
@@ -470,11 +474,11 @@ export default function ConfiguracoesPage() {
     feature_toggles: { ...DEFAULT_FEATURE_TOGGLES },
     commercial_documents: { ...DEFAULT_COMMERCIAL_DOCUMENTS },
   });
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const[isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [logoPreview, setLogoPreview] = useState("");
   const [selectedLogoFile, setSelectedLogoFile] = useState<File | null>(null);
-  const [states, setStates] = useState<IbgeState[]>([]);
+  const[states, setStates] = useState<IbgeState[]>([]);
   const [cities, setCities] = useState<IbgeCity[]>([]);
   const [loadingCities, setLoadingCities] = useState(false);
   const [cepLoading, setCepLoading] = useState(false);
@@ -489,6 +493,7 @@ export default function ConfiguracoesPage() {
       company_name: getString(companyProfile?.company_name),
       cnpj: getString(companyProfile?.cnpj),
       logo_url: getString(companyProfile?.logo_url),
+      primary_color: getString(companyProfile?.primary_color, "#138946") || "#138946",
       contract_terms: getString(companyProfile?.contract_terms),
       legal_name: getString(companyProfile?.legal_name),
       trade_name: getString(companyProfile?.trade_name),
@@ -526,14 +531,14 @@ export default function ConfiguracoesPage() {
         ...(systemPreferences?.commercial_documents ?? {}),
       },
     });
-  }, [companyProfile, systemPreferences]);
+  },[companyProfile, systemPreferences]);
 
   useEffect(() => {
     fetch("https://servicodados.ibge.gov.br/api/v1/localidades/estados")
       .then((r) => r.json())
       .then((data: IbgeState[]) => setStates([...data].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))))
       .catch(() => setStates([]));
-  }, []);
+  },[]);
 
   useEffect(() => {
     const uf = companyForm.state.trim().toUpperCase();
@@ -555,7 +560,7 @@ export default function ConfiguracoesPage() {
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
       if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current);
     };
-  }, []);
+  },[]);
 
   const showToast = (message: string, type: ToastState["type"]) => {
     setToast({ message, type });
@@ -581,8 +586,7 @@ export default function ConfiguracoesPage() {
     setPreferencesForm((prev) => ({
       ...prev,
       feature_toggles: {
-        ...prev.feature_toggles,
-        [key]: value,
+        ...prev.feature_toggles,[key]: value,
       },
     }));
   };
@@ -707,7 +711,7 @@ export default function ConfiguracoesPage() {
       company_name: companyForm.company_name || "",
       cnpj: companyForm.cnpj || "",
       logo_url: logoUrl || "",
-      primary_color: getString(companyProfile?.primary_color, "#138946") || "#138946",
+      primary_color: companyForm.primary_color || "#138946",
       contract_terms: companyForm.contract_terms || "",
       legal_name: companyForm.legal_name || "",
       trade_name: companyForm.trade_name || "",
@@ -728,14 +732,18 @@ export default function ConfiguracoesPage() {
       invoice_footer: companyForm.invoice_footer || "",
     };
 
-    if (companyProfile?.id) {
-      const { error } = await supabase.from("company_profile").update(payload).eq("id", companyProfile.id);
-      if (error) throw error;
-      return;
-    }
+    const { data: existing, error: fetchError } = await supabase.from("company_profile").select("id").limit(1).maybeSingle();
+    if (fetchError) throw fetchError;
 
-    const { error } = await supabase.from("company_profile").insert(payload);
-    if (error) throw error;
+    if (existing?.id) {
+      const { data, error } = await supabase.from("company_profile").update(payload).eq("id", existing.id).select();
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error("Atualização bloqueada pela política de segurança (RLS).");
+    } else {
+      const { data, error } = await supabase.from("company_profile").insert(payload).select();
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error("Criação bloqueada pela política de segurança (RLS).");
+    }
   };
 
   const savePreferencesRecord = async () => {
@@ -745,21 +753,26 @@ export default function ConfiguracoesPage() {
       commercial_documents: preferencesForm.commercial_documents || {},
     };
 
-    if (systemPreferences?.id) {
-      const { error } = await supabase.from("system_preferences").update(payload).eq("id", systemPreferences.id);
-      if (error) throw error;
-      return;
-    }
+    const { data: existing, error: fetchError } = await supabase.from("system_preferences").select("id").limit(1).maybeSingle();
+    if (fetchError) throw fetchError;
 
-    const { error } = await supabase.from("system_preferences").insert(payload);
-    if (error) throw error;
+    if (existing?.id) {
+      const { data, error } = await supabase.from("system_preferences").update(payload).eq("id", existing.id).select();
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error("Atualização bloqueada pela política de segurança (RLS).");
+    } else {
+      const { data, error } = await supabase.from("system_preferences").insert(payload).select();
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error("Criação bloqueada pela política de segurança (RLS).");
+    }
   };
 
   const savePerfil = async () => {
     setIsSubmitting(true);
     try {
       await saveCompanyProfileRecord();
-      await refreshSettings?.();
+      if (refreshSettings) await refreshSettings();
+      router.refresh();
       showToast("Perfil corporativo salvo com sucesso.", "success");
     } catch (error) {
       showToast(`Erro ao salvar perfil: ${getErrorMessage(error)}`, "error");
@@ -772,7 +785,8 @@ export default function ConfiguracoesPage() {
     setIsSubmitting(true);
     try {
       await savePreferencesRecord();
-      await refreshSettings?.();
+      if (refreshSettings) await refreshSettings();
+      router.refresh();
       showToast("Nomenclaturas salvas com sucesso.", "success");
     } catch (error) {
       showToast(`Erro ao salvar nomenclaturas: ${getErrorMessage(error)}`, "error");
@@ -785,7 +799,8 @@ export default function ConfiguracoesPage() {
     setIsSubmitting(true);
     try {
       await savePreferencesRecord();
-      await refreshSettings?.();
+      if (refreshSettings) await refreshSettings();
+      router.refresh();
       showToast("Módulos salvos com sucesso.", "success");
     } catch (error) {
       showToast(`Erro ao salvar módulos: ${getErrorMessage(error)}`, "error");
@@ -799,7 +814,8 @@ export default function ConfiguracoesPage() {
     try {
       await saveCompanyProfileRecord();
       await savePreferencesRecord();
-      await refreshSettings?.();
+      if (refreshSettings) await refreshSettings();
+      router.refresh();
       showToast("Documentos comerciais salvos com sucesso.", "success");
     } catch (error) {
       showToast(`Erro ao salvar documentos: ${getErrorMessage(error)}`, "error");
@@ -951,6 +967,25 @@ export default function ConfiguracoesPage() {
                 <InputField label="Nome Fantasia" value={companyForm.trade_name} onChange={(e) => setField("trade_name", e.target.value)} />
                 <InputField label="Razão Social" value={companyForm.legal_name} onChange={(e) => setField("legal_name", e.target.value)} />
                 <InputField label="CNPJ" value={companyForm.cnpj} onChange={masked("cnpj", formatCnpj)} placeholder="00.000.000/0000-00" />
+                
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-text-secondary">Cor Primária (Hexadecimal)</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={companyForm.primary_color}
+                      onChange={(e) => setField("primary_color", e.target.value)}
+                      className="h-9 w-9 cursor-pointer rounded border-0 bg-transparent p-0"
+                    />
+                    <input
+                      type="text"
+                      value={companyForm.primary_color}
+                      onChange={(e) => setField("primary_color", e.target.value)}
+                      className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none uppercase"
+                    />
+                  </div>
+                </div>
+
                 <InputField label="E-mail de Contato" type="email" value={companyForm.contact_email} onChange={(e) => setField("contact_email", e.target.value)} />
                 <InputField label="Telefone Fixo" value={companyForm.phone_landline} onChange={masked("phone_landline", formatPhone)} />
                 <InputField label="Celular" value={companyForm.phone_mobile} onChange={masked("phone_mobile", formatPhone)} />
