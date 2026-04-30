@@ -240,7 +240,7 @@ export default function OrcamentoPDFPage() {
         {/* RODAPÉ DINÂMICO */}
         <div className="mt-auto text-center text-[10px] text-gray-400 border-t border-gray-100 pt-4">
           <p>
-            {companyProfile?.proposal_footer || `${companyName} | Documento gerado pelo sistema Arxum`}
+            {companyProfile?.proposal_footer || `${companyName} | Documento gerado pelo sistema ARXUM`}
           </p>
           {companyAddress && <p className="mt-1">{companyAddress}</p>}
           {docsConfig.show_company_contacts_on_quotes && (
