@@ -38,7 +38,6 @@ export default function OSPage() {
   const router = useRouter();
   const { systemPreferences } = useSettings();
   
-  // --- LABELS DINÂMICAS (WHITE-LABEL ARXUM) ---
   const labels = systemPreferences?.custom_labels || {};
   const osSingular = labels.entity_service_order_singular || "OS";
   const osPlural = labels.entity_service_order_plural || "Ordens de Serviço";
@@ -74,7 +73,6 @@ export default function OSPage() {
     setTimeout(() => setToast(null), 4000);
   }, []);
 
-  // --- BUSCA DE DADOS REAIS ---
   const fetchInternalTeam = useCallback(async () => {
     const staffRoles = ['super_admin', 'admin', 'commercial', 'financial', 'logistics', 'marketing', 'training', 'support'];
     const { data, error } = await supabase
@@ -118,23 +116,6 @@ export default function OSPage() {
     fetchInternalTeam();
   }, [view, fetchOrders, fetchAvailableQuotes, fetchInternalTeam]);
 
-  // --- LÓGICA OPERACIONAL ---
-  const handleQuoteSelection = (selectedId: string) => {
-    setQuoteId(selectedId);
-    const selectedQuote = availableQuotes.find(q => q.id === selectedId);
-    
-    if (selectedQuote) {
-      if (selectedQuote.event_start_date) {
-        const d = new Date(selectedQuote.event_start_date);
-        setStartDate(new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16));
-      }
-      if (selectedQuote.event_end_date) {
-        const d = new Date(selectedQuote.event_end_date);
-        setEndDate(new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16));
-      }
-    }
-  };
-
   const openOSDetails = async (os: any) => {
     setLoading(true);
     setActiveOS(os);
@@ -165,13 +146,10 @@ export default function OSPage() {
 
     setIsSubmitting(true);
     try {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-
       const { error } = await supabase.from("service_orders").insert([{
         quote_id: quoteId,
-        event_start_date: start.toISOString(),
-        event_end_date: end.toISOString(),
+        event_start_date: new Date(startDate).toISOString(),
+        event_end_date: new Date(endDate).toISOString(),
         status: "pending"
       }]);
 
@@ -179,7 +157,7 @@ export default function OSPage() {
         showToast(`${osSingular} gerada com sucesso no sistema ARXUM!`, "success");
         setView("list");
       } else {
-        showToast(`Erro ao criar: ${error.message}`, "error");
+        showToast(`Erro: ${error.message}`, "error");
       }
     } finally {
       setIsSubmitting(false);
@@ -199,12 +177,10 @@ export default function OSPage() {
       .eq("id", activeOS.id);
       
     if (!error) {
-      showToast("Dados de logística atualizados com sucesso.", "success");
-      // Atualiza o estado local para refletir a mudança sem recarregar tudo
-      setActiveOS({ ...activeOS, logistics_notes: logisticsNotes, producer_id: producerId });
+      showToast("Dados de logística salvos.", "success");
       fetchOrders();
     } else {
-      showToast(`Erro ao salvar: ${error.message}`, "error");
+      showToast(`Erro 403/RLS: Verifique as permissões no banco.`, "error");
     }
     setIsSubmitting(false);
   };
@@ -227,9 +203,9 @@ export default function OSPage() {
       setExtraItems([...extraItems, data]);
       setNewItemName("");
       setNewItemQty("1");
-      showToast("Item extra adicionado à carga.", "success");
+      showToast("Item extra adicionado.", "success");
     } else {
-      showToast("Erro ao adicionar item.", "error");
+      showToast(`Erro 403: Acesso negado ao gravar item extra.`, "error");
     }
   };
 
@@ -237,7 +213,7 @@ export default function OSPage() {
     setConfirmModal({
       isOpen: true,
       title: "Remover Item?",
-      message: "Deseja retirar este item da lista de separação?",
+      message: "Deseja retirar este item da lista?",
       onConfirm: async () => {
         const { error } = await supabase.from("os_extra_items").delete().eq("id", id);
         if (!error) {
@@ -273,8 +249,6 @@ export default function OSPage() {
 
   return (
     <div className="space-y-6 relative pb-12">
-      
-      {/* Sistema de Toasts Premium ARXUM */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-[100] px-4 py-3 rounded-md shadow-lg flex items-center gap-2 border animate-in fade-in slide-in-from-bottom-4 ${
           toast.type === 'success' ? 'bg-cs-green/10 border-cs-green/20 text-cs-green' : 
@@ -286,7 +260,6 @@ export default function OSPage() {
         </div>
       )}
 
-      {/* Modal de Confirmação Premium */}
       {confirmModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200 text-center">
@@ -371,19 +344,16 @@ export default function OSPage() {
                   <User className="text-cs-green" size={18} /> Responsabilidade
                 </h3>
                 <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-medium text-text-secondary mb-1">Produtor / Técnico Líder</label>
-                    <select
-                      value={producerId}
-                      onChange={(e) => setProducerId(e.target.value)}
-                      className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm cursor-pointer"
-                    >
-                      <option value="">Não atribuído</option>
-                      {internalTeam.map(user => (
-                        <option key={user.id} value={user.id}>{user.full_name || user.email}</option>
-                      ))}
-                    </select>
-                  </div>
+                  <select
+                    value={producerId}
+                    onChange={(e) => setProducerId(e.target.value)}
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
+                  >
+                    <option value="">Não atribuído</option>
+                    {internalTeam.map(user => (
+                      <option key={user.id} value={user.id}>{user.full_name || user.email}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -396,14 +366,9 @@ export default function OSPage() {
                     rows={6}
                     value={logisticsNotes}
                     onChange={(e) => setLogisticsNotes(e.target.value)}
-                    placeholder="Ex: Palco a 50m da house mix. Levar multicabo extra..."
-                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none resize-none text-sm custom-scrollbar"
+                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none resize-none text-sm"
                   />
-                  <button 
-                    onClick={handleUpdateOSInfo}
-                    disabled={isSubmitting}
-                    className="w-full flex justify-center items-center gap-2 rounded-md bg-cs-green py-2 text-sm font-bold text-white hover:bg-opacity-90 transition-all disabled:opacity-50"
-                  >
+                  <button onClick={handleUpdateOSInfo} className="w-full flex justify-center items-center gap-2 rounded-md bg-cs-green py-2 text-sm font-bold text-white hover:bg-opacity-90 transition-all">
                     {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
                     Salvar Alterações
                   </button>
@@ -415,8 +380,7 @@ export default function OSPage() {
               <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
                 <div className="p-4 border-b border-surface/50 bg-background/30">
                   <h3 className="text-md font-bold text-white flex items-center gap-2">
-                    <PackagePlus className="text-blue-400" size={18} />
-                    Equipamentos do {quoteSingular}
+                    <PackagePlus className="text-blue-400" size={18} /> Equipamentos do {quoteSingular}
                   </h3>
                 </div>
                 <div className="p-4">
@@ -434,48 +398,24 @@ export default function OSPage() {
               <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
                 <div className="p-4 border-b border-surface/50 bg-background/30 flex justify-between items-center">
                   <h3 className="text-md font-bold text-white flex items-center gap-2">
-                    <Truck className="text-cs-green" size={18} />
-                    Itens Extras de Logística
+                    <Truck className="text-cs-green" size={18} /> Itens Extras de Logística
                   </h3>
                 </div>
-                
                 <div className="p-4 border-b border-surface/50 bg-background/50">
                   <form onSubmit={handleAddExtraItem} className="flex gap-3">
-                    <input
-                      type="text"
-                      required
-                      value={newItemName}
-                      onChange={(e) => setNewItemName(e.target.value)}
-                      placeholder="Ex: Rolo de Fita Gaffer Preta"
-                      className="flex-1 rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
-                    />
-                    <input
-                      type="number"
-                      min="1"
-                      required
-                      value={newItemQty}
-                      onChange={(e) => setNewItemQty(e.target.value)}
-                      className="w-20 rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm text-center"
-                    />
-                    <button type="submit" className="bg-cs-green text-white px-4 py-2 rounded-md text-sm font-bold hover:bg-opacity-90 transition-colors">
-                      Adicionar
-                    </button>
+                    <input type="text" required value={newItemName} onChange={(e) => setNewItemName(e.target.value)} placeholder="Item backup..." className="flex-1 rounded-md border border-surface bg-background px-3 py-2 text-white text-sm" />
+                    <input type="number" min="1" required value={newItemQty} onChange={(e) => setNewItemQty(e.target.value)} className="w-20 rounded-md border border-surface bg-background px-3 py-2 text-white text-sm text-center" />
+                    <button type="submit" className="bg-cs-green text-white px-4 py-2 rounded-md text-sm font-bold">Adicionar</button>
                   </form>
                 </div>
-
                 <div className="p-4">
                   <ul className="space-y-2">
                     {extraItems.map((item) => (
                       <li key={item.id} className="flex items-center justify-between bg-background border border-surface/50 p-3 rounded-md group">
-                        <div className="flex items-center gap-3">
-                          <span className="text-cs-green font-bold text-xs">EXTRA</span>
-                          <span className="text-sm font-medium text-white">{item.item_name}</span>
-                        </div>
+                        <span className="text-sm font-medium text-white">{item.item_name}</span>
                         <div className="flex items-center gap-4">
                           <span className="text-xs font-bold bg-surface px-2 py-1 rounded text-text-secondary">Qtd: {item.quantity}</span>
-                          <button onClick={() => requestDeleteExtraItem(item.id)} className="text-text-secondary hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Trash2 size={16} />
-                          </button>
+                          <button onClick={() => requestDeleteExtraItem(item.id)} className="text-text-secondary hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16} /></button>
                         </div>
                       </li>
                     ))}
@@ -487,62 +427,14 @@ export default function OSPage() {
         </div>
       )}
 
-      {view === "create" && (
-        <div className="space-y-6 max-w-3xl mx-auto">
-          <div className="flex items-center justify-between">
-            <button onClick={() => setView("list")} className="flex items-center gap-2 text-text-secondary hover:text-white transition-colors">
-              <ArrowLeft size={20} /> Voltar para lista
-            </button>
-          </div>
-
-          <div className="bg-surface border border-surface/50 p-6 rounded-lg">
-            <h3 className="text-lg font-medium text-white mb-6 flex items-center gap-2">
-              <Plus className="text-cs-green" size={20} />
-              Gerar Nova {osSingular}
-            </h3>
-            
-            <form onSubmit={handleCreateOS} className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-text-secondary mb-1">Vincular ao {quoteSingular} Aprovado *</label>
-                <select required value={quoteId} onChange={(e) => handleQuoteSelection(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green transition-colors cursor-pointer">
-                  <option value="">Selecione o {quoteSingular.toLowerCase()}...</option>
-                  {availableQuotes.map(q => (
-                    <option key={q.id} value={q.id}>{q.title} - {q.clients?.company_name}</option>
-                  ))}
-                </select>
-                <p className="text-xs text-cs-gold mt-2">Apenas {quotePlural.toLowerCase()} aprovados no sistema ARXUM aparecem aqui.</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-text-secondary mb-1 flex items-center gap-2"><Calendar size={14} /> Início (Load-in) *</label>
-                  <input type="datetime-local" required value={startDate} onChange={(e) => setStartDate(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text-secondary mb-1 flex items-center gap-2"><Calendar size={14} /> Fim (Load-out) *</label>
-                  <input type="datetime-local" required value={endDate} onChange={(e) => setEndDate(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm" />
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-4 border-t border-surface/50">
-                <button type="submit" disabled={isSubmitting} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-bold text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50">
-                  {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : `Gerar ${osSingular}`}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {view === "list" && (
         <div className="space-y-6">
           <div className="flex justify-between items-center bg-surface p-4 border border-surface/50 rounded-lg">
             <div>
               <h3 className="text-lg font-medium text-white flex items-center gap-2">
-                <Truck className="text-cs-green" size={20} />
-                Painel de Logística / {osPlural}
+                <Truck className="text-cs-green" size={20} /> Painel de Logística / {osPlural}
               </h3>
-              <p className="text-xs text-text-secondary mt-1">Gestão operacional da frota e equipamentos ARXUM.</p>
+              <p className="text-xs text-text-secondary mt-1">Gestão operacional ARXUM.</p>
             </div>
             <button onClick={() => setView("create")} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-4 text-sm font-bold text-white shadow-sm hover:bg-opacity-90 transition-all">
               <Plus size={18} /> Gerar {osSingular}
@@ -556,45 +448,28 @@ export default function OSPage() {
                   <tr>
                     <th className="px-6 py-4 font-medium">{osSingular} / Evento</th>
                     <th className="px-6 py-4 font-medium">Responsável</th>
-                    <th className="px-6 py-4 font-medium">Período</th>
                     <th className="px-6 py-4 font-medium">Status Operacional</th>
                     <th className="px-6 py-4 font-medium text-right">Ação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-surface/50">
                   {loading ? (
-                    <tr><td colSpan={5} className="px-6 py-8 text-center"><Loader2 className="animate-spin mx-auto mb-2 text-cs-green" size={24} /></td></tr>
+                    <tr><td colSpan={4} className="px-6 py-8 text-center"><Loader2 className="animate-spin mx-auto text-cs-green" size={24} /></td></tr>
                   ) : orders.length === 0 ? (
-                    <tr><td colSpan={5} className="px-6 py-8 text-center text-text-secondary">Nenhuma {osSingular.toLowerCase()} ativa.</td></tr>
+                    <tr><td colSpan={4} className="px-6 py-8 text-center">Nenhuma {osSingular.toLowerCase()} ativa.</td></tr>
                   ) : (
                     orders.map((os) => (
                       <tr key={os.id} className="hover:bg-background/50 transition-colors">
                         <td className="px-6 py-4">
                           <p className="font-bold text-white">{os.quotes?.title}</p>
                           <p className="text-xs mt-1">{os.quotes?.clients?.company_name}</p>
-                          <p className="text-[10px] text-blue-400 mt-1 font-mono uppercase">#{os.id.split('-')[0]}</p>
                         </td>
                         <td className="px-6 py-4">
-                          {os.producer ? (
-                            <span className="flex items-center gap-1.5 text-xs font-medium text-white"><User size={14} className="text-cs-gold"/> {os.producer.full_name}</span>
-                          ) : (
-                            <span className="text-xs text-red-400 font-bold">Pendente</span>
-                          )}
+                          <span className="text-xs font-medium text-white">{os.producer?.full_name || "Pendente"}</span>
                         </td>
-                        <td className="px-6 py-4 text-xs">
-                          <p><span className="text-gray-500">De:</span> {new Date(os.event_start_date).toLocaleString('pt-BR')}</p>
-                          <p><span className="text-gray-500">Até:</span> {new Date(os.event_end_date).toLocaleString('pt-BR')}</p>
-                        </td>
-                        <td className="px-6 py-4">
-                          {getStatusBadge(os.status)}
-                        </td>
+                        <td className="px-6 py-4">{getStatusBadge(os.status)}</td>
                         <td className="px-6 py-4 text-right">
-                          <button 
-                            onClick={() => openOSDetails(os)}
-                            className="inline-flex items-center gap-2 bg-cs-green/10 text-cs-green hover:bg-cs-green hover:text-white px-4 py-2 rounded-md transition-colors font-bold text-xs"
-                          >
-                            <Eye size={14} /> Abrir Painel
-                          </button>
+                          <button onClick={() => openOSDetails(os)} className="bg-cs-green/10 text-cs-green hover:bg-cs-green hover:text-white px-4 py-2 rounded-md font-bold text-xs">Abrir Painel</button>
                         </td>
                       </tr>
                     ))
