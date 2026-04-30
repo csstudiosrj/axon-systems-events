@@ -7,9 +7,9 @@ import {
   BookOpen,
   CalendarClock,
   CheckCircle2,
-  Clock3,
+  ChevronDown,
+  ChevronUp,
   FileText,
-  Headset,
   LayoutDashboard,
   Loader2,
   RefreshCcw,
@@ -72,32 +72,6 @@ type SettingsShape = {
   } | null;
 };
 
-type AlertItem = {
-  id: string;
-  title: string;
-  description: string;
-  href: string;
-  level: "critical" | "warning" | "info";
-};
-
-type SimpleCard = {
-  title: string;
-  value: number;
-  description: string;
-  href: string;
-  icon: React.ComponentType<{ className?: string; size?: number }>;
-  tone: "green" | "gold" | "red" | "blue";
-};
-
-type FeaturedCard = {
-  title: string;
-  value: number;
-  description: string;
-  href: string;
-  icon: React.ComponentType<{ className?: string; size?: number }>;
-  tone: "green" | "gold" | "red";
-};
-
 const INITIAL_STATE: DashboardState = {
   pendingQuotes: 0,
   upcomingServiceOrders: 0,
@@ -125,6 +99,12 @@ function endOfTodayIso() {
   return d.toISOString();
 }
 
+function addDaysIso(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString();
+}
+
 function startOfMonthIso() {
   const d = new Date();
   d.setDate(1);
@@ -132,19 +112,9 @@ function startOfMonthIso() {
   return d.toISOString();
 }
 
-function addDaysIso(days: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString();
-}
-
 function formatDateTime(value: string | null) {
   if (!value) return "Sem data";
-  return new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
-}
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+  return new Date(value).toLocaleDateString("pt-BR");
 }
 
 function toNumber(value: number | string | null) {
@@ -153,49 +123,76 @@ function toNumber(value: number | string | null) {
   return 0;
 }
 
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+}
+
 function daysUntil(value: string | null) {
   if (!value) return null;
-  const diff = new Date(value).getTime() - Date.now();
-  return Math.ceil(diff / 86400000);
+  return Math.ceil((new Date(value).getTime() - Date.now()) / 86400000);
 }
 
-function toneClasses(tone: FeaturedCard["tone"] | SimpleCard["tone"]) {
-  switch (tone) {
-    case "green":
-      return { chip: "bg-cs-green/10 text-cs-green", border: "border-cs-green/20" };
-    case "gold":
-      return { chip: "bg-cs-gold/10 text-cs-gold", border: "border-cs-gold/20" };
-    case "red":
-      return { chip: "bg-red-500/10 text-red-300", border: "border-red-500/20" };
-    default:
-      return { chip: "bg-blue-500/10 text-blue-300", border: "border-blue-500/20" };
-  }
+function shortId(value: string) {
+  return value.slice(0, 8).toUpperCase();
 }
 
-function EmptyState({
-  title,
-  description,
+function groupLabel(title: string, count: number) {
+  return `${title} (${count})`;
+}
+
+function CompactRow({
   href,
-  cta,
+  title,
+  subtitle,
+  meta,
 }: {
-  title: string;
-  description: string;
   href: string;
-  cta: string;
+  title: string;
+  subtitle: string;
+  meta?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-dashed border-white/10 bg-background px-4 py-6 text-center">
-      <Clock3 className="mx-auto h-6 w-6 text-text-secondary" />
-      <p className="mt-3 text-sm font-medium text-white">{title}</p>
-      <p className="mt-1 text-xs text-text-secondary">{description}</p>
-      <Link
-        href={href}
-        className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white transition hover:bg-white/10"
+    <Link
+      href={href}
+      className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-background px-4 py-3 transition hover:bg-white/5"
+    >
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium text-white">{title}</p>
+        <p className="mt-1 truncate text-xs text-text-secondary">{subtitle}</p>
+      </div>
+      {meta ? <p className="shrink-0 text-xs text-text-secondary">{meta}</p> : null}
+    </Link>
+  );
+}
+
+function SmallToggleSection({
+  title,
+  count,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-3xl border border-white/10 bg-surface p-5">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-4 text-left"
       >
-        {cta}
-        <ArrowRight className="h-4 w-4" />
-      </Link>
-    </div>
+        <div>
+          <h2 className="text-base font-semibold text-white">{groupLabel(title, count)}</h2>
+          <p className="mt-1 text-sm text-text-secondary">{open ? "Clique para recolher" : "Clique para expandir"}</p>
+        </div>
+        {open ? <ChevronUp className="h-5 w-5 text-text-secondary" /> : <ChevronDown className="h-5 w-5 text-text-secondary" />}
+      </button>
+      {open ? <div className="mt-4 space-y-3">{children}</div> : null}
+    </section>
   );
 }
 
@@ -204,11 +201,16 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [state, setState] = useState<DashboardState>(INITIAL_STATE);
-  const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [recentQuotes, setRecentQuotes] = useState<QuoteRow[]>([]);
   const [upcomingOrders, setUpcomingOrders] = useState<ServiceOrderRow[]>([]);
   const [priorityTickets, setPriorityTickets] = useState<TicketRow[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [openPanels, setOpenPanels] = useState({
+    alerts: true,
+    support: false,
+    operations: false,
+    commercial: false,
+  });
 
   const customLabels = systemPreferences?.custom_labels ?? {};
   const featureToggles = systemPreferences?.feature_toggles ?? {};
@@ -221,8 +223,9 @@ export default function DashboardPage() {
       support: customLabels.menu_support || "Suporte",
       training: customLabels.menu_training || "Treinamentos",
       clients: customLabels.entity_client_plural || customLabels.client_plural || "Clientes",
-      revenue: customLabels.menu_financial || "Financeiro",
+      financial: customLabels.menu_financial || "Financeiro",
       team: customLabels.menu_team || "Equipe",
+      quoteSingular: customLabels.entity_quote_singular || "orçamento",
     }),
     [customLabels]
   );
@@ -261,13 +264,13 @@ export default function DashboardPage() {
         supabase.from("profiles").select("*", { count: "exact", head: true }),
         supabase.from("courses").select("*", { count: "exact", head: true }).eq("status", "published"),
         supabase.from("lessons").select("*", { count: "exact", head: true }),
-        supabase.from("financial_transactions").select("*", { count: "exact", head: true }).gte("created_at", monthStart).in("status", ["paid", "received", "confirmed"]),
-        supabase.from("financial_transactions").select("*", { count: "exact", head: true }).in("status", ["open", "pending", "overdue"]),
-        supabase.from("financial_transactions").select("*", { count: "exact", head: true }).eq("status", "overdue"),
-        supabase.from("financial_transactions").select("*", { count: "exact", head: true }).in("status", ["open", "pending", "overdue"]),
-        supabase.from("quotes").select("id, title, status, final_amount, valid_until, created_at").order("created_at", { ascending: false }).limit(5),
-        supabase.from("service_orders").select("id, status, event_start_date, event_end_date, quote_id").gte("event_start_date", todayStart).lte("event_start_date", next7Days).order("event_start_date", { ascending: true }).limit(5),
-        supabase.from("tickets").select("id, title, status, priority, category, sla_deadline, created_at").in("status", ["open", "pending", "in_progress"]).order("created_at", { ascending: false }).limit(5),
+        supabase.from("financial_transactions").select("*", { count: "exact", head: true }).gte("created_at", monthStart).eq("status", "paid"),
+        supabase.from("financial_transactions").select("*", { count: "exact", head: true }).in("status", ["pending"]),
+        supabase.from("financial_transactions").select("*", { count: "exact", head: true }).lt("due_date", todayStart).in("status", ["pending"]),
+        supabase.from("financial_transactions").select("*", { count: "exact", head: true }).in("status", ["pending"]),
+        supabase.from("quotes").select("id, title, status, final_amount, valid_until, created_at").order("created_at", { ascending: false }).limit(3),
+        supabase.from("service_orders").select("id, status, event_start_date, event_end_date, quote_id").gte("event_start_date", todayStart).lte("event_start_date", next7Days).order("event_start_date", { ascending: true }).limit(3),
+        supabase.from("tickets").select("id, title, status, priority, category, sla_deadline, created_at").in("status", ["open", "pending", "in_progress"]).order("created_at", { ascending: false }).limit(3),
       ]);
 
       const error = [
@@ -290,7 +293,7 @@ export default function DashboardPage() {
 
       if (error) throw error;
 
-      const nextState: DashboardState = {
+      setState({
         pendingQuotes: quotesPending.count ?? 0,
         upcomingServiceOrders: ordersUpcoming.count ?? 0,
         openTickets: ticketsOpen.count ?? 0,
@@ -303,82 +306,11 @@ export default function DashboardPage() {
         revenueOpen: revenueOpen.count ?? 0,
         overdueRevenue: revenueOverdue.count ?? 0,
         financialItemsOpen: financialOpen.count ?? 0,
-      };
+      });
 
-      setState(nextState);
       setRecentQuotes((quotesRecent.data as QuoteRow[] | null) ?? []);
       setUpcomingOrders((ordersList.data as ServiceOrderRow[] | null) ?? []);
       setPriorityTickets((ticketsList.data as TicketRow[] | null) ?? []);
-
-      const nextAlerts: AlertItem[] = [];
-
-      if (nextState.overdueTickets > 0) {
-        nextAlerts.push({
-          id: "sla",
-          title: `${nextState.overdueTickets} ticket(s) fora do SLA`,
-          description: "Priorize atendimento imediato.",
-          href: "/suporte",
-          level: "critical",
-        });
-      }
-
-      const criticalTickets = (ticketsList.data as TicketRow[] | null) ?? [];
-      const highPriorityCount = criticalTickets.filter((t) =>
-        ["high", "critical"].includes((t.priority || "").toLowerCase())
-      ).length;
-
-      if (highPriorityCount > 0) {
-        nextAlerts.push({
-          id: "priority",
-          title: `${highPriorityCount} ticket(s) prioritário(s)`,
-          description: "Fila com prioridade alta precisa de ação.",
-          href: "/suporte",
-          level: "warning",
-        });
-      }
-
-      const ordersTodayCount = (ordersList.data as ServiceOrderRow[] | null) ?? [];
-      const ordersToday = ordersTodayCount.filter(
-        (o) => o.event_start_date && o.event_start_date >= todayStart && o.event_start_date <= todayEnd
-      ).length;
-
-      if (ordersToday > 0) {
-        nextAlerts.push({
-          id: "today-orders",
-          title: `${ordersToday} operação(ões) hoje`,
-          description: "Confira equipe e horários das OS de hoje.",
-          href: "/os",
-          level: "info",
-        });
-      }
-
-      const expiringQuotes = (quotesRecent.data as QuoteRow[] | null) ?? [];
-      const expiringSoon = expiringQuotes.filter((q) => {
-        const d = daysUntil(q.valid_until);
-        return d !== null && d >= 0 && d <= 3;
-      }).length;
-
-      if (expiringSoon > 0) {
-        nextAlerts.push({
-          id: "expiring-quotes",
-          title: `${expiringSoon} orçamento(s) vencendo`,
-          description: "Faça follow-up comercial agora.",
-          href: "/orcamentos",
-          level: "warning",
-        });
-      }
-
-      if (nextAlerts.length === 0) {
-        nextAlerts.push({
-          id: "ok",
-          title: "Operação estável",
-          description: "Nenhum alerta crítico no momento.",
-          href: "/dashboard",
-          level: "info",
-        });
-      }
-
-      setAlerts(nextAlerts);
     } catch (error) {
       console.error("Erro ao carregar dashboard:", error);
       setErrorMessage("Não foi possível carregar o painel agora.");
@@ -407,112 +339,57 @@ export default function DashboardPage() {
     setRefreshing(false);
   };
 
-  const featured: FeaturedCard[] = [
+  const featured = [
     {
       title: `${labels.quotes} pendentes`,
       value: state.pendingQuotes,
-      description: "Rascunho ou aguardando aprovação.",
       href: "/orcamentos",
       icon: FileText,
-      tone: "green",
+      visible: featureToggles.enable_quotes !== false,
     },
     {
       title: `${labels.serviceOrders} próximas`,
       value: state.upcomingServiceOrders,
-      description: "Programação dos próximos 7 dias.",
       href: "/os",
       icon: CalendarClock,
-      tone: "gold",
+      visible: featureToggles.enable_service_orders !== false,
     },
     {
       title: "Chamados abertos",
       value: state.openTickets,
-      description: "Fila de suporte ativa.",
       href: "/suporte",
       icon: Ticket,
-      tone: "red",
+      visible: featureToggles.enable_support !== false,
     },
-  ];
+  ].filter((item) => item.visible);
 
-  const supportCards: SimpleCard[] = [
-    {
-      title: `${labels.clients} cadastrados`,
-      value: state.activeClients,
-      description: "Base principal do sistema.",
-      href: "/clientes",
-      icon: Users,
-      tone: "blue",
-    },
-    {
-      title: `${labels.training} ativos`,
-      value: state.activeCourses,
-      description: "Conteúdo publicado para consumo.",
-      href: "/treinamentos",
-      icon: BookOpen,
-      tone: "green",
-    },
-    {
-      title: "Equipe cadastrada",
-      value: state.teamMembers,
-      description: "Usuários e responsáveis.",
-      href: "/equipe",
-      icon: LayoutDashboard,
-      tone: "blue",
-    },
-    {
-      title: "Aulas publicadas",
-      value: state.lessonsPublished,
-      description: "Volume de conteúdo disponível.",
-      href: "/treinamentos",
-      icon: Headset,
-      tone: "gold",
-    },
-  ];
+  const latestQuote = recentQuotes[0] ?? null;
+  const nextOrder = upcomingOrders[0] ?? null;
+  const topTicket = priorityTickets[0] ?? null;
 
-  const financialCards: SimpleCard[] = [
-    {
-      title: "Receita do mês",
-      value: state.revenueThisMonth,
-      description: "Valores confirmados neste período.",
-      href: "/financeiro",
-      icon: Wallet,
-      tone: "green",
-    },
-    {
-      title: "Receita em aberto",
-      value: state.revenueOpen,
-      description: "Contas pendentes de baixa.",
-      href: "/financeiro",
-      icon: TrendingUp,
-      tone: "gold",
-    },
-    {
-      title: "Receita vencida",
-      value: state.overdueRevenue,
-      description: "Valores que já passaram do prazo.",
-      href: "/financeiro",
-      icon: TrendingDown,
-      tone: "red",
-    },
-    {
-      title: "Lançamentos em aberto",
-      value: state.financialItemsOpen,
-      description: "Pendências financeiras ativas.",
-      href: "/financeiro",
-      icon: Clock3,
-      tone: "blue",
-    },
-  ];
-
-  const visibleModules = {
-    quotes: featureToggles.enable_quotes !== false,
-    serviceOrders: featureToggles.enable_service_orders !== false,
-    support: featureToggles.enable_support !== false,
-    clients: featureToggles.enable_clients !== false,
-    training: featureToggles.enable_training !== false,
-    team: featureToggles.enable_team !== false,
-    financial: true,
-  };
+  const alerts = [
+    state.overdueTickets > 0
+      ? {
+          title: `${state.overdueTickets} ticket(s) fora do SLA`,
+          description: "Priorize o atendimento mais urgente.",
+          href: "/suporte",
+        }
+      : null,
+    state.overdueRevenue > 0
+      ? {
+          title: `${state.overdueRevenue} lançamento(s) vencido(s)`,
+          description: "Revise pendências financeiras em aberto.",
+          href: "/financeiro",
+        }
+      : null,
+    state.pendingQuotes > 0
+      ? {
+          title: `${state.pendingQuotes} orçamento(s) aguardando ação`,
+          description: "Confira propostas sem retorno.",
+          href: "/orcamentos",
+        }
+      : null,
+  ].filter(Boolean) as Array<{ title: string; description: string; href: string }>;
 
   if (loading) {
     return (
@@ -526,19 +403,20 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 pb-10">
+    <div className="mx-auto max-w-6xl space-y-5 pb-10">
       <section className="rounded-3xl border border-white/10 bg-surface p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-cs-green/20 bg-cs-green/10 px-3 py-1 text-xs font-semibold text-cs-green">
               <LayoutDashboard className="h-3.5 w-3.5" />
               {labels.dashboard}
             </div>
-            <h1 className="text-2xl font-semibold text-white">Painel operacional do sistema</h1>
+            <h1 className="text-2xl font-semibold text-white">Painel operacional</h1>
             <p className="mt-1 text-sm text-text-secondary">
-              Visão rápida de comercial, financeiro, operação, suporte e treinamento com atalhos reais.
+              Resumo rápido do que exige atenção agora.
             </p>
           </div>
+
           <button
             type="button"
             onClick={refresh}
@@ -546,9 +424,10 @@ export default function DashboardPage() {
             className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10 disabled:opacity-60"
           >
             <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            Atualizar painel
+            Atualizar
           </button>
         </div>
+
         {errorMessage ? (
           <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
             {errorMessage}
@@ -556,296 +435,146 @@ export default function DashboardPage() {
         ) : null}
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {featured
-          .filter((card) => {
-            if (card.href === "/orcamentos") return visibleModules.quotes;
-            if (card.href === "/os") return visibleModules.serviceOrders;
-            if (card.href === "/suporte") return visibleModules.support;
-            return true;
-          })
-          .map((card) => {
-            const Icon = card.icon;
-            const tones = toneClasses(card.tone);
-            return (
-              <Link
-                key={card.title}
-                href={card.href}
-                className={`rounded-3xl border bg-surface p-5 transition hover:-translate-y-0.5 hover:bg-white/[0.03] ${tones.border}`}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-text-secondary">{card.title}</p>
-                    <p className="mt-2 text-3xl font-bold text-white">{card.value}</p>
-                    <p className="mt-2 text-xs text-text-secondary">{card.description}</p>
-                  </div>
-                  <div className={`rounded-2xl p-3 ${tones.chip}`}>
-                    <Icon size={22} />
-                  </div>
+      <section className="grid gap-4 md:grid-cols-3">
+        {featured.map((card) => {
+          const Icon = card.icon;
+          return (
+            <Link
+              key={card.title}
+              href={card.href}
+              className="rounded-3xl border border-white/10 bg-surface p-5 transition hover:-translate-y-0.5 hover:bg-white/[0.03]"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm text-text-secondary">{card.title}</p>
+                  <p className="mt-2 text-3xl font-bold text-white">{card.value}</p>
                 </div>
-              </Link>
-            );
-          })}
+                <div className="rounded-2xl bg-cs-green/10 p-3 text-cs-green">
+                  <Icon size={22} />
+                </div>
+              </div>
+            </Link>
+          );
+        })}
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
-        <div className="rounded-3xl border border-white/10 bg-surface p-5">
-          <div className="mb-4 flex items-center gap-2">
-            <ShieldAlert className="h-4 w-4 text-cs-gold" />
-            <h2 className="text-base font-semibold text-white">Ações imediatas</h2>
+      <SmallToggleSection
+        title="Alertas"
+        count={alerts.length}
+        open={openPanels.alerts}
+        onToggle={() => setOpenPanels((p) => ({ ...p, alerts: !p.alerts }))}
+      >
+        {alerts.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-white/10 bg-background px-4 py-5 text-sm text-text-secondary">
+            Nenhum alerta crítico no momento.
           </div>
-          <div className="grid gap-3">
-            {alerts.map((alert) => (
-              <Link
-                key={alert.id}
-                href={alert.href}
-                className={`rounded-2xl border p-4 transition hover:bg-white/5 ${
-                  alert.level === "critical"
-                    ? "border-red-500/20 bg-red-500/5"
-                    : alert.level === "warning"
-                    ? "border-cs-gold/20 bg-cs-gold/5"
-                    : "border-cs-green/20 bg-cs-green/5"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-white">{alert.title}</p>
-                    <p className="mt-1 text-xs text-text-secondary">{alert.description}</p>
-                  </div>
-                  <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-text-secondary" />
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
+        ) : (
+          alerts.map((alert) => (
+            <CompactRow
+              key={alert.title}
+              href={alert.href}
+              title={alert.title}
+              subtitle={alert.description}
+              meta="ver"
+            />
+          ))
+        )}
+      </SmallToggleSection>
 
-        <div className="rounded-3xl border border-white/10 bg-surface p-5">
-          <div className="mb-4 flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-cs-green" />
-            <h2 className="text-base font-semibold text-white">Atalhos rápidos</h2>
+      <SmallToggleSection
+        title="Pendências de suporte"
+        count={priorityTickets.length}
+        open={openPanels.support}
+        onToggle={() => setOpenPanels((p) => ({ ...p, support: !p.support }))}
+      >
+        {topTicket ? (
+          <CompactRow
+            href="/suporte"
+            title={topTicket.title || `Ticket ${shortId(topTicket.id)}`}
+            subtitle={`${topTicket.category || "Sem categoria"} · ${topTicket.priority || "normal"} · SLA ${formatDateTime(topTicket.sla_deadline)}`}
+            meta={topTicket.status || "open"}
+          />
+        ) : (
+          <div className="rounded-2xl border border-dashed border-white/10 bg-background px-4 py-5 text-sm text-text-secondary">
+            Nenhum ticket em aberto.
           </div>
+        )}
+        <Link href="/suporte" className="inline-flex items-center gap-2 text-sm text-cs-green transition hover:opacity-80">
+          Ver fila completa <ArrowRight className="h-4 w-4" />
+        </Link>
+      </SmallToggleSection>
 
-          <div className="grid gap-3">
-            {[
-              { label: `Novo ${labels.clients.slice(0, -1).toLowerCase()}`, href: "/clientes" },
-              { label: `Novo ${customLabels.entity_quote_singular || "orçamento"}`, href: "/orcamentos" },
-              { label: "Nova OS", href: "/os" },
-              { label: "Novo ticket", href: "/suporte" },
-              { label: "Gerenciar equipe", href: "/equipe" },
-              { label: `Abrir ${labels.training.toLowerCase()}`, href: "/treinamentos" },
-              { label: "Ir para financeiro", href: "/financeiro" },
-            ]
-              .filter((item) => {
-                if (item.href === "/clientes") return visibleModules.clients;
-                if (item.href === "/orcamentos") return visibleModules.quotes;
-                if (item.href === "/os") return visibleModules.serviceOrders;
-                if (item.href === "/suporte") return visibleModules.support;
-                if (item.href === "/equipe") return visibleModules.team;
-                if (item.href === "/treinamentos") return visibleModules.training;
-                return true;
-              })
-              .map((item) => (
-                <Link
-                  key={item.label}
-                  href={item.href}
-                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-background px-4 py-3 text-sm text-white transition hover:bg-white/5"
-                >
-                  <span>{item.label}</span>
-                  <ArrowRight className="h-4 w-4 text-text-secondary" />
-                </Link>
-              ))}
+      <SmallToggleSection
+        title="Próximas operações"
+        count={upcomingOrders.length}
+        open={openPanels.operations}
+        onToggle={() => setOpenPanels((p) => ({ ...p, operations: !p.operations }))}
+      >
+        {nextOrder ? (
+          <CompactRow
+            href="/os"
+            title={`OS ${shortId(nextOrder.id)}`}
+            subtitle={`Início ${formatDateTime(nextOrder.event_start_date)} · Fim ${formatDateTime(nextOrder.event_end_date)}`}
+            meta={nextOrder.status || "pending"}
+          />
+        ) : (
+          <div className="rounded-2xl border border-dashed border-white/10 bg-background px-4 py-5 text-sm text-text-secondary">
+            Nenhuma operação próxima.
           </div>
-        </div>
-      </section>
+        )}
+        <Link href="/os" className="inline-flex items-center gap-2 text-sm text-cs-green transition hover:opacity-80">
+          Ver agenda completa <ArrowRight className="h-4 w-4" />
+        </Link>
+      </SmallToggleSection>
+
+      <SmallToggleSection
+        title="Comercial recente"
+        count={recentQuotes.length}
+        open={openPanels.commercial}
+        onToggle={() => setOpenPanels((p) => ({ ...p, commercial: !p.commercial }))}
+      >
+        {latestQuote ? (
+          <CompactRow
+            href={`/orcamentos/${latestQuote.id}`}
+            title={latestQuote.title || `Orçamento ${shortId(latestQuote.id)}`}
+            subtitle={`Valor ${formatCurrency(toNumber(latestQuote.final_amount))} · Criado em ${formatDateTime(latestQuote.created_at)}`}
+            meta={latestQuote.status || "draft"}
+          />
+        ) : (
+          <div className="rounded-2xl border border-dashed border-white/10 bg-background px-4 py-5 text-sm text-text-secondary">
+            Nenhum orçamento recente.
+          </div>
+        )}
+        <Link href="/orcamentos" className="inline-flex items-center gap-2 text-sm text-cs-green transition hover:opacity-80">
+          Ver orçamentos <ArrowRight className="h-4 w-4" />
+        </Link>
+      </SmallToggleSection>
 
       <section className="rounded-3xl border border-white/10 bg-surface p-5">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-white">Financeiro</h2>
+          <h2 className="text-base font-semibold text-white">Financeiro em resumo</h2>
           <Link href="/financeiro" className="text-sm text-cs-green transition hover:opacity-80">
             Abrir financeiro
           </Link>
         </div>
+
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {financialCards.map((card) => {
-            const Icon = card.icon;
-            const tones = toneClasses(card.tone);
-            return (
-              <Link
-                key={card.title}
-                href={card.href}
-                className={`rounded-3xl border bg-background p-4 transition hover:bg-white/5 ${tones.border}`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm text-text-secondary">{card.title}</p>
-                    <p className="mt-2 text-2xl font-bold text-white">{formatCurrency(card.value)}</p>
-                    <p className="mt-2 text-xs text-text-secondary">{card.description}</p>
-                  </div>
-                  <div className={`rounded-2xl p-3 ${tones.chip}`}>
-                    <Icon size={20} />
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
-        <div className="rounded-3xl border border-white/10 bg-surface p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-base font-semibold text-white">Próximas operações</h2>
-            <Link href="/os" className="text-sm text-cs-green transition hover:opacity-80">
-              Ver todas
-            </Link>
-          </div>
-          <div className="space-y-3">
-            {upcomingOrders.length === 0 ? (
-              <EmptyState
-                title="Nenhuma operação próxima"
-                description="Não há OS programadas para os próximos dias."
-                href="/os"
-                cta="Abrir Ordens de Serviço"
-              />
-            ) : (
-              upcomingOrders.map((order) => (
-                <Link
-                  key={order.id}
-                  href="/os"
-                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-background px-4 py-3 transition hover:bg-white/5"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-white">
-                      OS {order.id.slice(0, 8).toUpperCase()}
-                    </p>
-                    <p className="mt-1 text-xs text-text-secondary">
-                      Início: {formatDateTime(order.event_start_date)}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs uppercase tracking-wide text-text-secondary">
-                      {order.status || "sem status"}
-                    </p>
-                    <p className="mt-1 text-xs text-text-secondary">
-                      Fim: {formatDateTime(order.event_end_date)}
-                    </p>
-                  </div>
-                </Link>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-white/10 bg-surface p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-base font-semibold text-white">Tickets prioritários</h2>
-            <Link href="/suporte" className="text-sm text-cs-green transition hover:opacity-80">
-              Ver fila
-            </Link>
-          </div>
-          <div className="space-y-3">
-            {priorityTickets.length === 0 ? (
-              <EmptyState
-                title="Nenhum ticket em aberto"
-                description="A fila de suporte está vazia neste momento."
-                href="/suporte"
-                cta="Abrir suporte"
-              />
-            ) : (
-              priorityTickets.map((ticket) => {
-                const isCritical =
-                  (ticket.priority || "").toLowerCase() === "critical" ||
-                  (ticket.priority || "").toLowerCase() === "high";
-
-                return (
-                  <Link
-                    key={ticket.id}
-                    href="/suporte"
-                    className={`flex items-start justify-between rounded-2xl border px-4 py-3 transition hover:bg-white/5 ${
-                      isCritical
-                        ? "border-red-500/20 bg-red-500/5"
-                        : "border-white/10 bg-background"
-                    }`}
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-white">
-                        {ticket.title || `Ticket ${ticket.id.slice(0, 8).toUpperCase()}`}
-                      </p>
-                      <p className="mt-1 text-xs text-text-secondary">
-                        {ticket.category || "Sem categoria"} · {ticket.status || "Sem status"}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs uppercase tracking-wide text-text-secondary">
-                        {ticket.priority || "normal"}
-                      </p>
-                      <p className="mt-1 text-xs text-text-secondary">
-                        SLA: {formatDateTime(ticket.sla_deadline)}
-                      </p>
-                    </div>
-                  </Link>
-                );
-              })
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-3xl border border-white/10 bg-surface p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-white">Comercial recente</h2>
-          <Link href="/orcamentos" className="text-sm text-cs-green transition hover:opacity-80">
-            Ver {labels.quotes.toLowerCase()}
+          <Link href="/financeiro" className="rounded-3xl border border-white/10 bg-background p-4 transition hover:bg-white/5">
+            <p className="text-sm text-text-secondary">Recebido no mês</p>
+            <p className="mt-2 text-2xl font-bold text-white">{formatCurrency(state.revenueThisMonth)}</p>
           </Link>
-        </div>
-        <div className="space-y-3">
-          {recentQuotes.length === 0 ? (
-            <EmptyState
-              title={`Nenhum ${labels.quotes.toLowerCase()} cadastrado`}
-              description="Comece registrando propostas e negociações reais."
-              href="/orcamentos"
-              cta={`Abrir ${labels.quotes}`}
-            />
-          ) : (
-            recentQuotes.map((quote) => {
-              const d = daysUntil(quote.valid_until);
-              return (
-                <Link
-                  key={quote.id}
-                  href={`/orcamentos/${quote.id}`}
-                  className="grid grid-cols-1 gap-3 rounded-2xl border border-white/10 bg-background px-4 py-3 transition hover:bg-white/5 md:grid-cols-[1.4fr_0.7fr_0.6fr_0.7fr]"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-white">
-                      {quote.title || `Orçamento ${quote.id.slice(0, 8).toUpperCase()}`}
-                    </p>
-                    <p className="mt-1 text-xs text-text-secondary">
-                      Criado em {formatDateTime(quote.created_at)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-text-secondary">Status</p>
-                    <p className="mt-1 text-sm text-white">{quote.status || "Sem status"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-text-secondary">Valor</p>
-                    <p className="mt-1 text-sm text-white">{formatCurrency(toNumber(quote.final_amount))}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-text-secondary">Validade</p>
-                    <p className="mt-1 text-sm text-white">
-                      {quote.valid_until ? formatDateTime(quote.valid_until) : "Sem validade"}
-                    </p>
-                    {d !== null && (
-                      <p className="mt-1 text-xs text-text-secondary">
-                        {d < 0 ? "Expirado" : d === 0 ? "Vence hoje" : `${d} dia(s) restantes`}
-                      </p>
-                    )}
-                  </div>
-                </Link>
-              );
-            })
-          )}
+          <Link href="/financeiro" className="rounded-3xl border border-white/10 bg-background p-4 transition hover:bg-white/5">
+            <p className="text-sm text-text-secondary">Em aberto</p>
+            <p className="mt-2 text-2xl font-bold text-white">{state.revenueOpen}</p>
+          </Link>
+          <Link href="/financeiro" className="rounded-3xl border border-white/10 bg-background p-4 transition hover:bg-white/5">
+            <p className="text-sm text-text-secondary">Vencidos</p>
+            <p className="mt-2 text-2xl font-bold text-white">{state.overdueRevenue}</p>
+          </Link>
+          <Link href="/financeiro" className="rounded-3xl border border-white/10 bg-background p-4 transition hover:bg-white/5">
+            <p className="text-sm text-text-secondary">Lançamentos abertos</p>
+            <p className="mt-2 text-2xl font-bold text-white">{state.financialItemsOpen}</p>
+          </Link>
         </div>
       </section>
     </div>
