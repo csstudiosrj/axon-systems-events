@@ -1,12 +1,6 @@
 "use client";
 
-import React, {
-  ChangeEvent,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabase";
 import { useSettings } from "@/app/providers/SettingsProvider";
@@ -160,56 +154,22 @@ const DEFAULT_COMPANY_FORM: CompanyForm = {
 };
 
 const DEFAULT_CUSTOM_LABELS: CustomLabels = {
-  menu_dashboard: "Visão Geral",
-  menu_calendar: "Calendário",
-  menu_crm: "CRM / Vendas",
-  menu_financial: "Financeiro",
-  menu_marketing: "Marketing",
-  menu_training: "Treinamentos",
-  menu_patients: "Pacientes",
-  menu_inventory: "Inventário",
-  menu_quotes: "Orçamentos",
-  menu_service_orders: "Ordens de Serviço",
-  menu_support: "Suporte Técnico",
-  menu_team: "Equipe",
-  entity_client_singular: "Cliente",
-  entity_client_plural: "Clientes",
-  entity_lead_singular: "Lead",
-  entity_lead_plural: "Leads",
-  entity_quote_singular: "Orçamento",
-  entity_quote_plural: "Orçamentos",
-  entity_proposal_singular: "Proposta",
-  entity_proposal_plural: "Propostas",
-  entity_contract_singular: "Contrato",
-  entity_contract_plural: "Contratos",
-  entity_invoice_singular: "Fatura",
-  entity_invoice_plural: "Faturas",
-  entity_service_order_singular: "Ordem de Serviço",
-  entity_service_order_plural: "Ordens de Serviço",
-  entity_equipment_singular: "Equipamento",
-  entity_equipment_plural: "Equipamentos",
-  entity_course_singular: "Curso",
-  entity_course_plural: "Cursos",
-  entity_lesson_singular: "Aula",
-  entity_lesson_plural: "Aulas",
-  entity_salesperson_singular: "Responsável Comercial",
-  entity_salesperson_plural: "Responsáveis Comerciais",
+  crm_name: "CRM / Vendas",
+  academy_name: "Treinamentos",
+  inventory_name: "Inventário",
+  os_name: "Ordem de Serviço",
+  client_singular: "Cliente",
+  client_plural: "Clientes",
+  quote_singular: "Orçamento",
+  quote_plural: "Orçamentos",
 };
 
 const DEFAULT_FEATURE_TOGGLES: FeatureToggles = {
-  enable_dashboard: true,
   enable_crm: true,
-  enable_clients: true,
-  enable_quotes: true,
+  enable_academy: true,
+  enable_support: true,
   enable_financial: true,
   enable_inventory: true,
-  enable_service_orders: true,
-  enable_marketing: true,
-  enable_calendar: true,
-  enable_team: true,
-  enable_support: true,
-  enable_training: true,
-  enable_client_portal: true,
 };
 
 const DEFAULT_COMMERCIAL_DOCUMENTS: CommercialDocuments = {
@@ -229,113 +189,53 @@ const MODULES: Array<{
   title: string;
   description: string;
 }> = [
-  { key: "enable_dashboard", title: "Dashboard", description: "Visão geral do negócio." },
-  { key: "enable_crm", title: "CRM / Vendas", description: "Funil, leads e acompanhamento comercial." },
-  { key: "enable_clients", title: "Clientes", description: "Base principal de cadastros." },
-  { key: "enable_quotes", title: "Orçamentos", description: "Propostas, condições e valores." },
-  { key: "enable_financial", title: "Financeiro", description: "Cobranças, contas e recebimentos." },
-  { key: "enable_inventory", title: "Inventário", description: "Estoque, equipamentos e ativos." },
-  { key: "enable_service_orders", title: "Ordens de Serviço", description: "Operação e execução." },
-  { key: "enable_marketing", title: "Marketing", description: "Planejamento de posts e campanhas." },
-  { key: "enable_calendar", title: "Calendário", description: "Agenda e compromissos." },
-  { key: "enable_team", title: "Equipe", description: "Gestão interna de colaboradores." },
-  { key: "enable_support", title: "Suporte", description: "Canal técnico e atendimento." },
-  { key: "enable_training", title: "Treinamentos", description: "Netflix corporativa para cursos e aulas." },
-  { key: "enable_client_portal", title: "Portal do Cliente", description: "Área exclusiva dos clientes." },
+  {
+    key: "enable_crm",
+    title: "CRM / Vendas",
+    description: "Leads, relacionamento e oportunidades comerciais.",
+  },
+  {
+    key: "enable_academy",
+    title: "Academy / Treinamentos",
+    description: "Netflix corporativa para funcionários e clientes.",
+  },
+  {
+    key: "enable_support",
+    title: "Suporte",
+    description: "Atendimento técnico e acompanhamento de chamados.",
+  },
+  {
+    key: "enable_financial",
+    title: "Financeiro",
+    description: "Cobranças, recebimentos, vencimentos e controle financeiro.",
+  },
+  {
+    key: "enable_inventory",
+    title: "Inventário",
+    description: "Equipamentos, materiais e ativos operacionais.",
+  },
 ];
 
 const LABEL_GROUPS: Array<{ title: string; fields: string[] }> = [
   {
-    title: "Menus",
-    fields: [
-      "menu_dashboard",
-      "menu_calendar",
-      "menu_crm",
-      "menu_financial",
-      "menu_marketing",
-      "menu_training",
-      "menu_patients",
-      "menu_inventory",
-      "menu_quotes",
-      "menu_service_orders",
-      "menu_support",
-      "menu_team",
-    ],
+    title: "Abas e módulos principais",
+    fields: ["crm_name", "academy_name", "inventory_name", "os_name"],
   },
   {
-    title: "Relacionamento",
-    fields: [
-      "entity_client_singular",
-      "entity_client_plural",
-      "entity_lead_singular",
-      "entity_lead_plural",
-      "entity_salesperson_singular",
-      "entity_salesperson_plural",
-    ],
-  },
-  {
-    title: "Comercial",
-    fields: [
-      "entity_quote_singular",
-      "entity_quote_plural",
-      "entity_proposal_singular",
-      "entity_proposal_plural",
-      "entity_contract_singular",
-      "entity_contract_plural",
-      "entity_invoice_singular",
-      "entity_invoice_plural",
-    ],
-  },
-  {
-    title: "Operação e ensino",
-    fields: [
-      "entity_service_order_singular",
-      "entity_service_order_plural",
-      "entity_equipment_singular",
-      "entity_equipment_plural",
-      "entity_course_singular",
-      "entity_course_plural",
-      "entity_lesson_singular",
-      "entity_lesson_plural",
-    ],
+    title: "Entidades comerciais",
+    fields: ["client_singular", "client_plural", "quote_singular", "quote_plural"],
   },
 ];
 
 const LABEL_MAP: Record<string, string> = {
-  menu_dashboard: "Menu: Visão Geral",
-  menu_calendar: "Menu: Calendário",
-  menu_crm: "Menu: CRM / Vendas",
-  menu_financial: "Menu: Financeiro",
-  menu_marketing: "Menu: Marketing",
-  menu_training: "Menu: Treinamentos",
-  menu_patients: "Menu: Pacientes",
-  menu_inventory: "Menu: Inventário",
-  menu_quotes: "Menu: Orçamentos",
-  menu_service_orders: "Menu: Ordens de Serviço",
-  menu_support: "Menu: Suporte Técnico",
-  menu_team: "Menu: Equipe",
-  entity_client_singular: "Cliente (singular)",
-  entity_client_plural: "Clientes (plural)",
-  entity_lead_singular: "Lead (singular)",
-  entity_lead_plural: "Leads (plural)",
-  entity_quote_singular: "Orçamento (singular)",
-  entity_quote_plural: "Orçamentos (plural)",
-  entity_proposal_singular: "Proposta (singular)",
-  entity_proposal_plural: "Propostas (plural)",
-  entity_contract_singular: "Contrato (singular)",
-  entity_contract_plural: "Contratos (plural)",
-  entity_invoice_singular: "Fatura (singular)",
-  entity_invoice_plural: "Faturas (plural)",
-  entity_service_order_singular: "Ordem de Serviço (singular)",
-  entity_service_order_plural: "Ordens de Serviço (plural)",
-  entity_equipment_singular: "Equipamento (singular)",
-  entity_equipment_plural: "Equipamentos (plural)",
-  entity_course_singular: "Curso (singular)",
-  entity_course_plural: "Cursos (plural)",
-  entity_lesson_singular: "Aula (singular)",
-  entity_lesson_plural: "Aulas (plural)",
-  entity_salesperson_singular: "Responsável Comercial (singular)",
-  entity_salesperson_plural: "Responsáveis Comerciais (plural)",
+  crm_name: "Nome da aba CRM",
+  academy_name: "Nome da aba Academy / Treinamentos",
+  inventory_name: "Nome da aba Inventário",
+  os_name: "Nome da aba Ordem de Serviço",
+  client_singular: "Cliente (singular)",
+  client_plural: "Clientes (plural)",
+  quote_singular: "Orçamento (singular)",
+  quote_plural: "Orçamentos (plural)",
 };
 
 const SYSTEM_PRESETS: Array<{
@@ -348,66 +248,60 @@ const SYSTEM_PRESETS: Array<{
     title: "Saúde",
     description: "Consultório médico, odonto, vet e atendimento clínico.",
     labels: {
-      menu_quotes: "Consultas",
-      menu_patients: "Pacientes",
-      entity_client_singular: "Paciente",
-      entity_client_plural: "Pacientes",
-      entity_quote_singular: "Consulta",
-      entity_quote_plural: "Consultas",
-      entity_salesperson_singular: "Atendente",
-      entity_salesperson_plural: "Atendentes",
+      crm_name: "Relacionamento",
+      academy_name: "Treinamentos",
+      inventory_name: "Materiais",
+      os_name: "Atendimentos",
+      client_singular: "Paciente",
+      client_plural: "Pacientes",
+      quote_singular: "Consulta",
+      quote_plural: "Consultas",
     },
     toggles: {
-      enable_training: false,
+      enable_academy: false,
       enable_inventory: false,
-      enable_marketing: false,
     },
   },
   {
     title: "Educação",
     description: "Escolas, cursos, treinamentos e operação EAD.",
     labels: {
-      menu_training: "Cursos",
-      menu_quotes: "Matrículas",
-      entity_client_singular: "Aluno",
-      entity_client_plural: "Alunos",
-      entity_quote_singular: "Matrícula",
-      entity_quote_plural: "Matrículas",
-      entity_course_singular: "Curso",
-      entity_course_plural: "Cursos",
-      entity_lesson_singular: "Aula",
-      entity_lesson_plural: "Aulas",
+      crm_name: "Relacionamento",
+      academy_name: "Cursos",
+      inventory_name: "Materiais",
+      os_name: "Atividades",
+      client_singular: "Aluno",
+      client_plural: "Alunos",
+      quote_singular: "Matrícula",
+      quote_plural: "Matrículas",
     },
   },
   {
     title: "Eventos",
     description: "Locação, produção, estruturas e operação técnica.",
     labels: {
-      menu_inventory: "Equipamentos",
-      menu_service_orders: "Operações",
-      menu_quotes: "Propostas",
-      entity_quote_singular: "Proposta",
-      entity_quote_plural: "Propostas",
-      entity_service_order_singular: "Operação",
-      entity_service_order_plural: "Operações",
-      entity_equipment_singular: "Equipamento",
-      entity_equipment_plural: "Equipamentos",
-      entity_salesperson_singular: "Produtor",
-      entity_salesperson_plural: "Produtores",
+      crm_name: "CRM / Vendas",
+      academy_name: "Treinamentos",
+      inventory_name: "Equipamentos",
+      os_name: "Operações",
+      client_singular: "Cliente",
+      client_plural: "Clientes",
+      quote_singular: "Proposta",
+      quote_plural: "Propostas",
     },
   },
   {
     title: "Consultoria",
     description: "Projetos consultivos, acompanhamento e contratos.",
     labels: {
-      menu_quotes: "Propostas",
-      menu_service_orders: "Projetos",
-      entity_quote_singular: "Proposta",
-      entity_quote_plural: "Propostas",
-      entity_service_order_singular: "Projeto",
-      entity_service_order_plural: "Projetos",
-      entity_salesperson_singular: "Consultor",
-      entity_salesperson_plural: "Consultores",
+      crm_name: "Comercial",
+      academy_name: "Base de Conhecimento",
+      inventory_name: "Recursos",
+      os_name: "Projetos",
+      client_singular: "Conta",
+      client_plural: "Contas",
+      quote_singular: "Proposta",
+      quote_plural: "Propostas",
     },
     toggles: {
       enable_inventory: false,
@@ -417,16 +311,18 @@ const SYSTEM_PRESETS: Array<{
     title: "Web Host",
     description: "Assinaturas, suporte, clientes e operação técnica.",
     labels: {
-      menu_service_orders: "Chamados",
-      menu_support: "Suporte",
-      entity_service_order_singular: "Chamado",
-      entity_service_order_plural: "Chamados",
-      entity_client_singular: "Conta",
-      entity_client_plural: "Contas",
+      crm_name: "Comercial",
+      academy_name: "Tutoriais",
+      inventory_name: "Infraestrutura",
+      os_name: "Chamados",
+      client_singular: "Conta",
+      client_plural: "Contas",
+      quote_singular: "Plano",
+      quote_plural: "Planos",
     },
     toggles: {
       enable_inventory: false,
-      enable_training: false,
+      enable_academy: false,
     },
   },
 ];
@@ -856,7 +752,7 @@ export default function ConfiguracoesPage() {
         <div
           className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-2xl border px-4 py-3 shadow-xl backdrop-blur-md ${
             toast.type === "success"
-              ? "border-cs-green/30 bg-cs-green/12 text-cs-green"
+              ? "border-cs-green/30 bg-cs-green/10 text-cs-green"
               : toast.type === "error"
               ? "border-red-500/30 bg-red-500/10 text-red-400"
               : "border-white/10 bg-white/5 text-white"
@@ -882,7 +778,7 @@ export default function ConfiguracoesPage() {
             </div>
             <h1 className="text-2xl font-semibold text-white">Centro de Configurações</h1>
             <p className="mt-1 text-sm text-text-secondary">
-              Perfil da empresa, nomes do sistema, módulos ativos e documentação comercial.
+              Perfil da empresa, presets de segmento, módulos ativos e documentação comercial.
             </p>
           </div>
 
@@ -960,9 +856,7 @@ export default function ConfiguracoesPage() {
                             style={
                               cropMode
                                 ? {
-                                    transform: `translate(${logoPosition.x - 50}px, ${
-                                      logoPosition.y - 50
-                                    }px) scale(${logoScale})`,
+                                    transform: `translate(${logoPosition.x - 50}px, ${logoPosition.y - 50}px) scale(${logoScale})`,
                                   }
                                 : undefined
                             }
@@ -1027,9 +921,7 @@ export default function ConfiguracoesPage() {
                           max={100}
                           step={1}
                           value={logoPosition.x}
-                          onChange={(value) =>
-                            setLogoPosition((prev) => ({ ...prev, x: value }))
-                          }
+                          onChange={(value) => setLogoPosition((prev) => ({ ...prev, x: value }))}
                         />
                         <RangeField
                           label="Posição vertical"
@@ -1037,9 +929,7 @@ export default function ConfiguracoesPage() {
                           max={100}
                           step={1}
                           value={logoPosition.y}
-                          onChange={(value) =>
-                            setLogoPosition((prev) => ({ ...prev, y: value }))
-                          }
+                          onChange={(value) => setLogoPosition((prev) => ({ ...prev, y: value }))}
                         />
                       </div>
                     </div>
@@ -1081,7 +971,6 @@ export default function ConfiguracoesPage() {
                       onChange={(e) => setField("website", e.target.value)}
                       placeholder="https://seusite.com.br"
                     />
-
                     <InputField
                       label="Telefone fixo"
                       value={companyForm.phone_landline}
@@ -1198,8 +1087,8 @@ export default function ConfiguracoesPage() {
           {activeTab === "sistema" && (
             <>
               <Card
-                title="Presets de segmento"
-                description="Aplica nomes prontos em todo o sistema com um clique."
+                title="Presets por segmento"
+                description="Aplica nomes padrão do seu nicho em todo o sistema."
                 icon={RefreshCcw}
               >
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -1210,9 +1099,7 @@ export default function ConfiguracoesPage() {
                     >
                       <div className="mb-3">
                         <h3 className="text-sm font-semibold text-white">{preset.title}</h3>
-                        <p className="mt-1 text-xs text-text-secondary">
-                          {preset.description}
-                        </p>
+                        <p className="mt-1 text-xs text-text-secondary">{preset.description}</p>
                       </div>
                       <button
                         type="button"
@@ -1227,8 +1114,8 @@ export default function ConfiguracoesPage() {
               </Card>
 
               <Card
-                title="Nomenclaturas personalizadas"
-                description="Se o preset não servir, digite manualmente os nomes do seu negócio."
+                title="Nomes personalizados"
+                description="Se o preset não atender, digite seus próprios nomes."
                 icon={Type}
               >
                 <div className="space-y-6">
@@ -1259,7 +1146,7 @@ export default function ConfiguracoesPage() {
           {activeTab === "modulos" && (
             <Card
               title="Ativação de módulos"
-              description="Ligue e desligue os blocos que realmente serão usados no sistema."
+              description="Ligue e desligue os módulos realmente usados pela empresa."
               icon={LayoutGrid}
             >
               <div className="grid gap-4 md:grid-cols-2">
@@ -1273,9 +1160,7 @@ export default function ConfiguracoesPage() {
                     >
                       <div className="pr-4">
                         <h3 className="text-sm font-semibold text-white">{module.title}</h3>
-                        <p className="mt-1 text-xs text-text-secondary">
-                          {module.description}
-                        </p>
+                        <p className="mt-1 text-xs text-text-secondary">{module.description}</p>
                       </div>
 
                       <button
@@ -1303,32 +1188,17 @@ export default function ConfiguracoesPage() {
             <>
               <Card
                 title="Exibição em documentos"
-                description="Escolha o que aparece nos orçamentos, propostas e materiais comerciais."
+                description="Escolha quais dados comerciais aparecem nos materiais emitidos."
                 icon={FileText}
               >
                 <div className="grid gap-4 md:grid-cols-2">
                   {[
-                    {
-                      key: "show_logo_on_quotes",
-                      label: "Exibir logo nos orçamentos",
-                    },
-                    {
-                      key: "show_company_address_on_quotes",
-                      label: "Exibir endereço nos orçamentos",
-                    },
-                    {
-                      key: "show_company_contacts_on_quotes",
-                      label: "Exibir contatos nos orçamentos",
-                    },
-                    {
-                      key: "show_signature_on_quotes",
-                      label: "Exibir campo de assinatura",
-                    },
+                    { key: "show_logo_on_quotes", label: "Exibir logo nos orçamentos" },
+                    { key: "show_company_address_on_quotes", label: "Exibir endereço nos orçamentos" },
+                    { key: "show_company_contacts_on_quotes", label: "Exibir contatos nos orçamentos" },
+                    { key: "show_signature_on_quotes", label: "Exibir assinatura nos orçamentos" },
                   ].map((item) => {
-                    const active = getBoolean(
-                      preferencesForm.commercial_documents[item.key],
-                      false
-                    );
+                    const active = getBoolean(preferencesForm.commercial_documents[item.key], false);
 
                     return (
                       <div
@@ -1357,8 +1227,8 @@ export default function ConfiguracoesPage() {
               </Card>
 
               <Card
-                title="Textos e templates"
-                description="Ajuste os textos comerciais e rodapés padrão."
+                title="Textos padrão"
+                description="Ajuste introduções, termos, contratos e rodapés."
                 icon={FileText}
               >
                 <div className="space-y-4">
@@ -1366,18 +1236,14 @@ export default function ConfiguracoesPage() {
                     label="Texto de abertura do orçamento"
                     rows={3}
                     value={getString(preferencesForm.commercial_documents.quote_intro_text)}
-                    onChange={(e) =>
-                      setCommercialField("quote_intro_text", e.target.value)
-                    }
+                    onChange={(e) => setCommercialField("quote_intro_text", e.target.value)}
                   />
 
                   <TextareaField
                     label="Termos e condições do orçamento"
                     rows={4}
                     value={getString(preferencesForm.commercial_documents.quote_terms_text)}
-                    onChange={(e) =>
-                      setCommercialField("quote_terms_text", e.target.value)
-                    }
+                    onChange={(e) => setCommercialField("quote_terms_text", e.target.value)}
                   />
 
                   <TextareaField
@@ -1390,9 +1256,7 @@ export default function ConfiguracoesPage() {
                   <TextareaField
                     label="Modelo padrão de proposta"
                     rows={4}
-                    value={getString(
-                      preferencesForm.commercial_documents.default_proposal_template
-                    )}
+                    value={getString(preferencesForm.commercial_documents.default_proposal_template)}
                     onChange={(e) =>
                       setCommercialField("default_proposal_template", e.target.value)
                     }
@@ -1401,9 +1265,7 @@ export default function ConfiguracoesPage() {
                   <TextareaField
                     label="Observações operacionais padrão"
                     rows={3}
-                    value={getString(
-                      preferencesForm.commercial_documents.default_operational_notes
-                    )}
+                    value={getString(preferencesForm.commercial_documents.default_operational_notes)}
                     onChange={(e) =>
                       setCommercialField("default_operational_notes", e.target.value)
                     }
