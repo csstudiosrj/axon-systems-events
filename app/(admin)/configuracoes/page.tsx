@@ -1,28 +1,46 @@
 "use client";
 
-import React, { ChangeEvent, useEffect, useRef, useState } from "react";
+import React, {
+  ChangeEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabase";
 import { useSettings } from "@/app/providers/SettingsProvider";
 import {
+  BadgeCheck,
   Building2,
   Check,
   FileText,
+  Grip,
+  ImagePlus,
   LayoutGrid,
   Loader2,
+  MapPin,
+  PaintBucket,
+  RefreshCcw,
   Save,
-  Settings,
-  Trash2,
+  Settings2,
   Type,
   Upload,
   X,
 } from "lucide-react";
 
-type SettingsTab = "perfil" | "nomenclaturas" | "modulos" | "documentos";
+type SettingsTab = "perfil" | "sistema" | "modulos" | "documentacao";
+type ToastType = "success" | "error" | "info";
 
 type CustomLabels = Record<string, string>;
 type FeatureToggles = Record<string, boolean>;
 type CommercialDocuments = Record<string, string | boolean>;
+
+interface SettingsContextShape {
+  companyProfile?: CompanyProfileRecord | null;
+  systemPreferences?: SystemPreferencesRecord | null;
+  refreshSettings?: () => Promise<void> | void;
+}
 
 interface CompanyProfileRecord {
   id?: string | number;
@@ -57,13 +75,8 @@ interface SystemPreferencesRecord {
   commercial_documents?: CommercialDocuments | null;
 }
 
-interface SettingsContextShape {
-  companyProfile?: CompanyProfileRecord | null;
-  systemPreferences?: SystemPreferencesRecord | null;
-  refreshSettings?: () => Promise<void> | void;
-}
-
 interface CompanyForm {
+  id?: string;
   company_name: string;
   cnpj: string;
   logo_url: string;
@@ -89,14 +102,15 @@ interface CompanyForm {
 }
 
 interface PreferencesForm {
+  id?: string;
   custom_labels: CustomLabels;
   feature_toggles: FeatureToggles;
   commercial_documents: CommercialDocuments;
 }
 
 interface ToastState {
+  type: ToastType;
   message: string;
-  type: "success" | "error" | "info";
 }
 
 interface IbgeState {
@@ -121,7 +135,7 @@ interface ViaCepResponse {
 }
 
 const DEFAULT_COMPANY_FORM: CompanyForm = {
-  company_name: "",
+  company_name: "ARXUM",
   cnpj: "",
   logo_url: "",
   primary_color: "#138946",
@@ -210,26 +224,30 @@ const DEFAULT_COMMERCIAL_DOCUMENTS: CommercialDocuments = {
   default_operational_notes: "",
 };
 
-const MODULES =[
-  { key: "enable_dashboard", title: "Dashboard", desc: "Visão geral do negócio com métricas." },
-  { key: "enable_crm", title: "CRM", desc: "Oportunidades, contatos e funil comercial." },
-  { key: "enable_clients", title: "Cadastros", desc: "Registros principais de clientes." },
-  { key: "enable_quotes", title: "Orçamentos", desc: "Montagem de propostas e valores." },
-  { key: "enable_financial", title: "Financeiro", desc: "Contas, recebimentos e vencimentos." },
-  { key: "enable_inventory", title: "Inventário", desc: "Equipamentos e estoque." },
-  { key: "enable_service_orders", title: "Ordens de Serviço", desc: "Execução e operação." },
-  { key: "enable_marketing", title: "Marketing", desc: "Planejamento de conteúdos." },
-  { key: "enable_calendar", title: "Calendário", desc: "Agenda e organização." },
-  { key: "enable_team", title: "Equipe", desc: "Acompanhamento de colaboradores." },
-  { key: "enable_support", title: "Suporte", desc: "Canal de atendimento técnico." },
-  { key: "enable_training", title: "Treinamentos", desc: "Área de cursos e aulas." },
-  { key: "enable_client_portal", title: "Portal do Cliente", desc: "Área exclusiva para o cliente." },
-] as const;
+const MODULES: Array<{
+  key: string;
+  title: string;
+  description: string;
+}> = [
+  { key: "enable_dashboard", title: "Dashboard", description: "Visão geral do negócio." },
+  { key: "enable_crm", title: "CRM / Vendas", description: "Funil, leads e acompanhamento comercial." },
+  { key: "enable_clients", title: "Clientes", description: "Base principal de cadastros." },
+  { key: "enable_quotes", title: "Orçamentos", description: "Propostas, condições e valores." },
+  { key: "enable_financial", title: "Financeiro", description: "Cobranças, contas e recebimentos." },
+  { key: "enable_inventory", title: "Inventário", description: "Estoque, equipamentos e ativos." },
+  { key: "enable_service_orders", title: "Ordens de Serviço", description: "Operação e execução." },
+  { key: "enable_marketing", title: "Marketing", description: "Planejamento de posts e campanhas." },
+  { key: "enable_calendar", title: "Calendário", description: "Agenda e compromissos." },
+  { key: "enable_team", title: "Equipe", description: "Gestão interna de colaboradores." },
+  { key: "enable_support", title: "Suporte", description: "Canal técnico e atendimento." },
+  { key: "enable_training", title: "Treinamentos", description: "Netflix corporativa para cursos e aulas." },
+  { key: "enable_client_portal", title: "Portal do Cliente", description: "Área exclusiva dos clientes." },
+];
 
-const LABEL_GROUPS: Array<{ title: string; fields: string[] }> =[
+const LABEL_GROUPS: Array<{ title: string; fields: string[] }> = [
   {
-    title: "Menus principais",
-    fields:[
+    title: "Menus",
+    fields: [
       "menu_dashboard",
       "menu_calendar",
       "menu_crm",
@@ -245,8 +263,8 @@ const LABEL_GROUPS: Array<{ title: string; fields: string[] }> =[
     ],
   },
   {
-    title: "Cadastros e relacionamento",
-    fields:[
+    title: "Relacionamento",
+    fields: [
       "entity_client_singular",
       "entity_client_plural",
       "entity_lead_singular",
@@ -256,8 +274,8 @@ const LABEL_GROUPS: Array<{ title: string; fields: string[] }> =[
     ],
   },
   {
-    title: "Comercial e documentos",
-    fields:[
+    title: "Comercial",
+    fields: [
       "entity_quote_singular",
       "entity_quote_plural",
       "entity_proposal_singular",
@@ -270,7 +288,7 @@ const LABEL_GROUPS: Array<{ title: string; fields: string[] }> =[
   },
   {
     title: "Operação e ensino",
-    fields:[
+    fields: [
       "entity_service_order_singular",
       "entity_service_order_plural",
       "entity_equipment_singular",
@@ -297,117 +315,119 @@ const LABEL_MAP: Record<string, string> = {
   menu_support: "Menu: Suporte Técnico",
   menu_team: "Menu: Equipe",
   entity_client_singular: "Cliente (singular)",
-  entity_client_plural: "Cliente (plural)",
+  entity_client_plural: "Clientes (plural)",
   entity_lead_singular: "Lead (singular)",
-  entity_lead_plural: "Lead (plural)",
+  entity_lead_plural: "Leads (plural)",
   entity_quote_singular: "Orçamento (singular)",
-  entity_quote_plural: "Orçamento (plural)",
+  entity_quote_plural: "Orçamentos (plural)",
   entity_proposal_singular: "Proposta (singular)",
-  entity_proposal_plural: "Proposta (plural)",
+  entity_proposal_plural: "Propostas (plural)",
   entity_contract_singular: "Contrato (singular)",
-  entity_contract_plural: "Contrato (plural)",
+  entity_contract_plural: "Contratos (plural)",
   entity_invoice_singular: "Fatura (singular)",
-  entity_invoice_plural: "Fatura (plural)",
+  entity_invoice_plural: "Faturas (plural)",
   entity_service_order_singular: "Ordem de Serviço (singular)",
-  entity_service_order_plural: "Ordem de Serviço (plural)",
+  entity_service_order_plural: "Ordens de Serviço (plural)",
   entity_equipment_singular: "Equipamento (singular)",
-  entity_equipment_plural: "Equipamento (plural)",
+  entity_equipment_plural: "Equipamentos (plural)",
   entity_course_singular: "Curso (singular)",
-  entity_course_plural: "Curso (plural)",
+  entity_course_plural: "Cursos (plural)",
   entity_lesson_singular: "Aula (singular)",
-  entity_lesson_plural: "Aula (plural)",
+  entity_lesson_plural: "Aulas (plural)",
   entity_salesperson_singular: "Responsável Comercial (singular)",
   entity_salesperson_plural: "Responsáveis Comerciais (plural)",
 };
 
-const NOMENCLATURE_PRESETS: Array<{
+const SYSTEM_PRESETS: Array<{
   title: string;
-  options: Array<{ label: string; values: Record<string, string> }>;
-}> =[
+  description: string;
+  labels: Record<string, string>;
+  toggles?: Record<string, boolean>;
+}> = [
   {
-    title: "CRM / Serviços",
-    options:[
-      {
-        label: "Empresarial padrão",
-        values: {
-          menu_quotes: "Orçamentos",
-          menu_service_orders: "Ordens de Serviço",
-          entity_quote_singular: "Orçamento",
-          entity_quote_plural: "Orçamentos",
-          entity_client_singular: "Cliente",
-          entity_client_plural: "Clientes",
-          entity_salesperson_singular: "Vendedor",
-          entity_salesperson_plural: "Vendedores",
-        },
-      },
-      {
-        label: "Consultivo / Saúde",
-        values: {
-          menu_quotes: "Consultas",
-          menu_patients: "Pacientes",
-          entity_quote_singular: "Consulta",
-          entity_quote_plural: "Consultas",
-          entity_client_singular: "Paciente",
-          entity_client_plural: "Pacientes",
-          entity_salesperson_singular: "Consultor",
-          entity_salesperson_plural: "Consultores",
-        },
-      },
-    ],
+    title: "Saúde",
+    description: "Consultório médico, odonto, vet e atendimento clínico.",
+    labels: {
+      menu_quotes: "Consultas",
+      menu_patients: "Pacientes",
+      entity_client_singular: "Paciente",
+      entity_client_plural: "Pacientes",
+      entity_quote_singular: "Consulta",
+      entity_quote_plural: "Consultas",
+      entity_salesperson_singular: "Atendente",
+      entity_salesperson_plural: "Atendentes",
+    },
+    toggles: {
+      enable_training: false,
+      enable_inventory: false,
+      enable_marketing: false,
+    },
   },
   {
-    title: "Eventos / Produção",
-    options:[
-      {
-        label: "Eventos corporativos",
-        values: {
-          menu_quotes: "Propostas",
-          menu_inventory: "Estruturas",
-          menu_service_orders: "Operações",
-          entity_quote_singular: "Proposta",
-          entity_quote_plural: "Propostas",
-          entity_service_order_singular: "Operação",
-          entity_service_order_plural: "Operações",
-          entity_equipment_singular: "Estrutura",
-          entity_equipment_plural: "Estruturas",
-        },
-      },
-      {
-        label: "Produção cultural",
-        values: {
-          menu_quotes: "Projetos",
-          menu_service_orders: "Produções",
-          entity_quote_singular: "Projeto",
-          entity_quote_plural: "Projetos",
-          entity_service_order_singular: "Produção",
-          entity_service_order_plural: "Produções",
-          entity_salesperson_singular: "Produtor",
-          entity_salesperson_plural: "Produtores",
-        },
-      },
-    ],
+    title: "Educação",
+    description: "Escolas, cursos, treinamentos e operação EAD.",
+    labels: {
+      menu_training: "Cursos",
+      menu_quotes: "Matrículas",
+      entity_client_singular: "Aluno",
+      entity_client_plural: "Alunos",
+      entity_quote_singular: "Matrícula",
+      entity_quote_plural: "Matrículas",
+      entity_course_singular: "Curso",
+      entity_course_plural: "Cursos",
+      entity_lesson_singular: "Aula",
+      entity_lesson_plural: "Aulas",
+    },
   },
   {
-    title: "Educação / Treinamento",
-    options:[
-      {
-        label: "EAD / Escola",
-        values: {
-          menu_quotes: "Matrículas",
-          menu_training: "Cursos",
-          entity_quote_singular: "Matrícula",
-          entity_quote_plural: "Matrículas",
-          entity_client_singular: "Aluno",
-          entity_client_plural: "Alunos",
-          entity_salesperson_singular: "Tutor",
-          entity_salesperson_plural: "Tutores",
-          entity_course_singular: "Curso",
-          entity_course_plural: "Cursos",
-          entity_lesson_singular: "Aula",
-          entity_lesson_plural: "Aulas",
-        },
-      },
-    ],
+    title: "Eventos",
+    description: "Locação, produção, estruturas e operação técnica.",
+    labels: {
+      menu_inventory: "Equipamentos",
+      menu_service_orders: "Operações",
+      menu_quotes: "Propostas",
+      entity_quote_singular: "Proposta",
+      entity_quote_plural: "Propostas",
+      entity_service_order_singular: "Operação",
+      entity_service_order_plural: "Operações",
+      entity_equipment_singular: "Equipamento",
+      entity_equipment_plural: "Equipamentos",
+      entity_salesperson_singular: "Produtor",
+      entity_salesperson_plural: "Produtores",
+    },
+  },
+  {
+    title: "Consultoria",
+    description: "Projetos consultivos, acompanhamento e contratos.",
+    labels: {
+      menu_quotes: "Propostas",
+      menu_service_orders: "Projetos",
+      entity_quote_singular: "Proposta",
+      entity_quote_plural: "Propostas",
+      entity_service_order_singular: "Projeto",
+      entity_service_order_plural: "Projetos",
+      entity_salesperson_singular: "Consultor",
+      entity_salesperson_plural: "Consultores",
+    },
+    toggles: {
+      enable_inventory: false,
+    },
+  },
+  {
+    title: "Web Host",
+    description: "Assinaturas, suporte, clientes e operação técnica.",
+    labels: {
+      menu_service_orders: "Chamados",
+      menu_support: "Suporte",
+      entity_service_order_singular: "Chamado",
+      entity_service_order_plural: "Chamados",
+      entity_client_singular: "Conta",
+      entity_client_plural: "Contas",
+    },
+    toggles: {
+      enable_inventory: false,
+      enable_training: false,
+    },
   },
 ];
 
@@ -416,8 +436,8 @@ function onlyDigits(value: string) {
 }
 
 function formatCnpj(value: string) {
-  const d = onlyDigits(value).slice(0, 14);
-  return d
+  const digits = onlyDigits(value).slice(0, 14);
+  return digits
     .replace(/^(\d{2})(\d)/, "$1.$2")
     .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
     .replace(/\.(\d{3})(\d)/, ".$1/$2")
@@ -425,16 +445,20 @@ function formatCnpj(value: string) {
 }
 
 function formatCep(value: string) {
-  const d = onlyDigits(value).slice(0, 8);
-  return d.replace(/^(\d{5})(\d)/, "$1-$2");
+  const digits = onlyDigits(value).slice(0, 8);
+  return digits.replace(/^(\d{5})(\d)/, "$1-$2");
 }
 
 function formatPhone(value: string) {
-  const d = onlyDigits(value).slice(0, 11);
-  if (d.length <= 10) {
-    return d.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{4})(\d)/, "$1-$2");
+  const digits = onlyDigits(value).slice(0, 11);
+  if (digits.length <= 10) {
+    return digits
+      .replace(/^(\d{2})(\d)/, "($1) $2")
+      .replace(/(\d{4})(\d)/, "$1-$2");
   }
-  return d.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2");
+  return digits
+    .replace(/^(\d{2})(\d)/, "($1) $2")
+    .replace(/(\d{5})(\d)/, "$1-$2");
 }
 
 function sanitizeFileName(name: string) {
@@ -465,7 +489,8 @@ function getErrorMessage(error: unknown) {
 
 export default function ConfiguracoesPage() {
   const router = useRouter();
-  const { companyProfile, systemPreferences, refreshSettings } = useSettings() as SettingsContextShape;
+  const { companyProfile, systemPreferences, refreshSettings } =
+    useSettings() as SettingsContextShape;
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("perfil");
   const [companyForm, setCompanyForm] = useState<CompanyForm>(DEFAULT_COMPANY_FORM);
@@ -474,23 +499,27 @@ export default function ConfiguracoesPage() {
     feature_toggles: { ...DEFAULT_FEATURE_TOGGLES },
     commercial_documents: { ...DEFAULT_COMMERCIAL_DOCUMENTS },
   });
-  const[isSubmitting, setIsSubmitting] = useState(false);
+  const [states, setStates] = useState<IbgeState[]>([]);
+  const [cities, setCities] = useState<IbgeCity[]>([]);
+  const [loadingCities, setLoadingCities] = useState(false);
+  const [zipcodeLoading, setZipcodeLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [logoPreview, setLogoPreview] = useState("");
   const [selectedLogoFile, setSelectedLogoFile] = useState<File | null>(null);
-  const[states, setStates] = useState<IbgeState[]>([]);
-  const [cities, setCities] = useState<IbgeCity[]>([]);
-  const [loadingCities, setLoadingCities] = useState(false);
-  const [cepLoading, setCepLoading] = useState(false);
+  const [cropMode, setCropMode] = useState(false);
+  const [logoScale, setLogoScale] = useState(1);
+  const [logoPosition, setLogoPosition] = useState({ x: 50, y: 50 });
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const previewUrlRef = useRef<string | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const companyBase: CompanyForm = {
+    const nextCompany: CompanyForm = {
       ...DEFAULT_COMPANY_FORM,
-      company_name: getString(companyProfile?.company_name),
+      id: companyProfile?.id ? String(companyProfile.id) : undefined,
+      company_name: getString(companyProfile?.company_name, "ARXUM").replace(/AXON/gi, "ARXUM"),
       cnpj: getString(companyProfile?.cnpj),
       logo_url: getString(companyProfile?.logo_url),
       primary_color: getString(companyProfile?.primary_color, "#138946") || "#138946",
@@ -514,10 +543,8 @@ export default function ConfiguracoesPage() {
       invoice_footer: getString(companyProfile?.invoice_footer),
     };
 
-    setCompanyForm(companyBase);
-    setLogoPreview(getString(companyProfile?.logo_url));
-
-    setPreferencesForm({
+    const nextPreferences: PreferencesForm = {
+      id: systemPreferences?.id ? String(systemPreferences.id) : undefined,
       custom_labels: {
         ...DEFAULT_CUSTOM_LABELS,
         ...(systemPreferences?.custom_labels ?? {}),
@@ -530,15 +557,21 @@ export default function ConfiguracoesPage() {
         ...DEFAULT_COMMERCIAL_DOCUMENTS,
         ...(systemPreferences?.commercial_documents ?? {}),
       },
-    });
-  },[companyProfile, systemPreferences]);
+    };
+
+    setCompanyForm(nextCompany);
+    setPreferencesForm(nextPreferences);
+    setLogoPreview(nextCompany.logo_url || "");
+  }, [companyProfile, systemPreferences]);
 
   useEffect(() => {
     fetch("https://servicodados.ibge.gov.br/api/v1/localidades/estados")
-      .then((r) => r.json())
-      .then((data: IbgeState[]) => setStates([...data].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))))
+      .then((res) => res.json())
+      .then((data: IbgeState[]) =>
+        setStates([...data].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")))
+      )
       .catch(() => setStates([]));
-  },[]);
+  }, []);
 
   useEffect(() => {
     const uf = companyForm.state.trim().toUpperCase();
@@ -549,8 +582,10 @@ export default function ConfiguracoesPage() {
 
     setLoadingCities(true);
     fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`)
-      .then((r) => r.json())
-      .then((data: IbgeCity[]) => setCities([...data].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))))
+      .then((res) => res.json())
+      .then((data: IbgeCity[]) =>
+        setCities([...data].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")))
+      )
       .catch(() => setCities([]))
       .finally(() => setLoadingCities(false));
   }, [companyForm.state]);
@@ -560,12 +595,12 @@ export default function ConfiguracoesPage() {
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
       if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current);
     };
-  },[]);
+  }, []);
 
-  const showToast = (message: string, type: ToastState["type"]) => {
+  const showToast = (message: string, type: ToastType) => {
     setToast({ message, type });
     if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current);
-    toastTimeoutRef.current = window.setTimeout(() => setToast(null), 4000);
+    toastTimeoutRef.current = window.setTimeout(() => setToast(null), 3500);
   };
 
   const setField = <K extends keyof CompanyForm>(field: K, value: CompanyForm[K]) => {
@@ -586,7 +621,8 @@ export default function ConfiguracoesPage() {
     setPreferencesForm((prev) => ({
       ...prev,
       feature_toggles: {
-        ...prev.feature_toggles,[key]: value,
+        ...prev.feature_toggles,
+        [key]: value,
       },
     }));
   };
@@ -601,21 +637,11 @@ export default function ConfiguracoesPage() {
     }));
   };
 
-  const masked = (field: keyof CompanyForm, fmt: (v: string) => string) => {
-    return (e: ChangeEvent<HTMLInputElement>) =>
-      setField(field, fmt(e.target.value) as CompanyForm[keyof CompanyForm]);
-  };
-
-  const applyPreset = (values: Record<string, string>) => {
-    setPreferencesForm((prev) => ({
-      ...prev,
-      custom_labels: {
-        ...prev.custom_labels,
-        ...values,
-      },
-    }));
-    showToast("Preset aplicado. Clique em Salvar Alterações para confirmar.", "info");
-  };
+  const masked =
+    (field: keyof CompanyForm, formatter: (value: string) => string) =>
+    (e: ChangeEvent<HTMLInputElement>) => {
+      setField(field, formatter(e.target.value) as CompanyForm[keyof CompanyForm]);
+    };
 
   const handleZipcodeChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const formatted = formatCep(e.target.value);
@@ -625,7 +651,7 @@ export default function ConfiguracoesPage() {
     if (digits.length !== 8) return;
 
     try {
-      setCepLoading(true);
+      setZipcodeLoading(true);
       const response = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
       const data: ViaCepResponse = await response.json();
 
@@ -643,10 +669,12 @@ export default function ConfiguracoesPage() {
         city: data.localidade || prev.city,
         state: data.uf || prev.state,
       }));
+
+      showToast("Endereço preenchido automaticamente.", "success");
     } catch {
       showToast("Não foi possível consultar o CEP.", "error");
     } finally {
-      setCepLoading(false);
+      setZipcodeLoading(false);
     }
   };
 
@@ -657,9 +685,13 @@ export default function ConfiguracoesPage() {
 
     const url = URL.createObjectURL(file);
     previewUrlRef.current = url;
+
     setSelectedLogoFile(file);
     setLogoPreview(url);
-    showToast("Logo selecionada. Salve para concluir o upload.", "info");
+    setCropMode(true);
+    setLogoScale(1);
+    setLogoPosition({ x: 50, y: 50 });
+    showToast("Logo carregada. Ajuste o enquadramento e salve.", "info");
   };
 
   const removeLogo = () => {
@@ -667,16 +699,20 @@ export default function ConfiguracoesPage() {
       URL.revokeObjectURL(previewUrlRef.current);
       previewUrlRef.current = null;
     }
+
     setSelectedLogoFile(null);
     setLogoPreview("");
     setField("logo_url", "");
+    showToast("Logo removida da configuração atual.", "info");
   };
 
   const uploadLogo = async (): Promise<string> => {
     if (!selectedLogoFile) return companyForm.logo_url || "";
 
     const extension = selectedLogoFile.name.split(".").pop()?.toLowerCase() || "png";
-    const safeName = sanitizeFileName(selectedLogoFile.name.replace(/\.[^.]+$/, "") || "logo");
+    const safeName = sanitizeFileName(
+      selectedLogoFile.name.replace(/\.[^.]+$/, "") || "logo-arxum"
+    );
     const filePath = `logos/${Date.now()}-${safeName}.${extension}`;
 
     const { error: uploadError } = await supabase.storage
@@ -691,7 +727,9 @@ export default function ConfiguracoesPage() {
     const { data } = supabase.storage.from("axon-assets").getPublicUrl(filePath);
     const publicUrl = data?.publicUrl || "";
 
-    if (!publicUrl) throw new Error("URL pública não gerada.");
+    if (!publicUrl) {
+      throw new Error("Não foi possível gerar a URL pública da logo.");
+    }
 
     if (previewUrlRef.current) {
       URL.revokeObjectURL(previewUrlRef.current);
@@ -699,16 +737,19 @@ export default function ConfiguracoesPage() {
     }
 
     setSelectedLogoFile(null);
+    setCropMode(false);
     setLogoPreview(publicUrl);
     setField("logo_url", publicUrl);
+
     return publicUrl;
   };
 
-  const saveCompanyProfileRecord = async () => {
+  const saveCompanyProfile = async () => {
     const logoUrl = await uploadLogo();
 
     const payload = {
-      company_name: companyForm.company_name || "",
+      id: companyForm.id || "00000000-0000-0000-0000-000000000001",
+      company_name: (companyForm.company_name || "ARXUM").replace(/AXON/gi, "ARXUM"),
       cnpj: companyForm.cnpj || "",
       logo_url: logoUrl || "",
       primary_color: companyForm.primary_color || "#138946",
@@ -732,487 +773,689 @@ export default function ConfiguracoesPage() {
       invoice_footer: companyForm.invoice_footer || "",
     };
 
-    let targetId = companyProfile?.id;
+    const { error } = await supabase
+      .from("company_profile")
+      .upsert(payload, { onConflict: "id" });
 
-    if (!targetId) {
-      const { data } = await supabase.from("company_profile").select("id").limit(1).maybeSingle();
-      targetId = data?.id;
-    }
-
-    if (targetId) {
-      const { error } = await supabase.from("company_profile").update(payload).eq("id", targetId);
-      if (error) throw error;
-    } else {
-      const { error } = await supabase.from("company_profile").insert(payload);
-      if (error) throw error;
-    }
+    if (error) throw error;
   };
 
-  const savePreferencesRecord = async () => {
+  const saveSystemPreferences = async () => {
     const payload = {
+      id: preferencesForm.id || "00000000-0000-0000-0000-000000000001",
       custom_labels: preferencesForm.custom_labels || {},
       feature_toggles: preferencesForm.feature_toggles || {},
       commercial_documents: preferencesForm.commercial_documents || {},
     };
 
-    let targetId = systemPreferences?.id;
+    const { error } = await supabase
+      .from("system_preferences")
+      .upsert(payload, { onConflict: "id" });
 
-    if (!targetId) {
-      const { data } = await supabase.from("system_preferences").select("id").limit(1).maybeSingle();
-      targetId = data?.id;
-    }
-
-    if (targetId) {
-      const { error } = await supabase.from("system_preferences").update(payload).eq("id", targetId);
-      if (error) throw error;
-    } else {
-      const { error } = await supabase.from("system_preferences").insert(payload);
-      if (error) throw error;
-    }
+    if (error) throw error;
   };
 
-  const savePerfil = async () => {
+  const handleSave = async () => {
     setIsSubmitting(true);
+
     try {
-      await saveCompanyProfileRecord();
-      if (refreshSettings) await refreshSettings();
+      if (activeTab === "perfil") {
+        await saveCompanyProfile();
+      }
+
+      if (activeTab === "sistema") {
+        await saveSystemPreferences();
+      }
+
+      if (activeTab === "modulos") {
+        await saveSystemPreferences();
+      }
+
+      if (activeTab === "documentacao") {
+        await saveCompanyProfile();
+        await saveSystemPreferences();
+      }
+
+      if (refreshSettings) {
+        await refreshSettings();
+      }
+
       router.refresh();
-      showToast("Perfil corporativo salvo com sucesso.", "success");
+      showToast("Configurações salvas com sucesso.", "success");
     } catch (error) {
-      showToast(`Erro ao salvar perfil: ${getErrorMessage(error)}`, "error");
+      showToast(`Erro ao salvar: ${getErrorMessage(error)}`, "error");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const saveNomenclaturas = async () => {
-    setIsSubmitting(true);
-    try {
-      await savePreferencesRecord();
-      if (refreshSettings) await refreshSettings();
-      router.refresh();
-      showToast("Nomenclaturas salvas com sucesso.", "success");
-    } catch (error) {
-      showToast(`Erro ao salvar nomenclaturas: ${getErrorMessage(error)}`, "error");
-    } finally {
-      setIsSubmitting(false);
-    }
+  const applyPreset = (preset: (typeof SYSTEM_PRESETS)[number]) => {
+    setPreferencesForm((prev) => ({
+      ...prev,
+      custom_labels: {
+        ...prev.custom_labels,
+        ...preset.labels,
+      },
+      feature_toggles: {
+        ...prev.feature_toggles,
+        ...(preset.toggles ?? {}),
+      },
+    }));
+
+    showToast(`Preset ${preset.title} aplicado.`, "info");
   };
 
-  const saveModulos = async () => {
-    setIsSubmitting(true);
-    try {
-      await savePreferencesRecord();
-      if (refreshSettings) await refreshSettings();
-      router.refresh();
-      showToast("Módulos salvos com sucesso.", "success");
-    } catch (error) {
-      showToast(`Erro ao salvar módulos: ${getErrorMessage(error)}`, "error");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const saveDocumentos = async () => {
-    setIsSubmitting(true);
-    try {
-      await saveCompanyProfileRecord();
-      await savePreferencesRecord();
-      if (refreshSettings) await refreshSettings();
-      router.refresh();
-      showToast("Documentos comerciais salvos com sucesso.", "success");
-    } catch (error) {
-      showToast(`Erro ao salvar documentos: ${getErrorMessage(error)}`, "error");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleSave = () => {
-    if (activeTab === "perfil") {
-      void savePerfil();
-      return;
-    }
-    if (activeTab === "nomenclaturas") {
-      void saveNomenclaturas();
-      return;
-    }
-    if (activeTab === "modulos") {
-      void saveModulos();
-      return;
-    }
-    void saveDocumentos();
-  };
+  const activeModulesCount = useMemo(
+    () => Object.values(preferencesForm.feature_toggles).filter(Boolean).length,
+    [preferencesForm.feature_toggles]
+  );
 
   return (
-    <div className="relative mx-auto max-w-6xl space-y-6 pb-12">
+    <div className="relative mx-auto max-w-7xl space-y-6 pb-12">
       {toast && (
         <div
-          className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-md border px-4 py-3 shadow-lg ${
+          className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-2xl border px-4 py-3 shadow-xl backdrop-blur-md ${
             toast.type === "success"
-              ? "border-cs-green/20 bg-cs-green/10 text-cs-green"
+              ? "border-cs-green/30 bg-cs-green/12 text-cs-green"
               : toast.type === "error"
-              ? "border-red-500/20 bg-red-500/10 text-red-500"
-              : "border-blue-500/20 bg-blue-500/10 text-blue-400"
+              ? "border-red-500/30 bg-red-500/10 text-red-400"
+              : "border-white/10 bg-white/5 text-white"
           }`}
         >
-          {toast.type === "success" ? <Check size={18} /> : toast.type === "error" ? <X size={18} /> : <Settings size={18} />}
+          {toast.type === "success" ? (
+            <Check size={18} />
+          ) : toast.type === "error" ? (
+            <X size={18} />
+          ) : (
+            <Settings2 size={18} />
+          )}
           <span className="text-sm font-medium">{toast.message}</span>
         </div>
       )}
 
-      <div className="flex items-center justify-between rounded-lg border border-surface/50 bg-surface p-4">
-        <div>
-          <h3 className="flex items-center gap-2 text-lg font-medium text-white">
-            <Settings className="text-cs-green" size={20} />
-            Configurações Globais
-          </h3>
-          <p className="mt-1 text-xs text-text-secondary">
-            Gerencie o perfil da empresa, módulos ativos e nomenclaturas do sistema.
-          </p>
+      <div className="rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-cs-green/20 bg-cs-green/10 px-3 py-1 text-xs font-semibold text-cs-green">
+              <BadgeCheck className="h-3.5 w-3.5" />
+              ARXUM · Configurações globais
+            </div>
+            <h1 className="text-2xl font-semibold text-white">Centro de Configurações</h1>
+            <p className="mt-1 text-sm text-text-secondary">
+              Perfil da empresa, nomes do sistema, módulos ativos e documentação comercial.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm">
+              <span className="block text-xs text-text-secondary">Módulos ativos</span>
+              <span className="font-semibold text-white">{activeModulesCount}</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isSubmitting}
+              className="inline-flex items-center gap-2 rounded-2xl bg-cs-green px-5 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSubmitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              Salvar alterações
+            </button>
+          </div>
         </div>
-
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={isSubmitting}
-          className="flex items-center gap-2 rounded-md bg-cs-green px-6 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-opacity-90 disabled:opacity-50"
-        >
-          {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-          Salvar Alterações
-        </button>
       </div>
 
-      <div className="custom-scrollbar flex gap-2 overflow-x-auto border-b border-surface/50 pb-4">
-        {[
-          { id: "perfil", label: "Perfil Corporativo", icon: Building2 },
-          { id: "nomenclaturas", label: "Nomenclaturas", icon: Type },
-          { id: "modulos", label: "Módulos", icon: LayoutGrid },
-          { id: "documentos", label: "Documentos Comerciais", icon: FileText },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setActiveTab(tab.id as SettingsTab)}
-            className={`flex items-center gap-2 whitespace-nowrap rounded-md border px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === tab.id
-                ? "border-cs-green/20 bg-cs-green/10 text-cs-green"
-                : "border-transparent text-text-secondary hover:bg-surface hover:text-white"
-            }`}
-          >
-            <tab.icon size={16} />
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <div className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <aside className="h-fit rounded-3xl border border-white/10 bg-surface p-3">
+          <div className="space-y-2">
+            {[
+              { id: "perfil", label: "Perfil da empresa", icon: Building2 },
+              { id: "sistema", label: "Configuração do sistema", icon: Type },
+              { id: "modulos", label: "Módulos", icon: LayoutGrid },
+              { id: "documentacao", label: "Documentação", icon: FileText },
+            ].map((tab) => {
+              const isActive = activeTab === tab.id;
+              const Icon = tab.icon;
 
-      <div className="rounded-lg border border-surface/50 bg-surface p-6">
-        {activeTab === "perfil" && (
-          <div className="space-y-8">
-            <div>
-              <h4 className="mb-4 flex items-center gap-2 border-b border-surface/50 pb-2 text-sm font-bold text-white">
-                <Building2 size={16} className="text-cs-gold" />
-                Identidade Visual
-              </h4>
-
-              <div className="flex flex-col items-start gap-6 md:flex-row">
-                <div className="flex flex-col items-center gap-3">
-                  <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-lg border border-dashed border-surface/50 bg-background">
-                    {logoPreview ? (
-                      <img src={logoPreview} alt="Logo da empresa" className="h-full w-full object-contain" />
-                    ) : (
-                      <span className="px-4 text-center text-xs text-text-secondary">Nenhuma logo</span>
-                    )}
-                  </div>
-
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => selectLogo(e.target.files?.[0] ?? null)}
-                  />
-
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex items-center gap-1 rounded border border-surface/50 bg-surface px-3 py-1.5 text-xs text-white transition-colors hover:bg-background"
-                    >
-                      <Upload size={14} />
-                      {logoPreview ? "Editar logo" : "Enviar logo"}
-                    </button>
-
-                    {logoPreview && (
-                      <button
-                        type="button"
-                        onClick={removeLogo}
-                        className="flex items-center gap-1 rounded border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-500 transition-colors hover:bg-red-500/20"
-                      >
-                        <Trash2 size={14} />
-                        Remover
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="w-full flex-1" />
-              </div>
-            </div>
-
-            <div>
-              <h4 className="mb-4 flex items-center gap-2 border-b border-surface/50 pb-2 text-sm font-bold text-white">
-                <Building2 size={16} className="text-cs-green" />
-                Dados da Empresa
-              </h4>
-
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <InputField label="Nome exibido da empresa" value={companyForm.company_name} onChange={(e) => setField("company_name", e.target.value)} />
-                <InputField label="Nome Fantasia" value={companyForm.trade_name} onChange={(e) => setField("trade_name", e.target.value)} />
-                <InputField label="Razão Social" value={companyForm.legal_name} onChange={(e) => setField("legal_name", e.target.value)} />
-                <InputField label="CNPJ" value={companyForm.cnpj} onChange={masked("cnpj", formatCnpj)} placeholder="00.000.000/0000-00" />
-                
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-text-secondary">Cor Primária (Hexadecimal)</label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="color"
-                      value={companyForm.primary_color}
-                      onChange={(e) => setField("primary_color", e.target.value)}
-                      className="h-9 w-9 cursor-pointer rounded border-0 bg-transparent p-0"
-                    />
-                    <input
-                      type="text"
-                      value={companyForm.primary_color}
-                      onChange={(e) => setField("primary_color", e.target.value)}
-                      className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none uppercase"
-                    />
-                  </div>
-                </div>
-
-                <InputField label="E-mail de Contato" type="email" value={companyForm.contact_email} onChange={(e) => setField("contact_email", e.target.value)} />
-                <InputField label="Telefone Fixo" value={companyForm.phone_landline} onChange={masked("phone_landline", formatPhone)} />
-                <InputField label="Celular" value={companyForm.phone_mobile} onChange={masked("phone_mobile", formatPhone)} />
-                <InputField label="WhatsApp" value={companyForm.whatsapp_number} onChange={masked("whatsapp_number", formatPhone)} />
-                <InputField label="Website" value={companyForm.website} onChange={(e) => setField("website", e.target.value)} placeholder="https://..." />
-              </div>
-            </div>
-
-            <div>
-              <h4 className="mb-4 border-b border-surface/50 pb-2 text-sm font-bold text-white">Endereço</h4>
-
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <InputField
-                  label={cepLoading ? "CEP (consultando...)" : "CEP"}
-                  value={companyForm.zipcode}
-                  onChange={handleZipcodeChange}
-                />
-
-                <div className="lg:col-span-2">
-                  <InputField label="Logradouro" value={companyForm.street} onChange={(e) => setField("street", e.target.value)} />
-                </div>
-
-                <InputField label="Número" value={companyForm.street_number} onChange={(e) => setField("street_number", e.target.value)} />
-                <InputField label="Complemento" value={companyForm.complement} onChange={(e) => setField("complement", e.target.value)} />
-                <InputField label="Bairro" value={companyForm.district} onChange={(e) => setField("district", e.target.value)} />
-
-                <SelectField
-                  label="Estado"
-                  value={companyForm.state}
-                  onChange={(e) => {
-                    setField("state", e.target.value);
-                    setField("city", "");
-                  }}
-                >
-                  <option value="">Selecione</option>
-                  {states.map((s) => (
-                    <option key={s.id} value={s.sigla}>
-                      {s.nome} ({s.sigla})
-                    </option>
-                  ))}
-                </SelectField>
-
-                <SelectField
-                  label={loadingCities ? "Cidade (carregando...)" : "Cidade"}
-                  value={companyForm.city}
-                  onChange={(e) => setField("city", e.target.value)}
-                  disabled={!companyForm.state || loadingCities}
-                >
-                  <option value="">Selecione</option>
-                  {cities.map((c) => (
-                    <option key={c.id} value={c.nome}>
-                      {c.nome}
-                    </option>
-                  ))}
-                </SelectField>
-
-                <InputField label="País" value={companyForm.country} onChange={(e) => setField("country", e.target.value)} />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "nomenclaturas" && (
-          <div className="space-y-8">
-            <div className="space-y-4">
-              {NOMENCLATURE_PRESETS.map((group) => (
-                <div key={group.title} className="rounded-lg border border-surface/50 bg-background p-4">
-                  <p className="mb-3 text-sm font-semibold text-white">{group.title}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {group.options.map((option) => (
-                      <button
-                        key={option.label}
-                        type="button"
-                        onClick={() => applyPreset(option.values)}
-                        className="rounded-md border border-cs-green/20 bg-cs-green/10 px-3 py-2 text-xs font-medium text-cs-green transition hover:bg-cs-green/20"
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-6">
-              {LABEL_GROUPS.map((group) => (
-                <div key={group.title} className="rounded-lg border border-surface/50 bg-background p-4">
-                  <h4 className="mb-4 text-sm font-bold text-white">{group.title}</h4>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {group.fields.map((key) => (
-                      <InputField
-                        key={key}
-                        label={LABEL_MAP[key] ?? key}
-                        value={preferencesForm.custom_labels[key] || ""}
-                        onChange={(e) => setLabelField(key, e.target.value)}
-                        placeholder={DEFAULT_CUSTOM_LABELS[key]}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {activeTab === "modulos" && (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {MODULES.map((mod) => {
-              const isActive = preferencesForm.feature_toggles[mod.key] ?? true;
               return (
-                <div key={mod.key} className="flex items-center justify-between rounded-lg border border-surface/50 bg-background p-4">
-                  <div>
-                    <h5 className="text-sm font-bold text-white">{mod.title}</h5>
-                    <p className="mt-0.5 text-xs text-text-secondary">{mod.desc}</p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setFeatureToggle(mod.key, !isActive)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      isActive ? "bg-cs-green" : "bg-surface"
-                    }`}
-                    aria-pressed={isActive}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
-                        isActive ? "translate-x-6" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
-                </div>
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id as SettingsTab)}
+                  className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm transition ${
+                    isActive
+                      ? "bg-cs-green text-white"
+                      : "text-text-secondary hover:bg-white/5 hover:text-white"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span className="font-medium">{tab.label}</span>
+                </button>
               );
             })}
           </div>
-        )}
+        </aside>
 
-        {activeTab === "documentos" && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              {[
-                { key: "show_logo_on_quotes", label: "Exibir Logo nos Orçamentos" },
-                { key: "show_company_address_on_quotes", label: "Exibir Endereço nos Orçamentos" },
-                { key: "show_company_contacts_on_quotes", label: "Exibir Contatos nos Orçamentos" },
-                { key: "show_signature_on_quotes", label: "Exibir Campo de Assinatura" },
-              ].map((toggle) => {
-                const isActive = getBoolean(preferencesForm.commercial_documents[toggle.key], false);
-                return (
-                  <div key={toggle.key} className="flex items-center justify-between rounded-lg border border-surface/50 bg-background p-4">
-                    <span className="text-sm font-medium text-white">{toggle.label}</span>
-                    <button
-                      type="button"
-                      onClick={() => setCommercialField(toggle.key, !isActive)}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                        isActive ? "bg-cs-green" : "bg-surface"
-                      }`}
-                      aria-pressed={isActive}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
-                          isActive ? "translate-x-6" : "translate-x-1"
-                        }`}
+        <section className="space-y-6">
+          {activeTab === "perfil" && (
+            <>
+              <Card
+                title="Identidade visual"
+                description="Logo, cor principal e identidade da empresa."
+                icon={PaintBucket}
+              >
+                <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
+                  <div className="space-y-4">
+                    <div className="rounded-3xl border border-dashed border-white/10 bg-background p-4">
+                      <div className="relative flex h-56 items-center justify-center overflow-hidden rounded-2xl bg-black">
+                        {logoPreview ? (
+                          <img
+                            src={logoPreview}
+                            alt="Logo da empresa"
+                            className="pointer-events-none max-h-full max-w-full object-contain"
+                            style={
+                              cropMode
+                                ? {
+                                    transform: `translate(${logoPosition.x - 50}px, ${
+                                      logoPosition.y - 50
+                                    }px) scale(${logoScale})`,
+                                  }
+                                : undefined
+                            }
+                          />
+                        ) : (
+                          <div className="flex flex-col items-center gap-2 text-text-secondary">
+                            <ImagePlus className="h-8 w-8" />
+                            <span className="text-sm">Nenhuma logo enviada</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => selectLogo(e.target.files?.[0] ?? null)}
                       />
-                    </button>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white transition hover:bg-white/10"
+                        >
+                          <Upload className="h-4 w-4" />
+                          {logoPreview ? "Trocar logo" : "Enviar logo"}
+                        </button>
+
+                        {logoPreview && (
+                          <button
+                            type="button"
+                            onClick={removeLogo}
+                            className="inline-flex items-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm text-red-400 transition hover:bg-red-500/20"
+                          >
+                            <X className="h-4 w-4" />
+                            Remover
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-white/10 bg-background p-4">
+                      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
+                        <Grip className="h-4 w-4 text-cs-green" />
+                        Ajuste visual da logo
+                      </div>
+
+                      <div className="space-y-4">
+                        <RangeField
+                          label="Zoom"
+                          min={1}
+                          max={2.5}
+                          step={0.1}
+                          value={logoScale}
+                          onChange={(value) => setLogoScale(value)}
+                        />
+                        <RangeField
+                          label="Posição horizontal"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={logoPosition.x}
+                          onChange={(value) =>
+                            setLogoPosition((prev) => ({ ...prev, x: value }))
+                          }
+                        />
+                        <RangeField
+                          label="Posição vertical"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={logoPosition.y}
+                          onChange={(value) =>
+                            setLogoPosition((prev) => ({ ...prev, y: value }))
+                          }
+                        />
+                      </div>
+                    </div>
                   </div>
-                );
-              })}
-            </div>
 
-            <div className="space-y-4">
-              <TextareaField
-                label="Texto de Abertura Padrão (Orçamentos)"
-                rows={3}
-                value={getString(preferencesForm.commercial_documents.quote_intro_text)}
-                onChange={(e) => setCommercialField("quote_intro_text", e.target.value)}
-              />
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    <InputField
+                      label="Nome exibido da empresa"
+                      value={companyForm.company_name}
+                      onChange={(e) =>
+                        setField("company_name", e.target.value.replace(/AXON/gi, "ARXUM"))
+                      }
+                    />
+                    <InputField
+                      label="Nome fantasia"
+                      value={companyForm.trade_name}
+                      onChange={(e) => setField("trade_name", e.target.value)}
+                    />
+                    <InputField
+                      label="Razão social"
+                      value={companyForm.legal_name}
+                      onChange={(e) => setField("legal_name", e.target.value)}
+                    />
+                    <InputField
+                      label="CNPJ"
+                      value={companyForm.cnpj}
+                      onChange={masked("cnpj", formatCnpj)}
+                      placeholder="00.000.000/0000-00"
+                    />
+                    <InputField
+                      label="E-mail"
+                      type="email"
+                      value={companyForm.contact_email}
+                      onChange={(e) => setField("contact_email", e.target.value)}
+                    />
+                    <InputField
+                      label="Website"
+                      value={companyForm.website}
+                      onChange={(e) => setField("website", e.target.value)}
+                      placeholder="https://seusite.com.br"
+                    />
 
-              <TextareaField
-                label="Termos e Condições Padrão (Orçamentos)"
-                rows={4}
-                value={getString(preferencesForm.commercial_documents.quote_terms_text)}
-                onChange={(e) => setCommercialField("quote_terms_text", e.target.value)}
-              />
+                    <InputField
+                      label="Telefone fixo"
+                      value={companyForm.phone_landline}
+                      onChange={masked("phone_landline", formatPhone)}
+                    />
+                    <InputField
+                      label="Celular"
+                      value={companyForm.phone_mobile}
+                      onChange={masked("phone_mobile", formatPhone)}
+                    />
+                    <InputField
+                      label="WhatsApp"
+                      value={companyForm.whatsapp_number}
+                      onChange={masked("whatsapp_number", formatPhone)}
+                    />
 
-              <TextareaField
-                label="Cláusulas Contratuais Padrão"
-                rows={5}
-                value={companyForm.contract_terms}
-                onChange={(e) => setField("contract_terms", e.target.value)}
-              />
+                    <div className="md:col-span-2 xl:col-span-1">
+                      <label className="mb-2 block text-xs font-medium text-text-secondary">
+                        Cor principal
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={companyForm.primary_color}
+                          onChange={(e) => setField("primary_color", e.target.value)}
+                          className="h-11 w-11 rounded-xl border-0 bg-transparent p-0"
+                        />
+                        <input
+                          type="text"
+                          value={companyForm.primary_color}
+                          onChange={(e) => setField("primary_color", e.target.value)}
+                          className="block w-full rounded-2xl border border-white/10 bg-background px-4 py-3 text-sm uppercase text-white outline-none transition focus:border-cs-green"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Card>
 
-              <TextareaField
-                label="Modelo de Proposta"
-                rows={4}
-                value={getString(preferencesForm.commercial_documents.default_proposal_template)}
-                onChange={(e) => setCommercialField("default_proposal_template", e.target.value)}
-              />
+              <Card
+                title="Endereço"
+                description="CEP com preenchimento automático e localização completa."
+                icon={MapPin}
+              >
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <InputField
+                    label={zipcodeLoading ? "CEP (consultando...)" : "CEP"}
+                    value={companyForm.zipcode}
+                    onChange={handleZipcodeChange}
+                  />
+                  <div className="xl:col-span-2">
+                    <InputField
+                      label="Logradouro"
+                      value={companyForm.street}
+                      onChange={(e) => setField("street", e.target.value)}
+                    />
+                  </div>
+                  <InputField
+                    label="Número"
+                    value={companyForm.street_number}
+                    onChange={(e) => setField("street_number", e.target.value)}
+                  />
+                  <InputField
+                    label="Complemento"
+                    value={companyForm.complement}
+                    onChange={(e) => setField("complement", e.target.value)}
+                  />
+                  <InputField
+                    label="Bairro"
+                    value={companyForm.district}
+                    onChange={(e) => setField("district", e.target.value)}
+                  />
 
-              <TextareaField
-                label="Observações Operacionais Padrão"
-                rows={3}
-                value={getString(preferencesForm.commercial_documents.default_operational_notes)}
-                onChange={(e) => setCommercialField("default_operational_notes", e.target.value)}
-              />
+                  <SelectField
+                    label="Estado"
+                    value={companyForm.state}
+                    onChange={(e) => {
+                      setField("state", e.target.value);
+                      setField("city", "");
+                    }}
+                  >
+                    <option value="">Selecione</option>
+                    {states.map((state) => (
+                      <option key={state.id} value={state.sigla}>
+                        {state.nome} ({state.sigla})
+                      </option>
+                    ))}
+                  </SelectField>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <TextareaField
-                  label="Rodapé de Propostas (PDF)"
-                  rows={2}
-                  value={companyForm.proposal_footer}
-                  onChange={(e) => setField("proposal_footer", e.target.value)}
-                />
+                  <SelectField
+                    label={loadingCities ? "Cidade (carregando...)" : "Cidade"}
+                    value={companyForm.city}
+                    disabled={!companyForm.state || loadingCities}
+                    onChange={(e) => setField("city", e.target.value)}
+                  >
+                    <option value="">Selecione</option>
+                    {cities.map((city) => (
+                      <option key={city.id} value={city.nome}>
+                        {city.nome}
+                      </option>
+                    ))}
+                  </SelectField>
 
-                <TextareaField
-                  label="Rodapé de Faturas (PDF)"
-                  rows={2}
-                  value={companyForm.invoice_footer}
-                  onChange={(e) => setField("invoice_footer", e.target.value)}
-                />
+                  <InputField
+                    label="País"
+                    value={companyForm.country}
+                    onChange={(e) => setField("country", e.target.value)}
+                  />
+                </div>
+              </Card>
+            </>
+          )}
+
+          {activeTab === "sistema" && (
+            <>
+              <Card
+                title="Presets de segmento"
+                description="Aplica nomes prontos em todo o sistema com um clique."
+                icon={RefreshCcw}
+              >
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {SYSTEM_PRESETS.map((preset) => (
+                    <div
+                      key={preset.title}
+                      className="rounded-3xl border border-white/10 bg-background p-4"
+                    >
+                      <div className="mb-3">
+                        <h3 className="text-sm font-semibold text-white">{preset.title}</h3>
+                        <p className="mt-1 text-xs text-text-secondary">
+                          {preset.description}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => applyPreset(preset)}
+                        className="inline-flex items-center gap-2 rounded-2xl border border-cs-green/20 bg-cs-green/10 px-4 py-2 text-sm font-medium text-cs-green transition hover:bg-cs-green/20"
+                      >
+                        Aplicar preset
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              <Card
+                title="Nomenclaturas personalizadas"
+                description="Se o preset não servir, digite manualmente os nomes do seu negócio."
+                icon={Type}
+              >
+                <div className="space-y-6">
+                  {LABEL_GROUPS.map((group) => (
+                    <div
+                      key={group.title}
+                      className="rounded-3xl border border-white/10 bg-background p-4"
+                    >
+                      <h3 className="mb-4 text-sm font-semibold text-white">{group.title}</h3>
+                      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        {group.fields.map((field) => (
+                          <InputField
+                            key={field}
+                            label={LABEL_MAP[field] ?? field}
+                            value={preferencesForm.custom_labels[field] || ""}
+                            onChange={(e) => setLabelField(field, e.target.value)}
+                            placeholder={DEFAULT_CUSTOM_LABELS[field]}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </>
+          )}
+
+          {activeTab === "modulos" && (
+            <Card
+              title="Ativação de módulos"
+              description="Ligue e desligue os blocos que realmente serão usados no sistema."
+              icon={LayoutGrid}
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                {MODULES.map((module) => {
+                  const isActive = preferencesForm.feature_toggles[module.key] ?? true;
+
+                  return (
+                    <div
+                      key={module.key}
+                      className="flex items-center justify-between rounded-3xl border border-white/10 bg-background p-4"
+                    >
+                      <div className="pr-4">
+                        <h3 className="text-sm font-semibold text-white">{module.title}</h3>
+                        <p className="mt-1 text-xs text-text-secondary">
+                          {module.description}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        aria-pressed={isActive}
+                        onClick={() => setFeatureToggle(module.key, !isActive)}
+                        className={`relative inline-flex h-7 w-12 items-center rounded-full transition ${
+                          isActive ? "bg-cs-green" : "bg-white/10"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-5 w-5 rounded-full bg-white transition ${
+                            isActive ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
-            </div>
-          </div>
-        )}
+            </Card>
+          )}
+
+          {activeTab === "documentacao" && (
+            <>
+              <Card
+                title="Exibição em documentos"
+                description="Escolha o que aparece nos orçamentos, propostas e materiais comerciais."
+                icon={FileText}
+              >
+                <div className="grid gap-4 md:grid-cols-2">
+                  {[
+                    {
+                      key: "show_logo_on_quotes",
+                      label: "Exibir logo nos orçamentos",
+                    },
+                    {
+                      key: "show_company_address_on_quotes",
+                      label: "Exibir endereço nos orçamentos",
+                    },
+                    {
+                      key: "show_company_contacts_on_quotes",
+                      label: "Exibir contatos nos orçamentos",
+                    },
+                    {
+                      key: "show_signature_on_quotes",
+                      label: "Exibir campo de assinatura",
+                    },
+                  ].map((item) => {
+                    const active = getBoolean(
+                      preferencesForm.commercial_documents[item.key],
+                      false
+                    );
+
+                    return (
+                      <div
+                        key={item.key}
+                        className="flex items-center justify-between rounded-3xl border border-white/10 bg-background p-4"
+                      >
+                        <span className="text-sm font-medium text-white">{item.label}</span>
+                        <button
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => setCommercialField(item.key, !active)}
+                          className={`relative inline-flex h-7 w-12 items-center rounded-full transition ${
+                            active ? "bg-cs-green" : "bg-white/10"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-5 w-5 rounded-full bg-white transition ${
+                              active ? "translate-x-6" : "translate-x-1"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+
+              <Card
+                title="Textos e templates"
+                description="Ajuste os textos comerciais e rodapés padrão."
+                icon={FileText}
+              >
+                <div className="space-y-4">
+                  <TextareaField
+                    label="Texto de abertura do orçamento"
+                    rows={3}
+                    value={getString(preferencesForm.commercial_documents.quote_intro_text)}
+                    onChange={(e) =>
+                      setCommercialField("quote_intro_text", e.target.value)
+                    }
+                  />
+
+                  <TextareaField
+                    label="Termos e condições do orçamento"
+                    rows={4}
+                    value={getString(preferencesForm.commercial_documents.quote_terms_text)}
+                    onChange={(e) =>
+                      setCommercialField("quote_terms_text", e.target.value)
+                    }
+                  />
+
+                  <TextareaField
+                    label="Cláusulas padrão de contrato"
+                    rows={5}
+                    value={companyForm.contract_terms}
+                    onChange={(e) => setField("contract_terms", e.target.value)}
+                  />
+
+                  <TextareaField
+                    label="Modelo padrão de proposta"
+                    rows={4}
+                    value={getString(
+                      preferencesForm.commercial_documents.default_proposal_template
+                    )}
+                    onChange={(e) =>
+                      setCommercialField("default_proposal_template", e.target.value)
+                    }
+                  />
+
+                  <TextareaField
+                    label="Observações operacionais padrão"
+                    rows={3}
+                    value={getString(
+                      preferencesForm.commercial_documents.default_operational_notes
+                    )}
+                    onChange={(e) =>
+                      setCommercialField("default_operational_notes", e.target.value)
+                    }
+                  />
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <TextareaField
+                      label="Rodapé de propostas"
+                      rows={3}
+                      value={companyForm.proposal_footer}
+                      onChange={(e) => setField("proposal_footer", e.target.value)}
+                    />
+                    <TextareaField
+                      label="Rodapé de faturas"
+                      rows={3}
+                      value={companyForm.invoice_footer}
+                      onChange={(e) => setField("invoice_footer", e.target.value)}
+                    />
+                  </div>
+                </div>
+              </Card>
+            </>
+          )}
+        </section>
       </div>
+    </div>
+  );
+}
+
+function Card({
+  title,
+  description,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-surface p-6">
+      <div className="mb-5 flex items-start gap-3 border-b border-white/10 pb-4">
+        <div className="rounded-2xl bg-cs-green/10 p-2 text-cs-green">
+          <Icon className="h-5 w-5" />
+        </div>
+        <div>
+          <h2 className="text-base font-semibold text-white">{title}</h2>
+          <p className="mt-1 text-sm text-text-secondary">{description}</p>
+        </div>
+      </div>
+      {children}
     </div>
   );
 }
@@ -1232,13 +1475,13 @@ function InputField({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-text-secondary">{label}</label>
+      <label className="mb-2 block text-xs font-medium text-text-secondary">{label}</label>
       <input
         type={type}
         value={value}
         onChange={onChange}
         placeholder={placeholder}
-        className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
+        className="block w-full rounded-2xl border border-white/10 bg-background px-4 py-3 text-sm text-white outline-none transition focus:border-cs-green"
       />
     </div>
   );
@@ -1259,12 +1502,12 @@ function SelectField({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-text-secondary">{label}</label>
+      <label className="mb-2 block text-xs font-medium text-text-secondary">{label}</label>
       <select
         value={value}
         onChange={onChange}
         disabled={disabled}
-        className="block w-full cursor-pointer rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none disabled:opacity-50"
+        className="block w-full rounded-2xl border border-white/10 bg-background px-4 py-3 text-sm text-white outline-none transition focus:border-cs-green disabled:opacity-50"
       >
         {children}
       </select>
@@ -1285,12 +1528,46 @@ function TextareaField({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-text-secondary">{label}</label>
+      <label className="mb-2 block text-xs font-medium text-text-secondary">{label}</label>
       <textarea
         rows={rows}
         value={value}
         onChange={onChange}
-        className="block w-full resize-none rounded-md border border-surface bg-background px-3 py-2 text-sm text-white focus:border-cs-green focus:outline-none"
+        className="block w-full resize-none rounded-2xl border border-white/10 bg-background px-4 py-3 text-sm text-white outline-none transition focus:border-cs-green"
+      />
+    </div>
+  );
+}
+
+function RangeField({
+  label,
+  min,
+  max,
+  step,
+  value,
+  onChange,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <label className="text-xs font-medium text-text-secondary">{label}</label>
+        <span className="text-xs text-white">{value}</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/10 accent-[#138946]"
       />
     </div>
   );
