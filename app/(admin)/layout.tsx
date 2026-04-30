@@ -31,6 +31,7 @@ type UserProfile = {
   email: string;
   full_name?: string | null;
   role?: string | null;
+  avatar_url?: string | null;
 };
 
 type NavItem = {
@@ -59,7 +60,7 @@ function buildUserInitials(profile: UserProfile | null): string {
     return email.substring(0, 2).toUpperCase();
   }
 
-  return "AX";
+  return "AR";
 }
 
 function normalizeRoleLabel(role?: string | null): string {
@@ -89,7 +90,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [loading, setLoading] = useState(true);
   const [authorized, setAuthorized] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const[isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -104,16 +105,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       const value = featureToggles?.[featureKey];
       return typeof value === "boolean" ? value : true;
     };
-  }, [featureToggles]);
+  },[featureToggles]);
 
   const allNavItems = useMemo<NavItem[]>(
-    () => [
+    () =>[
       {
         key: "dashboard",
         name: customLabels.menu_dashboard || "Visão Geral",
         href: "/dashboard",
         icon: LayoutDashboard,
-        roles: ["super_admin", "admin", "commercial", "financial", "logistics", "marketing", "training", "support"],
+        roles:["super_admin", "admin", "commercial", "financial", "logistics", "marketing", "training", "support"],
         featureKey: "enable_dashboard",
       },
       {
@@ -145,7 +146,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         name: customLabels.menu_marketing || "Marketing",
         href: "/marketing",
         icon: Megaphone,
-        roles: ["super_admin", "admin", "marketing"],
+        roles:["super_admin", "admin", "marketing"],
         featureKey: "enable_marketing",
       },
       {
@@ -153,7 +154,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         name: customLabels.menu_training || "Treinamentos",
         href: "/treinamentos",
         icon: PlaySquare,
-        roles: ["super_admin", "admin", "training"],
+        roles:["super_admin", "admin", "training"],
         featureKey: "enable_training",
       },
       {
@@ -161,7 +162,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         name: customLabels.entity_client_plural || "Clientes",
         href: "/clientes",
         icon: Users,
-        roles: ["super_admin", "admin", "commercial", "financial"],
+        roles:["super_admin", "admin", "commercial", "financial"],
         featureKey: "enable_clients",
       },
       {
@@ -169,7 +170,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         name: customLabels.menu_inventory || "Inventário",
         href: "/inventario",
         icon: Package,
-        roles: ["super_admin", "admin", "logistics", "commercial"],
+        roles:["super_admin", "admin", "logistics", "commercial"],
         featureKey: "enable_inventory",
       },
       {
@@ -177,7 +178,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         name: customLabels.entity_quote_plural || "Orçamentos",
         href: "/orcamentos",
         icon: FileText,
-        roles: ["super_admin", "admin", "commercial", "financial"],
+        roles:["super_admin", "admin", "commercial", "financial"],
         featureKey: "enable_quotes",
       },
       {
@@ -185,7 +186,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         name: customLabels.menu_service_orders || "Ordens de Serviço",
         href: "/os",
         icon: Truck,
-        roles: ["super_admin", "admin", "logistics", "commercial", "support"],
+        roles:["super_admin", "admin", "logistics", "commercial", "support"],
         featureKey: "enable_service_orders",
       },
       {
@@ -236,7 +237,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         const profileResponse = await supabase
           .from("profiles")
-          .select("id, email, full_name, role")
+          .select("id, email, full_name, role, avatar_url")
           .eq("id", session.user.id)
           .single();
 
@@ -272,7 +273,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  },[]);
 
   const allowedNavItems = useMemo(() => {
     return allNavItems.filter((item) => {
@@ -291,7 +292,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     if (currentItem?.featureKey && !isFeatureEnabled(currentItem.featureKey)) {
       router.push("/dashboard");
     }
-  }, [allNavItems, authorized, isFeatureEnabled, loading, pathname, router, settingsLoading]);
+  },[allNavItems, authorized, isFeatureEnabled, loading, pathname, router, settingsLoading]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -340,8 +341,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               }`}
             >
               {isSidebarCollapsed
-                ? companyProfile.company_name?.slice(0, 2).toUpperCase() || "AX"
-                : companyProfile.company_name || "AXON Systems"}
+                ? companyProfile.company_name?.slice(0, 2).toUpperCase() || "AR"
+                : companyProfile.company_name || "Arxum"}
             </span>
           )}
         </div>
@@ -377,16 +378,24 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <div className="relative flex items-center gap-4" ref={dropdownRef}>
             <button
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-cs-green/50 bg-cs-green/20 text-sm font-bold uppercase text-cs-green transition-colors hover:bg-cs-green hover:text-white focus:outline-none"
+              className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-cs-green/50 bg-cs-green/20 text-sm font-bold uppercase text-cs-green transition-colors hover:border-cs-green focus:outline-none"
             >
-              {userInitials}
+              {userProfile?.avatar_url ? (
+                <img 
+                  src={userProfile.avatar_url} 
+                  alt="Avatar" 
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                userInitials
+              )}
             </button>
 
             {isDropdownOpen && (
               <div className="absolute right-0 top-14 z-50 w-64 animate-in rounded-lg border border-surface/50 bg-surface py-2 shadow-2xl fade-in slide-in-from-top-2">
                 <div className="mb-2 border-b border-surface/50 px-4 py-3">
                   <p className="truncate text-sm font-bold text-white">
-                    {userProfile?.full_name || "Usuário AXON"}
+                    {userProfile?.full_name || "Usuário Arxum"}
                   </p>
                   <p className="mt-0.5 truncate text-xs text-text-secondary">{userProfile?.email}</p>
                   <span className="mt-2 inline-block rounded border border-cs-gold/20 bg-cs-gold/10 px-2 py-0.5 text-[10px] font-bold uppercase text-cs-gold">
