@@ -81,20 +81,6 @@ function normalizeRoleLabel(role?: string | null): string {
   return roleMap[normalized] || "Administrador";
 }
 
-function getFeatureLabel(key: string, customLabels: { academy_name: string }): string {
-  const labels: Record<string, string> = {
-    enable_calendar: "Calendário",
-    enable_crm: "CRM / Vendas",
-    enable_financial: "Financeiro",
-    enable_inventory: "Inventário",
-    enable_service_orders: "Ordens de Serviço",
-    enable_training: customLabels.academy_name || "Treinamentos",
-    enable_marketing: "Marketing",
-  };
-
-  return labels[key] || key.replace(/^enable_/, "").replace(/_/g, " ");
-}
-
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -109,20 +95,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const { companyProfile, systemPreferences, loading: settingsLoading } = useSettings();
 
-  const customLabels = systemPreferences?.custom_labels || {
-    client_singular: "Cliente",
-    client_plural: "Clientes",
-    quote_singular: "Orçamento",
-    quote_plural: "Orçamentos",
-    academy_name: "Treinamentos",
-  };
-
-  const featureToggles = systemPreferences?.feature_toggles || {};
+  const customLabels = systemPreferences.custom_labels;
+  const featureToggles = systemPreferences.feature_toggles;
 
   const isFeatureEnabled = useMemo(() => {
     return (featureKey?: string) => {
       if (!featureKey) return true;
-      const value = featureToggles[featureKey];
+      const value = featureToggles?.[featureKey];
       return typeof value === "boolean" ? value : true;
     };
   }, [featureToggles]);
@@ -131,14 +110,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     () => [
       {
         key: "dashboard",
-        name: "Visão Geral",
+        name: customLabels.menu_dashboard || "Visão Geral",
         href: "/dashboard",
         icon: LayoutDashboard,
         roles: ["super_admin", "admin", "commercial", "financial", "logistics", "marketing", "training", "support"],
+        featureKey: "enable_dashboard",
       },
       {
         key: "calendario",
-        name: "Calendário",
+        name: customLabels.menu_calendar || "Calendário",
         href: "/calendario",
         icon: CalendarDays,
         roles: ["super_admin", "admin", "commercial", "logistics"],
@@ -146,7 +126,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       },
       {
         key: "crm",
-        name: "CRM / Vendas",
+        name: customLabels.menu_crm || "CRM / Vendas",
         href: "/crm",
         icon: Target,
         roles: ["super_admin", "admin", "commercial", "financial"],
@@ -154,7 +134,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       },
       {
         key: "financeiro",
-        name: "Financeiro",
+        name: customLabels.menu_financial || "Financeiro",
         href: "/financeiro",
         icon: Wallet,
         roles: ["super_admin", "admin", "financial"],
@@ -162,7 +142,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       },
       {
         key: "marketing",
-        name: "Marketing",
+        name: customLabels.menu_marketing || "Marketing",
         href: "/marketing",
         icon: Megaphone,
         roles: ["super_admin", "admin", "marketing"],
@@ -170,7 +150,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       },
       {
         key: "treinamentos",
-        name: customLabels.academy_name || "Treinamentos",
+        name: customLabels.menu_training || "Treinamentos",
         href: "/treinamentos",
         icon: PlaySquare,
         roles: ["super_admin", "admin", "training"],
@@ -178,14 +158,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       },
       {
         key: "clientes",
-        name: customLabels.client_plural || "Clientes",
+        name: customLabels.entity_client_plural || "Clientes",
         href: "/clientes",
         icon: Users,
         roles: ["super_admin", "admin", "commercial", "financial"],
+        featureKey: "enable_clients",
       },
       {
         key: "inventario",
-        name: "Inventário",
+        name: customLabels.menu_inventory || "Inventário",
         href: "/inventario",
         icon: Package,
         roles: ["super_admin", "admin", "logistics", "commercial"],
@@ -193,14 +174,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       },
       {
         key: "orcamentos",
-        name: customLabels.quote_plural || "Orçamentos",
+        name: customLabels.entity_quote_plural || "Orçamentos",
         href: "/orcamentos",
         icon: FileText,
         roles: ["super_admin", "admin", "commercial", "financial"],
+        featureKey: "enable_quotes",
       },
       {
         key: "os",
-        name: "Ordens de Serviço",
+        name: customLabels.menu_service_orders || "Ordens de Serviço",
         href: "/os",
         icon: Truck,
         roles: ["super_admin", "admin", "logistics", "commercial", "support"],
@@ -208,37 +190,38 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       },
       {
         key: "suporte",
-        name: "Suporte Técnico",
+        name: customLabels.menu_support || "Suporte Técnico",
         href: "/suporte",
         icon: Ticket,
         roles: ["super_admin", "admin", "support"],
+        featureKey: "enable_support",
       },
     ],
-    [customLabels.academy_name, customLabels.client_plural, customLabels.quote_plural]
+    [customLabels]
   );
 
   const headerTitle = useMemo(() => {
     const firstSegment = pathname.replace(/^\/+/, "").split("/")[0] || "dashboard";
 
     const labels: Record<string, string> = {
-      dashboard: "Dashboard",
-      calendario: "Calendário",
-      crm: "CRM / Vendas",
-      financeiro: "Financeiro",
-      marketing: "Marketing",
-      treinamentos: customLabels.academy_name || "Treinamentos",
-      clientes: customLabels.client_plural || "Clientes",
-      inventario: "Inventário",
-      orcamentos: customLabels.quote_plural || "Orçamentos",
-      os: "Ordens de Serviço",
-      suporte: "Suporte Técnico",
-      equipe: "Equipe e Acessos",
+      dashboard: customLabels.menu_dashboard || "Visão Geral",
+      calendario: customLabels.menu_calendar || "Calendário",
+      crm: customLabels.menu_crm || "CRM / Vendas",
+      financeiro: customLabels.menu_financial || "Financeiro",
+      marketing: customLabels.menu_marketing || "Marketing",
+      treinamentos: customLabels.menu_training || "Treinamentos",
+      clientes: customLabels.entity_client_plural || "Clientes",
+      inventario: customLabels.menu_inventory || "Inventário",
+      orcamentos: customLabels.entity_quote_plural || "Orçamentos",
+      os: customLabels.menu_service_orders || "Ordens de Serviço",
+      suporte: customLabels.menu_support || "Suporte Técnico",
+      equipe: customLabels.menu_team || "Equipe",
       perfil: "Meu Perfil",
       configuracoes: "Personalização",
     };
 
     return labels[firstSegment] || firstSegment.replace(/-/g, " ");
-  }, [pathname, customLabels.academy_name, customLabels.client_plural, customLabels.quote_plural]);
+  }, [pathname, customLabels]);
 
   useEffect(() => {
     const checkUser = async () => {
@@ -434,7 +417,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                       onClick={handleDropdownNavigate}
                       className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-background hover:text-white"
                     >
-                      <ShieldCheck size={16} /> Equipe e Acessos
+                      <ShieldCheck size={16} /> {customLabels.menu_team || "Equipe"}
                     </Link>
                   )}
                 </div>
