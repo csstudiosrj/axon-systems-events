@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useSettings } from "@/app/providers/SettingsProvider";
 
-// --- TIPAGENS ---
+// --- TIPAGENS (BLINDAGEM TYPESCRIPT) ---
 interface ExtraItem {
   id: string;
   item_name: string;
@@ -29,11 +29,12 @@ interface Toast {
 export default function OSPage() {
   const { systemPreferences } = useSettings();
   
-  // --- LABELS DINÂMICAS ---
+  // --- LABELS DINÂMICAS (WHITE-LABEL ARXUM) ---
   const labels = systemPreferences?.custom_labels || {};
   const osSingular = labels.entity_service_order_singular || "OS";
   const osPlural = labels.entity_service_order_plural || "Ordens de Serviço";
   const quoteSingular = labels.entity_quote_singular || "Orçamento";
+  const quotePlural = labels.entity_quote_plural || "Orçamentos";
   const clientSingular = labels.entity_client_singular || "Cliente";
 
   const [view, setView] = useState<"list" | "create" | "details">("list");
