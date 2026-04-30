@@ -4,9 +4,11 @@ import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../../lib/supabase";
 import { 
   FileText, Plus, Loader2, ArrowLeft, Trash2, Save, Printer, 
-  Edit, Calendar, User, Search, Check, X, DollarSign, CreditCard 
+  Edit, Calendar, User, Search, Check, X, DollarSign, CreditCard,
+  Info
 } from "lucide-react";
 import Link from "next/link";
+import { useSettings } from "../../providers/SettingsProvider";
 
 // --- TIPAGENS (BLINDAGEM TYPESCRIPT) ---
 interface Client {
@@ -52,18 +54,30 @@ interface Toast {
 }
 
 export default function OrcamentosPage() {
+  // --- INTEGRAÇÃO COM CONFIGURAÇÕES (WHITE-LABEL) ---
+  const { systemPreferences } = useSettings();
+  const labels = systemPreferences?.custom_labels || {};
+
+  // Aliases dinâmicos com fallback para segurança do sistema
+  const quoteSingular = labels.entity_quote_singular || "Orçamento";
+  const quotePlural = labels.entity_quote_plural || "Orçamentos";
+  const clientSingular = labels.entity_client_singular || "Cliente";
+  const clientPlural = labels.entity_client_plural || "Clientes";
+  const salespersonSingular = labels.entity_salesperson_singular || "Responsável Comercial";
+  const salespersonPlural = labels.entity_salesperson_plural || "Responsáveis Comerciais";
+
   const [view, setView] = useState<"list" | "create">("list");
   const [quotes, setQuotes] = useState<Quote[]>([]);
-  const[clients, setClients] = useState<Client[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
   const [salesTeam, setSalesTeam] = useState<Profile[]>([]);
-  const[loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
 
   // Estados do Formulário
   const [editQuoteId, setEditQuoteId] = useState<string | null>(null);
-  const[title, setTitle] = useState("");
+  const [title, setTitle] = useState("");
   const [salespersonId, setSalespersonId] = useState("");
   const [clientId, setClientId] = useState("");
   const [clientSearchTerm, setClientSearchTerm] = useState("");
@@ -72,19 +86,19 @@ export default function OrcamentosPage() {
   
   const [setupStart, setSetupStart] = useState("");
   const [setupEnd, setSetupEnd] = useState("");
-  const[eventStart, setEventStart] = useState("");
+  const [eventStart, setEventStart] = useState("");
   const [eventEnd, setEventEnd] = useState("");
   const [teardownStart, setTeardownStart] = useState("");
-  const[teardownEnd, setTeardownEnd] = useState("");
+  const [teardownEnd, setTeardownEnd] = useState("");
 
   const [items, setItems] = useState<QuoteItem[]>([]);
 
-  // Estados do Modal de Aprovação (Financeiro)
-  const[approvalModalOpen, setApprovalModalOpen] = useState(false);
+  // Estados do Modal de Aprovação (Financeiro Contido)
+  const [approvalModalOpen, setApprovalModalOpen] = useState(false);
   const [selectedQuoteForApproval, setSelectedQuoteForApproval] = useState<Quote | null>(null);
   const [installments, setInstallments] = useState<number>(1);
   const [firstDueDate, setFirstDueDate] = useState<string>("");
-  const[paymentMethod, setPaymentMethod] = useState<string>("pix");
+  const [paymentMethod, setPaymentMethod] = useState<string>("pix");
 
   useEffect(() => {
     if (view === "list") {
@@ -106,7 +120,7 @@ export default function OrcamentosPage() {
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  },[]);
+  }, []);
 
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -189,11 +203,10 @@ export default function OrcamentosPage() {
     setLoading(false);
   };
 
-  // --- MOTOR DE APROVAÇÃO E FINANCEIRO ---
+  // --- MOTOR DE APROVAÇÃO E FINANCEIRO (INTEGRAÇÃO PONTUAL) ---
   const handleStatusChange = (quote: Quote, newStatus: string) => {
     if (newStatus === "approved") {
       setSelectedQuoteForApproval(quote);
-      // Sugere a data do evento ou hoje + 7 dias como primeiro vencimento
       const defaultDate = quote.event_start_date 
         ? quote.event_start_date.split('T')[0] 
         : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -213,16 +226,16 @@ export default function OrcamentosPage() {
 
     try {
       const amountPerInstallment = selectedQuoteForApproval.final_amount / installments;
-      const transactions =[];
+      const transactions = [];
 
       for (let i = 0; i < installments; i++) {
         const dueDate = new Date(firstDueDate);
-        dueDate.setMonth(dueDate.getMonth() + i); // Adiciona meses para as próximas parcelas
+        dueDate.setMonth(dueDate.getMonth() + i);
 
         transactions.push({
           description: `Fatura: ${selectedQuoteForApproval.title} - Parcela ${i + 1}/${installments}`,
           type: 'income',
-          category: 'Venda de Serviços', // Categoria padrão agnóstica
+          category: 'Venda de Serviços',
           amount: amountPerInstallment,
           status: 'pending',
           due_date: dueDate.toISOString().split('T')[0],
@@ -235,15 +248,13 @@ export default function OrcamentosPage() {
         });
       }
 
-      // 1. Injeta as contas a receber
       const { error: financeError } = await supabase.from('financial_transactions').insert(transactions);
       if (financeError) throw financeError;
 
-      // 2. Atualiza o status do orçamento
       const { error: quoteError } = await supabase.from('quotes').update({ status: 'approved' }).eq('id', selectedQuoteForApproval.id);
       if (quoteError) throw quoteError;
 
-      showToast("Orçamento aprovado e financeiro gerado com sucesso.", "success");
+      showToast(`${quoteSingular} aprovado e financeiro gerado com sucesso.`, "success");
       setApprovalModalOpen(false);
       fetchQuotes();
     } catch (error: any) {
@@ -310,7 +321,7 @@ export default function OrcamentosPage() {
 
   const handleSaveQuote = async () => {
     if (!title || !clientId || !salespersonId || items.length === 0) {
-      showToast("Preencha título, cliente, vendedor e adicione itens.", "error");
+      showToast(`Preencha título, ${clientSingular.toLowerCase()}, ${salespersonSingular.toLowerCase()} e adicione itens.`, "error");
       return;
     }
 
@@ -364,7 +375,7 @@ export default function OrcamentosPage() {
       const { error: itemsError } = await supabase.from("quote_items").insert(itemsToInsert);
       if (itemsError) throw itemsError;
 
-      showToast("Orçamento salvo com sucesso.", "success");
+      showToast(`${quoteSingular} salvo com sucesso.`, "success");
       setView("list");
     } catch (error: any) {
       showToast(`Erro ao salvar: ${error.message}`, "error");
@@ -387,7 +398,7 @@ export default function OrcamentosPage() {
         </div>
       )}
 
-      {/* Modal de Aprovação e Financeiro */}
+      {/* Modal de Aprovação e Integração Financeira */}
       {approvalModalOpen && selectedQuoteForApproval && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 backdrop-blur-sm">
           <div className="bg-surface border border-surface/50 rounded-xl w-full max-w-md overflow-hidden shadow-2xl">
@@ -466,7 +477,7 @@ export default function OrcamentosPage() {
                 className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50"
               >
                 {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
-                Confirmar e Gerar Faturas
+                Confirmar e Aprovar
               </button>
             </div>
           </div>
@@ -491,7 +502,7 @@ export default function OrcamentosPage() {
             </button>
             <button onClick={handleSaveQuote} disabled={isSubmitting} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-6 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all disabled:opacity-50">
               {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-              {editQuoteId ? "Atualizar Orçamento" : "Salvar Orçamento"}
+              {editQuoteId ? `Atualizar ${quoteSingular}` : `Salvar ${quoteSingular}`}
             </button>
           </div>
 
@@ -502,17 +513,17 @@ export default function OrcamentosPage() {
                   <FileText size={18} className="text-cs-green" /> Dados Gerais
                 </h3>
                 <div>
-                  <label className="block text-xs font-medium text-text-secondary mb-1">Nome do Evento / Proposta *</label>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">Título do Evento / {quoteSingular} *</label>
                   <input type="text" required value={title} onChange={(e) => setTitle(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm" />
                 </div>
                 
                 <div ref={clientDropdownRef} className="relative">
-                  <label className="block text-xs font-medium text-text-secondary mb-1">Cliente *</label>
+                  <label className="block text-xs font-medium text-text-secondary mb-1">{clientSingular} *</label>
                   <div className="flex items-center border border-surface bg-background rounded-md px-3 py-2 focus-within:border-cs-green focus-within:ring-1 focus-within:ring-cs-green transition-colors">
                     <Search size={14} className="text-text-secondary mr-2 shrink-0" />
                     <input
                       type="text"
-                      placeholder="Buscar cliente..."
+                      placeholder={`Buscar ${clientSingular.toLowerCase()}...`}
                       value={clientSearchTerm}
                       onChange={(e) => { setClientSearchTerm(e.target.value); setIsClientDropdownOpen(true); setClientId(""); }}
                       onFocus={() => setIsClientDropdownOpen(true)}
@@ -523,7 +534,7 @@ export default function OrcamentosPage() {
                   {isClientDropdownOpen && (
                     <div className="absolute z-50 w-full mt-1 bg-surface border border-surface/50 rounded-md shadow-2xl max-h-60 overflow-y-auto custom-scrollbar">
                       {filteredClients.length === 0 ? (
-                        <div className="px-4 py-3 text-sm text-text-secondary text-center">Nenhum cliente encontrado.</div>
+                        <div className="px-4 py-3 text-sm text-text-secondary text-center">Nenhum registro encontrado.</div>
                       ) : (
                         filteredClients.map(c => (
                           <div
@@ -540,7 +551,7 @@ export default function OrcamentosPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-text-secondary mb-1 flex items-center gap-2"><User size={14}/> Vendedor Responsável *</label>
+                  <label className="block text-xs font-medium text-text-secondary mb-1 flex items-center gap-2"><User size={14}/> {salespersonSingular} *</label>
                   <select required value={salespersonId} onChange={(e) => setSalespersonId(e.target.value)} className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm cursor-pointer">
                     <option value="">Selecione...</option>
                     {salesTeam.map(s => <option key={s.id} value={s.id}>{s.full_name || s.email}</option>)}
@@ -707,12 +718,12 @@ export default function OrcamentosPage() {
             <div>
               <h3 className="text-lg font-medium text-white flex items-center gap-2">
                 <FileText className="text-cs-green" size={20} />
-                Gestão de Orçamentos
+                Gestão de {quotePlural}
               </h3>
-              <p className="text-xs text-text-secondary mt-1">Crie propostas, gerencie status e comissões.</p>
+              <p className="text-xs text-text-secondary mt-1">Crie propostas, gerencie status e comissões comerciais.</p>
             </div>
             <button onClick={() => setView("create")} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-opacity-90 transition-all">
-              <Plus size={18} /> Novo Orçamento
+              <Plus size={18} /> Novo {quoteSingular}
             </button>
           </div>
 
@@ -721,8 +732,8 @@ export default function OrcamentosPage() {
               <table className="w-full text-left text-sm text-text-secondary">
                 <thead className="bg-background/50 text-xs uppercase text-text-secondary">
                   <tr>
-                    <th className="px-6 py-3 font-medium">Proposta / Evento</th>
-                    <th className="px-6 py-3 font-medium">Vendedor Responsável</th>
+                    <th className="px-6 py-3 font-medium">{quoteSingular} / Evento</th>
+                    <th className="px-6 py-3 font-medium">{salespersonSingular}</th>
                     <th className="px-6 py-3 font-medium">Status</th>
                     <th className="px-6 py-3 font-medium">Valor Total</th>
                     <th className="px-6 py-3 font-medium text-right">Ações</th>
@@ -732,7 +743,7 @@ export default function OrcamentosPage() {
                   {loading ? (
                     <tr><td colSpan={5} className="px-6 py-8 text-center"><Loader2 className="animate-spin mx-auto mb-2 text-cs-green" size={24} /></td></tr>
                   ) : quotes.length === 0 ? (
-                    <tr><td colSpan={5} className="px-6 py-8 text-center text-text-secondary">Nenhum orçamento gerado.</td></tr>
+                    <tr><td colSpan={5} className="px-6 py-8 text-center text-text-secondary">Nenhum registro de {quoteSingular.toLowerCase()} encontrado.</td></tr>
                   ) : (
                     quotes.map((quote) => (
                       <tr key={quote.id} className="hover:bg-background/50 transition-colors">
