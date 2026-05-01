@@ -37,8 +37,16 @@ interface Quote {
 
 interface ServiceOrder {
   id: string;
-  title?: string;
+  quote_id?: string;
   quotes?: Quote;
+}
+
+interface ApprovedQuote {
+  id: string;
+  title: string;
+  salesperson_id?: string;
+  final_amount?: number;
+  client_id?: string;
 }
 
 interface Transaction {
@@ -58,9 +66,11 @@ interface Transaction {
   payment_method?: string;
   last_notified_at?: string;
   invoice_hash?: string;
+  quote_id?: string;
   clients?: Client;
   service_orders?: ServiceOrder;
   member?: Profile;
+  quote?: Quote;
 }
 
 interface Toast {
@@ -195,6 +205,7 @@ export default function FinanceiroPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [team, setTeam] = useState<Profile[]>([]);
   const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
+  const [approvedQuotes, setApprovedQuotes] = useState<ApprovedQuote[]>([]);
 
   const [toast, setToast] = useState<Toast | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -244,14 +255,14 @@ export default function FinanceiroPage() {
         supabase
           .from("financial_transactions")
           .select(
-            "*, clients(*), member:profiles!member_id(id, full_name, email, role, commission_percentage), service_orders(id, title, quotes(id, title, salesperson_id))"
+            "*, clients(*), member:profiles!member_id(id, full_name, email, role, commission_percentage), service_orders(id, quote_id, quotes(id, title, salesperson_id)), quote:quotes!quote_id(id, title, salesperson_id, final_amount, client_id)"
           )
           .order("due_date", { ascending: true }),
         supabase.from("clients").select("id, company_name, email, phone").order("company_name"),
         supabase
-          .from("service_orders")
-          .select("id, title, quotes(id, title, salesperson_id)")
-          .in("status", ["approved", "active", "in_progress"])
+          .from("quotes")
+          .select("id, title, salesperson_id, final_amount, client_id")
+          .eq("status", "approved")
           .order("created_at", { ascending: false }),
         supabase
           .from("profiles")
@@ -261,7 +272,7 @@ export default function FinanceiroPage() {
 
       if (tRes.data) setTransactions(tRes.data as unknown as Transaction[]);
       if (cRes.data) setClients(cRes.data as Client[]);
-      if (osRes.data) setServiceOrders(osRes.data as unknown as ServiceOrder[]);
+      if (osRes.data) setApprovedQuotes(osRes.data as unknown as ApprovedQuote[]);
       if (pRes.data) setTeam(pRes.data as unknown as Profile[]);
     } catch {
       showToast("Erro ao sincronizar com a nuvem.", "error");
@@ -427,7 +438,7 @@ export default function FinanceiroPage() {
       status: t.status,
       dueDate: t.due_date,
       paymentDate: t.payment_date || "",
-      serviceOrderId: t.service_order_id || "",
+      serviceOrderId: t.quote_id || t.service_order_id || "",
       clientId: t.client_id || "",
       memberId: t.member_id || "",
       commissionAmount: "",
@@ -498,7 +509,8 @@ export default function FinanceiroPage() {
         formData.status === "paid"
           ? formData.paymentDate || new Date().toISOString().split("T")[0]
           : null,
-      service_order_id: hasServiceOrder ? formData.serviceOrderId || null : null,
+      service_order_id: null,
+      quote_id: hasServiceOrder ? formData.serviceOrderId || null : null,
       client_id: formType === "income" ? formData.clientId || null : null,
       member_id: expenseType === "personnel" && formType === "expense" ? formData.memberId || null : null,
       payment_method: formData.paymentMethod,
@@ -1172,13 +1184,13 @@ export default function FinanceiroPage() {
                         className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none transition-all"
                       >
                         <option value="">Geral / Sem {L.os}</option>
-                        {serviceOrders.map((os) => (
-                          <option key={os.id} value={os.id}>
-                            {L.os}: {os.quotes?.title || os.title || os.id.split("-")[0]}
+                        {approvedQuotes.map((q) => (
+                          <option key={q.id} value={q.id}>
+                            {L.orcamento}: {q.title}
                           </option>
                         ))}
                       </select>
-                      {serviceOrders.length === 0 && (
+                      {approvedQuotes.length === 0 && (
                         <p className="text-[10px] text-text-secondary mt-1">Nenhum {L.orcamento} aprovado localizado.</p>
                       )}
                     </div>
@@ -1320,9 +1332,9 @@ export default function FinanceiroPage() {
                   <span className="text-[10px] font-black px-3 py-1 rounded-full uppercase bg-surface border border-surface/50 text-text-secondary">
                     {selectedTransaction.category}
                   </span>
-                  {selectedTransaction.service_orders && (
+                  {(selectedTransaction.quote || selectedTransaction.service_orders?.quotes) && (
                     <span className="text-[10px] font-black px-3 py-1 rounded-full uppercase bg-blue-500/10 border border-blue-500/20 text-blue-400">
-                      {L.os}: {selectedTransaction.service_orders.quotes?.title || selectedTransaction.service_orders.title || "—"}
+                      {L.orcamento}: {selectedTransaction.quote?.title || selectedTransaction.service_orders?.quotes?.title || "—"}
                     </span>
                   )}
                 </div>
