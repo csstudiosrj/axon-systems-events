@@ -3,7 +3,11 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabase";
-import { Loader2, Printer, ArrowLeft, Receipt, CheckCircle, Globe, Mail, Phone, MapPin } from "lucide-react";
+import { 
+  Loader2, Printer, ArrowLeft, Receipt, Globe, 
+  Mail, Phone, MapPin, CreditCard, AlertCircle, XCircle,
+  CheckCircle, Download, ExternalLink
+} from "lucide-react";
 import { useSettings } from "@/app/providers/SettingsProvider";
 
 // --- TIPAGENS (BLINDAGEM TYPESCRIPT) ---
@@ -11,6 +15,8 @@ interface FaturaData {
   id: string;
   description: string;
   amount: number;
+  type: "income" | "expense";
+  category: string;
   due_date: string;
   payment_date: string | null;
   status: string;
@@ -24,13 +30,14 @@ interface FaturaData {
     address: string;
     city: string;
     state: string;
-  };
+    zipcode: string;
+  } | null;
   service_orders?: {
     id: string;
     quotes: {
       title: string;
     };
-  };
+  } | null;
 }
 
 export default function FaturaPDFPage() {
@@ -71,18 +78,18 @@ export default function FaturaPDFPage() {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <Loader2 className="animate-spin text-cs-green" size={48} />
+      <div className="flex h-screen items-center justify-center bg-[#0d0807]">
+        <Loader2 className="animate-spin text-[#138946]" size={48} />
       </div>
     );
   }
 
   if (!transaction) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen text-white space-y-4">
+      <div className="flex flex-col items-center justify-center h-screen text-white space-y-4 bg-[#0d0807]">
         <AlertCircle size={48} className="text-red-500" />
         <p className="text-lg font-bold uppercase tracking-widest">Lançamento não localizado.</p>
-        <button onClick={() => router.back()} className="text-cs-green hover:underline">Voltar ao Financeiro</button>
+        <button onClick={() => router.back()} className="text-[#138946] hover:underline">Voltar ao Financeiro</button>
       </div>
     );
   }
@@ -98,19 +105,19 @@ export default function FaturaPDFPage() {
         }
       `}} />
 
-      {/* BARRA DE AÇÕES (ESCONDIDA NA IMPRESSÃO) */}
+      {/* BARRA DE AÇÕES */}
       <div className="flex justify-between items-center mb-8 print-hidden px-4">
         <button 
           onClick={() => router.back()} 
-          className="flex items-center gap-2 text-text-secondary hover:text-white transition-colors uppercase text-[10px] font-black tracking-widest"
+          className="flex items-center gap-2 text-[#a19d9c] hover:text-white transition-colors uppercase text-[10px] font-black tracking-widest"
         >
-          <ArrowLeft size={16} /> Voltar ao Hub
+          <ArrowLeft size={16} /> Voltar ao Hub Financeiro
         </button>
         <button 
           onClick={() => window.print()} 
-          className="bg-cs-green text-white px-8 py-2.5 rounded-md font-black uppercase text-xs flex items-center gap-2 shadow-lg hover:bg-opacity-90 transition-all"
+          className="bg-[#138946] text-white px-8 py-2.5 rounded-md font-black uppercase text-xs flex items-center gap-2 shadow-lg hover:bg-opacity-90 transition-all"
         >
-          <Printer size={18} /> Imprimir Documento
+          <Printer size={18} /> Imprimir / Salvar PDF
         </button>
       </div>
 
@@ -137,7 +144,7 @@ export default function FaturaPDFPage() {
           </div>
         </div>
 
-        {/* DADOS DO CLIENTE / PAGADOR */}
+        {/* DADOS DO CLIENTE E RESUMO */}
         <div className="grid grid-cols-2 gap-12 mb-12">
           <div className="space-y-4">
             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 border-b pb-1">Destinatário</h3>
@@ -148,7 +155,7 @@ export default function FaturaPDFPage() {
             <div className="space-y-1">
               <p className="text-xs text-gray-500 flex items-center gap-2"><Mail size={12} /> {transaction.clients?.email || 'N/A'}</p>
               <p className="text-xs text-gray-500 flex items-center gap-2"><Phone size={12} /> {transaction.clients?.phone || 'N/A'}</p>
-              <p className="text-xs text-gray-500 flex items-center gap-2"><MapPin size={12} /> {transaction.clients?.address || 'Endereço não cadastrado'}</p>
+              <p className="text-xs text-gray-500 flex items-center gap-2"><MapPin size={12} /> {transaction.clients?.address || 'Endereço não informado'}</p>
             </div>
           </div>
           <div className="bg-gray-50 p-6 rounded-xl border border-gray-100 flex flex-col justify-center">
@@ -161,18 +168,18 @@ export default function FaturaPDFPage() {
               <span className="text-sm font-bold text-gray-900 uppercase">{transaction.payment_method}</span>
             </div>
             <div className="border-t pt-4">
-              <p className="text-[10px] font-black uppercase text-gray-400 mb-1">Total a Pagar</p>
+              <p className="text-[10px] font-black uppercase text-gray-400 mb-1">Total do Lançamento</p>
               <p className="text-3xl font-black" style={{ color: primaryColor }}>{formatCurrency(transaction.amount)}</p>
             </div>
           </div>
         </div>
 
-        {/* DETALHAMENTO DO SERVIÇO */}
+        {/* TABELA DE DETALHAMENTO */}
         <div className="mb-12 flex-1">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-900 text-white">
-                <th className="p-4 text-[10px] font-black uppercase tracking-widest rounded-tl-lg">Descrição do Lançamento</th>
+                <th className="p-4 text-[10px] font-black uppercase tracking-widest rounded-tl-lg">Descrição</th>
                 <th className="p-4 text-[10px] font-black uppercase tracking-widest">Categoria</th>
                 <th className="p-4 text-[10px] font-black uppercase tracking-widest text-right rounded-tr-lg">Subtotal</th>
               </tr>
@@ -192,17 +199,17 @@ export default function FaturaPDFPage() {
           </table>
         </div>
 
-        {/* INSTRUÇÕES DE PAGAMENTO */}
+        {/* INSTRUÇÕES E TOTAIS */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
           <div className="p-6 bg-gray-50 rounded-xl border border-gray-100">
             <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2">
-              <CreditCard size={14} /> Dados para Pagamento
+              <CreditCard size={14} /> Instruções de Pagamento
             </h4>
             <div className="text-xs text-gray-700 space-y-2 font-medium">
-              <p><b>Chave PIX:</b> {companyProfile.contact_email}</p>
               <p><b>Favorecido:</b> {companyProfile.company_name}</p>
-              <p className="text-[10px] text-gray-400 mt-4 leading-relaxed">
-                Após efetuar o pagamento, por favor envie o comprovante para o e-mail acima ou via WhatsApp para baixa imediata no sistema.
+              <p><b>Chave PIX:</b> {companyProfile.contact_email}</p>
+              <p className="text-[10px] text-gray-400 mt-4 leading-relaxed italic">
+                Este documento serve como registro comercial da transação. Para validade fiscal, consulte a Nota Fiscal eletrônica correspondente.
               </p>
             </div>
           </div>
@@ -211,10 +218,6 @@ export default function FaturaPDFPage() {
               <span>Subtotal:</span>
               <span>{formatCurrency(transaction.amount)}</span>
             </div>
-            <div className="flex justify-between text-sm text-gray-500 font-bold uppercase">
-              <span>Descontos/Taxas:</span>
-              <span>{formatCurrency(0)}</span>
-            </div>
             <div className="flex justify-between text-2xl font-black border-t-2 pt-4" style={{ borderColor: primaryColor }}>
               <span className="uppercase tracking-tighter">Total Geral:</span>
               <span style={{ color: primaryColor }}>{formatCurrency(transaction.amount)}</span>
@@ -222,10 +225,10 @@ export default function FaturaPDFPage() {
           </div>
         </div>
 
-        {/* RODAPÉ DINÂMICO */}
+        {/* RODAPÉ */}
         <div className="mt-auto pt-10 border-t border-gray-100 text-center">
           <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] mb-4">
-            {companyProfile.invoice_footer || `Documento Gerado Eletronicamente por ARXUM Systems`}
+            {companyProfile.invoice_footer || `Documento Gerado pelo Ecossistema ARXUM`}
           </p>
           <div className="flex justify-center gap-8 text-[9px] font-bold text-gray-400 uppercase tracking-widest">
             <span className="flex items-center gap-1"><Globe size={10} /> {companyProfile.website || 'arxum.com'}</span>
