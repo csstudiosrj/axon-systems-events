@@ -8,11 +8,11 @@ import {
   Hash, DollarSign, Layers, Save, AlertTriangle, 
   Speaker, Lightbulb, MonitorPlay, Box, Zap, Users, Truck,
   Stethoscope, Syringe, Pill, Activity, ClipboardList,
-  GraduationCap, BookOpen, Laptop, Sofa, Tool
+  GraduationCap, BookOpen, Laptop, Sofa, Wrench
 } from "lucide-react";
 import { useSettings } from "@/app/providers/SettingsProvider";
 
-// --- TIPAGENS ---
+// --- TIPAGENS (BLINDAGEM TYPESCRIPT) ---
 interface Equipment {
   id: string;
   name: string;
@@ -30,7 +30,7 @@ interface Toast {
 }
 
 // --- CONFIGURAÇÃO DE CATEGORIAS POR PRESET (WHITE-LABEL) ---
-const CATEGORY_MAP: Record<string, { label: string; icon: any }> = {
+const CATEGORY_MAP: Record<string, { label: string; icon: React.ElementType }> = {
   // Eventos (Legado e Atual)
   audio: { label: "Áudio", icon: Speaker },
   lighting: { label: "Iluminação", icon: Lightbulb },
@@ -51,6 +51,7 @@ const CATEGORY_MAP: Record<string, { label: string; icon: any }> = {
   it: { label: "Tecnologia / TI", icon: Laptop },
   books: { label: "Material Didático", icon: BookOpen },
   general: { label: "Geral / Outros", icon: Package },
+  maintenance: { label: "Manutenção", icon: Wrench }
 };
 
 export default function InventarioPage() {
@@ -102,15 +103,14 @@ export default function InventarioPage() {
   }, [fetchInventory]);
 
   // --- LÓGICA DE CATEGORIAS DISPONÍVEIS ---
-  // Aqui o sistema decide quais categorias mostrar no select baseado no preset
   const availableCategories = useMemo(() => {
-    const isMedical = labels.entity_client_singular?.toLowerCase() === "paciente";
-    const isEducation = labels.entity_client_singular?.toLowerCase() === "aluno";
+    const clientLabel = labels.entity_client_singular?.toLowerCase() || "";
+    const isMedical = clientLabel === "paciente";
+    const isEducation = clientLabel === "aluno";
 
     if (isMedical) return ["medical", "supplies", "pharmacy", "monitoring", "labor", "general"];
     if (isEducation) return ["it", "furniture", "books", "labor", "general"];
     
-    // Default: Eventos / Produção Técnica
     return ["audio", "lighting", "led", "structure", "energy", "labor", "logistics", "general"];
   }, [labels]);
 
@@ -133,7 +133,6 @@ export default function InventarioPage() {
     const finalSku = formData.sku.trim() || generateSKU();
 
     try {
-      // Validar SKU Único
       const { data: existing } = await supabase.from("equipment").select("id").eq("sku", finalSku).maybeSingle();
       if (existing && existing.id !== editId) {
         showToast(`O SKU ${finalSku} já está em uso.`, "error");
@@ -180,7 +179,7 @@ export default function InventarioPage() {
 
   const resetForm = () => {
     setEditId(null);
-    setForm({ name: "", sku: "", category: availableCategories[0], daily_rate: "", stock_total: "1", maintenance_notes: "" });
+    setForm({ name: "", sku: "", category: availableCategories[0] || "general", daily_rate: "", stock_total: "1", maintenance_notes: "" });
   };
 
   const openEdit = (item: Equipment) => {
@@ -222,7 +221,7 @@ export default function InventarioPage() {
   return (
     <div className="space-y-6 relative pb-12">
       
-      {/* TOASTS ARXUM (Fundo Sólido e Z-Index Máximo) */}
+      {/* TOASTS ARXUM */}
       {toast && (
         <div className="fixed bottom-6 right-6 z-[200] px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border bg-[#1a1413] border-white/10 animate-in fade-in slide-in-from-bottom-4">
           <div className={`${toast.type === 'success' ? 'text-cs-green' : toast.type === 'error' ? 'text-red-500' : 'text-cs-gold'}`}>
@@ -272,7 +271,7 @@ export default function InventarioPage() {
           {Object.entries(groupedInventory).map(([catKey, items]) => {
             const isExpanded = expandedCategories.includes(catKey);
             const config = CATEGORY_MAP[catKey] || CATEGORY_MAP.general;
-            const Icon = config.icon;
+            const CategoryIcon = config.icon;
             
             return (
               <div key={catKey} className="bg-surface border border-surface/50 rounded-lg overflow-hidden shadow-xl">
@@ -282,7 +281,7 @@ export default function InventarioPage() {
                 >
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 rounded bg-cs-green/10 flex items-center justify-center border border-cs-green/20">
-                      <Icon className="text-cs-green" size={20} />
+                      <CategoryIcon className="text-cs-green" size={20} />
                     </div>
                     <div className="text-left">
                       <h4 className="text-sm font-black text-white uppercase tracking-widest">{config.label}</h4>
@@ -342,7 +341,7 @@ export default function InventarioPage() {
         </div>
       )}
 
-      {/* MODAL FORMULÁRIO (Fundo Sólido e Backdrop) */}
+      {/* MODAL FORMULÁRIO */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
           <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden">
