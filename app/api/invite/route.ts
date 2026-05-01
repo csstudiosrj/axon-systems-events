@@ -1,55 +1,49 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
 
+// Usamos a SERVICE_ROLE_KEY apenas no Server-side para gerenciar usuários sem confirmação forçada
 const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || "",
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 );
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { email, role, inviterId, inviterRole, action, password, fullName, clientId } = body;
+    const { action, email, fullName, password, role, inviterRole } = await request.json();
 
-    if (!email || !role) return NextResponse.json({ error: "E-mail e cargo são obrigatórios." }, { status: 400 });
-
-    if (inviterRole === 'commercial' && !['client', 'student', 'subscriber'].includes(role)) {
-      return NextResponse.json({ error: "Você não tem permissão para adicionar membros da equipe interna." }, { status: 403 });
+    // Validação de Hierarquia: Apenas Super Admin cria outros Admins/Super Admins
+    if (role === 'super_admin' && inviterRole !== 'super_admin') {
+      return NextResponse.json({ error: 'Ação não permitida para seu nível de acesso.' }, { status: 403 });
     }
 
-    let userId = null;
-
-    // Captura a URL base dinamicamente para o redirecionamento (Vercel ou Localhost)
-    const origin = request.headers.get('origin') || process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-
     if (action === 'add') {
-      const { data, error } = await supabaseAdmin.auth.admin.createUser({
-        email: email,
-        password: password,
+      // Criação Direta (Manual)
+      const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password,
         email_confirm: true,
         user_metadata: { full_name: fullName }
       });
-      if (error) throw error;
-      userId = data.user.id;
+
+      if (authError) throw authError;
+
+      const { error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .insert([{ id: authUser.user.id, email, full_name: fullName, role }]);
+
+      if (profileError) throw profileError;
+
+      return NextResponse.json({ success: true });
     } else {
-      // Fluxo Zero Trust: Dispara o e-mail instruindo o Supabase a redirecionar para a tela de Setup
-      const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-        redirectTo: `${origin}/setup`
+      // Convite por E-mail
+      const { error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+        data: { full_name: fullName, role_pending: role }
       });
-      if (error) throw error;
-      userId = data.user.id;
+
+      if (inviteError) throw inviteError;
+
+      return NextResponse.json({ success: true });
     }
-
-    if (userId) {
-      const updatePayload: any = { role: role, full_name: fullName };
-      if (clientId) {
-        updatePayload.client_id = clientId;
-      }
-      await supabaseAdmin.from("profiles").update(updatePayload).eq("id", userId);
-    }
-
-    return NextResponse.json({ success: true, message: "Operação realizada com sucesso!" }, { status: 200 });
-
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
