@@ -1,17 +1,19 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { supabase } from "../../lib/supabase";
 import { useRouter } from "next/navigation";
+import { useSettings } from "@/app/providers/SettingsProvider";
+
+// Imports splitados para evitar erro de build na Vercel
 import { 
   Megaphone, Plus, Loader2, ArrowLeft, Calendar, 
-  Image as ImageIcon, Camera, Globe, CheckCircle, 
-  Clock, Save, Trash2, Edit, X, Upload, 
-  AlertTriangle, Eye, Zap, FileText, Check, AlertCircle,
-  Sparkles, Linkedin, Facebook, Video, ChevronLeft, ChevronRight,
-  LayoutGrid, List, Info, Send
+  Camera, Globe, CheckCircle, Clock, Save, 
+  Trash2, Edit, X, Upload, AlertTriangle, 
+  Zap, FileText, Check, AlertCircle, Sparkles, 
+  Linkedin, Facebook, Video, ChevronLeft, ChevronRight,
+  Info, Send, ArrowRight, Smartphone
 } from "lucide-react";
-import { useSettings } from "@/app/providers/SettingsProvider";
 
 // --- TIPAGENS ---
 interface MarketingPost {
@@ -40,11 +42,12 @@ export default function MarketingPage() {
   const { systemPreferences, companyProfile } = useSettings();
   const labels = systemPreferences?.custom_labels || {};
 
-  // Labels Dinâmicas
+  // Labels Dinâmicas ARXUM
   const marketingLabel = labels.menu_marketing || "Marketing";
   const postSingular = labels.entity_post_singular || "Postagem";
 
-  // Estados de Navegação
+  // Estados de Navegação e Hidratação
+  const [mounted, setMounted] = useState(false);
   const [view, setView] = useState<"planner" | "create" | "strategy">("planner");
   const [posts, setPosts] = useState<MarketingPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,6 +72,11 @@ export default function MarketingPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Garantir que o componente só renderize após a montagem no cliente (Build Fix)
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const showToast = useCallback((message: string, type: Toast["type"]) => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 5000);
@@ -81,13 +89,13 @@ export default function MarketingPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchPosts(); }, [fetchPosts]);
+  useEffect(() => { if (mounted) fetchPosts(); }, [mounted, fetchPosts]);
 
-  // --- ARXUM MIND: STREAMING ENGINE ---
+  // --- ARXUM MIND: STREAMING ENGINE (REVISADO) ---
   const handleArxumMind = async (mode: "brainstorm" | "content") => {
     const contextTitle = mode === "brainstorm" ? aiObjective : title;
-    if (!contextTitle) {
-      showToast("Forneça um objetivo ou título para a ARXUM Mind.", "warning");
+    if (!contextTitle.trim()) {
+      showToast("A ARXUM Mind precisa de um objetivo ou titulo para processar.", "warning");
       return;
     }
 
@@ -109,17 +117,19 @@ export default function MarketingPage() {
         })
       });
 
-      if (!response.ok) throw new Error("Falha na conexão com ARXUM Mind.");
+      if (!response.ok) throw new Error("Falha na conexao com ARXUM Mind.");
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader!.read();
         if (done) break;
         
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n");
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || ""; // Mantém o resto incompleto no buffer
         
         for (const line of lines) {
           if (line.startsWith("data: ")) {
@@ -128,7 +138,9 @@ export default function MarketingPage() {
               const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
               if (mode === "brainstorm") setAiStreamResult(prev => prev + text);
               else setContent(prev => prev + text);
-            } catch (e) {}
+            } catch (e) {
+              // Fragmento de JSON incompleto, ignora e espera o próximo chunk
+            }
           }
         }
       }
@@ -143,14 +155,14 @@ export default function MarketingPage() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    showToast("Carregando mídia...", "info");
+    showToast("Carregando midia...", "info");
     try {
       const filePath = `marketing/${Date.now()}-${file.name}`;
       const { error: uploadError } = await supabase.storage.from('axon-assets').upload(filePath, file);
       if (uploadError) throw uploadError;
       const { data } = supabase.storage.from('axon-assets').getPublicUrl(filePath);
       setImageUrl(data.publicUrl);
-      showToast("Mídia pronta.", "success");
+      showToast("Midia pronta.", "success");
     } catch (error: any) { showToast(error.message, "error"); }
   };
 
@@ -187,27 +199,50 @@ export default function MarketingPage() {
   const CalendarGrid = () => {
     const days = Array.from({ length: 31 }, (_, i) => i + 1);
     return (
-      <div className="grid grid-cols-7 gap-4">
+      <div className="grid grid-cols-7 gap-2 md:gap-4">
         {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(d => (
           <div key={d} className="text-center text-[10px] font-black uppercase text-text-secondary pb-2">{d}</div>
         ))}
         {days.map(day => {
           const dayPosts = posts.filter(p => new Date(p.scheduled_for).getDate() === day);
           return (
-            <div key={day} className="min-h-[120px] bg-surface border border-surface/50 rounded-lg p-2 hover:border-cs-green/30 transition-all group relative">
-              <span className="text-xs font-black text-white/20 group-hover:text-cs-green transition-colors">{day}</span>
+            <div key={day} className="min-h-[100px] md:min-h-[140px] bg-[#1a1413] border border-white/5 rounded-lg p-2 hover:border-cs-green/30 transition-all group relative">
+              <span className="text-xs font-black text-white/10 group-hover:text-cs-green transition-colors">{day}</span>
               <div className="mt-2 space-y-1">
                 {dayPosts.map(post => (
                   <div 
                     key={post.id} 
-                    onClick={() => { setEditId(post.id); setTitle(post.title); setContent(post.content); setImageUrl(post.image_url || ""); setScheduledFor(post.scheduled_for.slice(0, 16)); setSelectedPlatforms(post.platforms); setStatus(post.status); setView("create"); }}
-                    className="text-[9px] font-bold p-1.5 bg-background border-l-2 border-cs-green rounded truncate cursor-pointer hover:bg-cs-green/10 text-white uppercase"
+                    onClick={() => { 
+                      setEditId(post.id); 
+                      setTitle(post.title); 
+                      setContent(post.content); 
+                      setImageUrl(post.image_url || ""); 
+                      setScheduledFor(post.scheduled_for.slice(0, 16)); 
+                      setSelectedPlatforms(post.platforms || ['blog']); 
+                      setStatus(post.status); 
+                      setView("create"); 
+                    }}
+                    className={`text-[8px] md:text-[9px] font-bold p-1.5 border-l-2 rounded truncate cursor-pointer transition-all hover:brightness-125 uppercase ${
+                      post.status === 'published' ? 'bg-cs-green/10 border-cs-green text-cs-green' : 
+                      post.status === 'draft' ? 'bg-zinc-500/10 border-zinc-500 text-zinc-400' : 
+                      'bg-cs-gold/10 border-cs-gold text-cs-gold'
+                    }`}
                   >
                     {post.title}
                   </div>
                 ))}
               </div>
-              <button onClick={() => { setScheduledFor(`2026-05-${day.toString().padStart(2, '0')}T09:00`); setView("create"); }} className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-cs-green text-white p-1 rounded-full shadow-lg">
+              <button 
+                onClick={() => { 
+                  setEditId(null);
+                  setTitle("");
+                  setContent("");
+                  setImageUrl("");
+                  setScheduledFor(`2026-05-${day.toString().padStart(2, '0')}T09:00`); 
+                  setView("create"); 
+                }} 
+                className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-cs-green text-white p-1 rounded-full shadow-lg"
+              >
                 <Plus size={12} />
               </button>
             </div>
@@ -217,43 +252,48 @@ export default function MarketingPage() {
     );
   };
 
+  if (!mounted) return null;
+
   return (
     <div className="space-y-6 relative pb-12">
-      {/* TOASTS ARXUM MIND */}
+      {/* TOASTS ARXUM MIND (Fundo Sólido) */}
       {toast && (
         <div className="fixed bottom-6 right-6 z-[200] px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border bg-[#1a1413] border-white/10 animate-in fade-in slide-in-from-bottom-4">
-          <div className={`${toast.type === 'success' ? 'text-cs-green' : 'text-red-500'}`}>
-            {toast.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
+          <div className={`${toast.type === 'success' ? 'text-cs-green' : toast.type === 'error' ? 'text-red-500' : 'text-cs-gold'}`}>
+            {toast.type === 'success' ? <Check size={20} /> : <AlertCircle size={20} />}
           </div>
           <span className="text-sm font-black uppercase tracking-widest text-white">{toast.message}</span>
         </div>
       )}
 
       {/* HEADER DINÂMICO */}
-      <div className="flex justify-between items-center bg-surface p-4 border border-surface/50 rounded-lg shadow-lg">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-surface p-6 border border-surface/50 rounded-lg shadow-lg gap-4">
         <div>
           <h3 className="text-xl font-bold text-white flex items-center gap-3 uppercase tracking-tighter">
             <Megaphone className="text-cs-green" size={24} /> {marketingLabel}
           </h3>
-          <div className="flex items-center gap-4 mt-2">
-            <span className="text-[10px] font-black text-text-secondary uppercase tracking-widest flex items-center gap-1">
-              <Info size={12} className="text-cs-gold" /> 1. Planeje a Estratégia
-            </span>
-            <ArrowRight size={12} className="text-white/10" />
-            <span className="text-[10px] font-black text-text-secondary uppercase tracking-widest flex items-center gap-1">
-              <Info size={12} className="text-cs-gold" /> 2. ARXUM Mind gera o conteúdo
-            </span>
-            <ArrowRight size={12} className="text-white/10" />
-            <span className="text-[10px] font-black text-text-secondary uppercase tracking-widest flex items-center gap-1">
-              <Info size={12} className="text-cs-gold" /> 3. Agende no Calendário
-            </span>
+          <div className="flex flex-wrap items-center gap-3 mt-3">
+            <div className="flex items-center gap-1.5 bg-background px-2 py-1 rounded border border-white/5">
+              <Sparkles size={12} className="text-cs-gold" />
+              <span className="text-[9px] font-black text-text-secondary uppercase tracking-widest">1. Estratégia</span>
+            </div>
+            <ArrowRight size={10} className="text-white/10" />
+            <div className="flex items-center gap-1.5 bg-background px-2 py-1 rounded border border-white/5">
+              <Zap size={12} className="text-cs-green" />
+              <span className="text-[9px] font-black text-text-secondary uppercase tracking-widest">2. ARXUM Mind</span>
+            </div>
+            <ArrowRight size={10} className="text-white/10" />
+            <div className="flex items-center gap-1.5 bg-background px-2 py-1 rounded border border-white/5">
+              <Calendar size={12} className="text-blue-400" />
+              <span className="text-[9px] font-black text-text-secondary uppercase tracking-widest">3. Planner</span>
+            </div>
           </div>
         </div>
-        <div className="flex gap-3">
-          <button onClick={() => setView("strategy")} className="flex items-center gap-2 bg-cs-gold/10 text-cs-gold border border-cs-gold/20 px-4 py-2 rounded-md font-black text-[10px] uppercase tracking-widest hover:bg-cs-gold/20 transition-all">
+        <div className="flex gap-3 w-full md:w-auto">
+          <button onClick={() => setView("strategy")} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-cs-gold/10 text-cs-gold border border-cs-gold/20 px-4 py-2.5 rounded-md font-black text-[10px] uppercase tracking-widest hover:bg-cs-gold/20 transition-all">
             <Sparkles size={16} /> ARXUM Mind Strategy
           </button>
-          <button onClick={() => { setEditId(null); setView("create"); }} className="flex items-center gap-2 bg-cs-green text-white px-6 py-2 rounded-md font-black text-[10px] uppercase tracking-widest hover:bg-opacity-90 transition-all shadow-lg">
+          <button onClick={() => { setEditId(null); resetForm(); setView("create"); }} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-cs-green text-white px-6 py-2.5 rounded-md font-black text-[10px] uppercase tracking-widest hover:bg-opacity-90 transition-all shadow-lg">
             <Plus size={16} /> Novo Agendamento
           </button>
         </div>
@@ -305,7 +345,7 @@ export default function MarketingPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 {AVAILABLE_PLATFORMS.map(p => (
                   <button 
                     key={p.id} 
@@ -335,9 +375,6 @@ export default function MarketingPage() {
                 </h4>
                 <div className="text-sm text-white/90 leading-relaxed whitespace-pre-wrap font-medium">
                   {aiStreamResult}
-                </div>
-                <div className="pt-4 border-t border-surface/50 text-[10px] text-text-secondary italic">
-                  Gostou das sugestões? Clique em "Novo Agendamento" para começar a criar os posts baseados nestes temas.
                 </div>
               </div>
             )}
@@ -379,7 +416,7 @@ export default function MarketingPage() {
                   <textarea required rows={10} value={content} onChange={(e) => setContent(e.target.value)} className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none resize-none custom-scrollbar" placeholder="A IA redigirá aqui ou você pode escrever manualmente..." />
                 </div>
 
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-[10px] font-black text-text-secondary uppercase mb-2 tracking-widest">Data do Lançamento *</label>
                     <input type="datetime-local" required value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none" />
@@ -442,7 +479,7 @@ export default function MarketingPage() {
               <AlertTriangle size={40} />
             </div>
             <h3 className="text-xl font-black text-white uppercase tracking-tighter mb-2">Excluir Postagem?</h3>
-            <p className="text-sm text-text-secondary mb-8 font-medium">Esta ação removerá o agendamento permanentemente.</p>
+            <p className="text-sm text-text-secondary mb-8 font-medium">Esta acao removera o agendamento permanentemente.</p>
             <div className="flex gap-4">
               <button onClick={() => setConfirmDelete(null)} className="flex-1 py-3 border border-surface rounded-md text-xs font-black uppercase text-text-secondary hover:text-white transition-all">Cancelar</button>
               <button onClick={async () => { await supabase.from("marketing_posts").delete().eq("id", confirmDelete); setConfirmDelete(null); fetchPosts(); showToast("Excluído.", "success"); }} className="flex-1 py-3 bg-red-600 text-white rounded-md text-xs font-black uppercase shadow-lg hover:bg-red-500 transition-all">Excluir</button>
