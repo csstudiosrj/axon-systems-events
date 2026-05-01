@@ -99,6 +99,11 @@ export interface CommercialDocuments extends JsonObject {
   [key: string]: JsonValue | undefined;
 }
 
+export interface FinancialCategories {
+  income: string[];
+  expense: string[];
+}
+
 export interface CompanyProfile {
   id?: string;
   company_name: string;
@@ -130,6 +135,8 @@ export interface SystemPreferences {
   feature_toggles: FeatureToggles;
   custom_labels: CustomLabels;
   commercial_documents: CommercialDocuments;
+  currency_code: string;
+  financial_categories: FinancialCategories;
 }
 
 interface CompanyProfileRow {
@@ -163,6 +170,8 @@ interface SystemPreferencesRow {
   feature_toggles: FeatureToggles | null;
   custom_labels: Partial<CustomLabels> | null;
   commercial_documents: CommercialDocuments | null;
+  currency_code: string | null;
+  financial_categories: FinancialCategories | null;
 }
 
 interface ProfileIdentityRow {
@@ -182,7 +191,7 @@ interface SettingsContextValue {
 }
 
 const defaultCompanyProfile: CompanyProfile = {
-  company_name: "AXON Systems",
+  company_name: "ARXUM",
   cnpj: "",
   logo_url: "",
   primary_color: "#138946",
@@ -271,10 +280,17 @@ const defaultCommercialDocuments: CommercialDocuments = {
   default_operational_notes: "",
 };
 
+const defaultFinancialCategories: FinancialCategories = {
+  income: ["Venda de Serviços", "Locação de Equipamentos", "Treinamentos", "Consultoria"],
+  expense: ["OPEX", "Folha de Pagamento", "Comissões", "Logística", "Impostos", "Manutenção"]
+};
+
 const defaultSystemPreferences: SystemPreferences = {
   feature_toggles: defaultFeatureToggles,
   custom_labels: defaultCustomLabels,
   commercial_documents: defaultCommercialDocuments,
+  currency_code: "BRL",
+  financial_categories: defaultFinancialCategories
 };
 
 const SettingsContext = createContext<SettingsContextValue>({
@@ -331,6 +347,14 @@ function mergeCommercialDocuments(
   };
 }
 
+function mergeFinancialCategories(input: FinancialCategories | null | undefined): FinancialCategories {
+  if (!isPlainObject(input)) return { ...defaultFinancialCategories };
+  return {
+    income: Array.isArray(input.income) ? input.income : defaultFinancialCategories.income,
+    expense: Array.isArray(input.expense) ? input.expense : defaultFinancialCategories.expense,
+  };
+}
+
 function normalizeCompanyProfile(row: CompanyProfileRow | null): CompanyProfile {
   if (!row) {
     return { ...defaultCompanyProfile };
@@ -365,11 +389,7 @@ function normalizeCompanyProfile(row: CompanyProfileRow | null): CompanyProfile 
 
 function normalizeSystemPreferences(row: SystemPreferencesRow | null): SystemPreferences {
   if (!row) {
-    return {
-      feature_toggles: { ...defaultFeatureToggles },
-      custom_labels: { ...defaultCustomLabels },
-      commercial_documents: { ...defaultCommercialDocuments },
-    };
+    return { ...defaultSystemPreferences };
   }
 
   return {
@@ -377,6 +397,8 @@ function normalizeSystemPreferences(row: SystemPreferencesRow | null): SystemPre
     feature_toggles: mergeFeatureToggles(row.feature_toggles),
     custom_labels: mergeCustomLabels(row.custom_labels),
     commercial_documents: mergeCommercialDocuments(row.commercial_documents),
+    currency_code: safeString(row.currency_code, defaultSystemPreferences.currency_code),
+    financial_categories: mergeFinancialCategories(row.financial_categories),
   };
 }
 
@@ -440,11 +462,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           setResolvedUserId(null);
           setResolvedClientId(null);
           setCompanyProfile({ ...defaultCompanyProfile });
-          setSystemPreferences({
-            feature_toggles: { ...defaultFeatureToggles },
-            custom_labels: { ...defaultCustomLabels },
-            commercial_documents: { ...defaultCommercialDocuments },
-          });
+          setSystemPreferences({ ...defaultSystemPreferences });
           return;
         }
 
@@ -468,38 +486,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         const [companyResult, preferencesResult] = await Promise.all([
           supabase
             .from("company_profile")
-            .select(
-              `
-              id,
-              company_name,
-              cnpj,
-              logo_url,
-              primary_color,
-              contract_terms,
-              legal_name,
-              trade_name,
-              website,
-              contact_email,
-              phone_landline,
-              phone_mobile,
-              whatsapp_number,
-              zipcode,
-              street,
-              street_number,
-              complement,
-              district,
-              city,
-              state,
-              country,
-              proposal_footer,
-              invoice_footer
-            `
-            )
+            .select("*")
             .limit(1)
             .maybeSingle<CompanyProfileRow>(),
           supabase
             .from("system_preferences")
-            .select("id, feature_toggles, custom_labels, commercial_documents")
+            .select("id, feature_toggles, custom_labels, commercial_documents, currency_code, financial_categories")
             .limit(1)
             .maybeSingle<SystemPreferencesRow>(),
         ]);
@@ -517,11 +509,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         if (!isMounted || activeRequestRef.current !== requestId) return;
 
         setCompanyProfile({ ...defaultCompanyProfile });
-        setSystemPreferences({
-          feature_toggles: { ...defaultFeatureToggles },
-          custom_labels: { ...defaultCustomLabels },
-          commercial_documents: { ...defaultCommercialDocuments },
-        });
+        setSystemPreferences({ ...defaultSystemPreferences });
       } finally {
         if (isMounted && activeRequestRef.current === requestId) {
           setLoading(false);
