@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useSettings } from "@/app/providers/SettingsProvider";
 
-// --- TIPAGENS (BLINDAGEM TYPESCRIPT) ---
+// --- TIPAGENS ---
 interface Equipment {
   id: string;
   name: string;
@@ -29,9 +29,8 @@ interface Toast {
   type: "success" | "error" | "warning" | "info";
 }
 
-// --- CONFIGURAÇÃO DE CATEGORIAS POR PRESET (WHITE-LABEL) ---
-const CATEGORY_MAP: Record<string, { label: string; icon: React.ElementType }> = {
-  // Eventos (Legado e Atual)
+// --- MAPEAMENTO AGNOSTICO DE CATEGORIAS ---
+const CATEGORY_CONFIG: Record<string, { label: string; icon: React.ElementType }> = {
   audio: { label: "Áudio", icon: Speaker },
   lighting: { label: "Iluminação", icon: Lightbulb },
   led: { label: "Painel de LED / Vídeo", icon: MonitorPlay },
@@ -39,14 +38,10 @@ const CATEGORY_MAP: Record<string, { label: string; icon: React.ElementType }> =
   energy: { label: "Energia / Cabos", icon: Zap },
   labor: { label: "Equipe Técnica", icon: Users },
   logistics: { label: "Logística / Frete", icon: Truck },
-  
-  // Saúde
   medical: { label: "Equip. Médicos", icon: Stethoscope },
   supplies: { label: "Insumos / Descartáveis", icon: Syringe },
   pharmacy: { label: "Medicamentos", icon: Pill },
   monitoring: { label: "Monitoramento", icon: Activity },
-  
-  // Educação / Geral
   furniture: { label: "Mobiliário", icon: Sofa },
   it: { label: "Tecnologia / TI", icon: Laptop },
   books: { label: "Material Didático", icon: BookOpen },
@@ -63,6 +58,14 @@ export default function InventarioPage() {
   const eqPlural = labels.entity_equipment_plural || "Acervo";
   const inventoryLabel = labels.menu_inventory || "Inventário";
 
+  // --- DETECÇÃO REATIVA DE NICHO ---
+  const availableCategories = useMemo(() => {
+    const clientLabel = labels.entity_client_singular?.toLowerCase() || "";
+    if (clientLabel === "paciente") return ["medical", "supplies", "pharmacy", "monitoring", "labor", "general"];
+    if (clientLabel === "aluno") return ["it", "furniture", "books", "labor", "general"];
+    return ["audio", "lighting", "led", "structure", "energy", "labor", "logistics", "general"];
+  }, [labels]);
+
   // Estados de Dados
   const [inventory, setInventory] = useState<Equipment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,7 +77,7 @@ export default function InventarioPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [formData, setForm] = useState({
-    name: "", sku: "", category: "audio", daily_rate: "", stock_total: "1", maintenance_notes: ""
+    name: "", sku: "", category: "", daily_rate: "", stock_total: "1", maintenance_notes: ""
   });
 
   // UI
@@ -102,26 +105,19 @@ export default function InventarioPage() {
     fetchInventory();
   }, [fetchInventory]);
 
-  // --- LÓGICA DE CATEGORIAS DISPONÍVEIS ---
-  const availableCategories = useMemo(() => {
-    const clientLabel = labels.entity_client_singular?.toLowerCase() || "";
-    const isMedical = clientLabel === "paciente";
-    const isEducation = clientLabel === "aluno";
+  // Sincronizar categoria padrão quando o nicho mudar
+  useEffect(() => {
+    if (!formData.category || !availableCategories.includes(formData.category)) {
+      setForm(prev => ({ ...prev, category: availableCategories[0] }));
+    }
+  }, [availableCategories, formData.category]);
 
-    if (isMedical) return ["medical", "supplies", "pharmacy", "monitoring", "labor", "general"];
-    if (isEducation) return ["it", "furniture", "books", "labor", "general"];
-    
-    return ["audio", "lighting", "led", "structure", "energy", "labor", "logistics", "general"];
-  }, [labels]);
-
-  // --- LÓGICA DE SKU ---
   const generateSKU = () => {
     const prefix = companyProfile?.company_name?.substring(0, 3).toUpperCase() || "ARX";
     const random = Math.floor(1000 + Math.random() * 9000);
     return `${prefix}-${random}`;
   };
 
-  // --- PERSISTÊNCIA ---
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.daily_rate) {
@@ -155,7 +151,7 @@ export default function InventarioPage() {
 
       if (error) throw error;
 
-      showToast(`${eqSingular} salvo com sucesso na base ARXUM.`, "success");
+      showToast(`${eqSingular} sincronizado com sucesso na base ARXUM.`, "success");
       setIsModalOpen(false);
       resetForm();
       fetchInventory();
@@ -169,17 +165,17 @@ export default function InventarioPage() {
   const handleDelete = async (id: string) => {
     const { error } = await supabase.from("equipment").delete().eq("id", id);
     if (!error) {
-      showToast(`${eqSingular} removido do acervo.`, "success");
+      showToast(`${eqSingular} removido do sistema.`, "success");
       setConfirmDelete(null);
       fetchInventory();
     } else {
-      showToast("Erro: Este item pode estar vinculado a um histórico.", "error");
+      showToast("Erro: Item vinculado a registros históricos.", "error");
     }
   };
 
   const resetForm = () => {
     setEditId(null);
-    setForm({ name: "", sku: "", category: availableCategories[0] || "general", daily_rate: "", stock_total: "1", maintenance_notes: "" });
+    setForm({ name: "", sku: "", category: availableCategories[0], daily_rate: "", stock_total: "1", maintenance_notes: "" });
   };
 
   const openEdit = (item: Equipment) => {
@@ -195,7 +191,6 @@ export default function InventarioPage() {
     setIsModalOpen(true);
   };
 
-  // --- AGRUPAMENTO E FILTRO ---
   const filteredInventory = inventory.filter(item => 
     item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     item.sku.toLowerCase().includes(searchTerm.toLowerCase())
@@ -221,7 +216,7 @@ export default function InventarioPage() {
   return (
     <div className="space-y-6 relative pb-12">
       
-      {/* TOASTS ARXUM */}
+      {/* TOASTS ARXUM (Fundo Sólido) */}
       {toast && (
         <div className="fixed bottom-6 right-6 z-[200] px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border bg-[#1a1413] border-white/10 animate-in fade-in slide-in-from-bottom-4">
           <div className={`${toast.type === 'success' ? 'text-cs-green' : toast.type === 'error' ? 'text-red-500' : 'text-cs-gold'}`}>
@@ -260,17 +255,17 @@ export default function InventarioPage() {
         </div>
       </div>
 
-      {/* LISTAGEM AGRUPADA (ACCORDION) */}
+      {/* LISTAGEM AGRUPADA */}
       {loading ? (
         <div className="flex flex-col items-center justify-center py-24 gap-4">
           <Loader2 className="animate-spin text-cs-green" size={48} />
-          <span className="text-xs font-black uppercase tracking-[0.3em] text-cs-green animate-pulse">Acessando Banco de Dados...</span>
+          <span className="text-xs font-black uppercase tracking-[0.3em] text-cs-green animate-pulse">Acessando ARXUM Cloud...</span>
         </div>
       ) : (
         <div className="space-y-4">
           {Object.entries(groupedInventory).map(([catKey, items]) => {
             const isExpanded = expandedCategories.includes(catKey);
-            const config = CATEGORY_MAP[catKey] || CATEGORY_MAP.general;
+            const config = CATEGORY_CONFIG[catKey] || CATEGORY_CONFIG.general;
             const CategoryIcon = config.icon;
             
             return (
@@ -285,7 +280,7 @@ export default function InventarioPage() {
                     </div>
                     <div className="text-left">
                       <h4 className="text-sm font-black text-white uppercase tracking-widest">{config.label}</h4>
-                      <p className="text-[10px] text-text-secondary uppercase font-bold">{items.length} {eqPlural} nesta categoria</p>
+                      <p className="text-[10px] text-text-secondary uppercase font-bold">{items.length} {eqPlural} cadastrados</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
@@ -341,10 +336,10 @@ export default function InventarioPage() {
         </div>
       )}
 
-      {/* MODAL FORMULÁRIO */}
+      {/* MODAL FORMULÁRIO (Fundo Sólido) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
-          <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden">
+          <div className="bg-[#1a1413] border border-surface/50 rounded-xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden">
             <div className="p-6 border-b border-surface/50 flex justify-between items-center bg-background/50">
               <div className="flex items-center gap-3">
                 <Package className="text-cs-green" size={24} />
@@ -390,7 +385,7 @@ export default function InventarioPage() {
                     className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none cursor-pointer"
                   >
                     {availableCategories.map(cat => (
-                      <option key={cat} value={cat}>{CATEGORY_MAP[cat]?.label || cat}</option>
+                      <option key={cat} value={cat}>{CATEGORY_CONFIG[cat]?.label || cat}</option>
                     ))}
                   </select>
                 </div>
@@ -444,7 +439,7 @@ export default function InventarioPage() {
       {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO */}
       {confirmDelete && (
         <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-surface border border-surface/50 p-8 rounded-xl shadow-2xl max-w-sm w-full text-center">
+          <div className="bg-[#1a1413] border border-surface/50 p-8 rounded-xl shadow-2xl max-w-sm w-full text-center">
             <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-500/20">
               <AlertTriangle size={40} className="text-red-500" />
             </div>
