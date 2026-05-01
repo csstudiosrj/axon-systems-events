@@ -12,10 +12,23 @@ import {
   Receipt, Send, Mail, MessageCircle, ChevronRight
 } from "lucide-react";
 
-// --- TIPAGENS ---
-interface Client { id: string; company_name: string; email?: string; phone?: string; }
-interface Quote { id: string; title: string; }
-interface ServiceOrder { id: string; quotes?: Quote | any; }
+// --- TIPAGENS (BLINDAGEM TYPESCRIPT) ---
+interface Client { 
+  id: string; 
+  company_name: string; 
+  email?: string; 
+  phone?: string; 
+}
+
+interface Quote { 
+  id: string; 
+  title: string; 
+}
+
+interface ServiceOrder { 
+  id: string; 
+  quotes?: Quote | any; 
+}
 
 interface Transaction {
   id: string;
@@ -40,21 +53,33 @@ interface Toast { message: string; type: "success" | "error" | "warning"; }
 export default function FinanceiroPage() {
   const router = useRouter();
   const { systemPreferences, companyProfile } = useSettings();
+  
+  // --- EXTRAÇÃO DE LABELS E CONFIGURAÇÕES (ARXUM ENGINE) ---
   const labels = systemPreferences?.custom_labels || {};
   const currency = systemPreferences?.currency_code || "BRL";
   const categories = systemPreferences?.financial_categories || { income: [], expense: [] };
 
+  const financialLabel = labels.menu_financial || "Hub Financeiro";
+  const receivableLabel = labels.entity_receivable_plural || "Contas a Receber";
+  const payableLabel = labels.entity_payable_plural || "Contas a Pagar";
+  const transactionSingular = labels.entity_transaction_singular || "Lançamento";
+  const clientSingular = labels.entity_client_singular || "Cliente";
+
+  // Estados de Interface
   const [activeTab, setActiveTab] = useState<"dashboard" | "receber" | "pagar" | "clientes">("dashboard");
   const [view, setView] = useState<"list" | "create">("list");
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  // Estados de Dados
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
+
   // UI States
   const [toast, setToast] = useState<Toast | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -81,7 +106,7 @@ export default function FinanceiroPage() {
       supabase.from("service_orders").select("id, quotes(title)").order("created_at", { ascending: false })
     ]);
 
-    if (tRes.data) setTransactions(tRes.data as Transaction[]);
+    if (tRes.data) setTransactions(tRes.data as unknown as Transaction[]);
     if (cRes.data) setClients(cRes.data as Client[]);
     if (osRes.data) setServiceOrders(osRes.data as any[]);
     setLoading(false);
@@ -99,14 +124,17 @@ export default function FinanceiroPage() {
       if (error) throw error;
       const { data } = supabase.storage.from('axon-assets').getPublicUrl(path);
       setForm(prev => ({ ...prev, attachmentUrl: data.publicUrl }));
-      showToast("Documento anexado.", "success");
+      showToast("Comprovante anexado com sucesso.", "success");
     } catch (err: any) { showToast(err.message, "error"); }
     finally { setUploading(false); }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.description || !formData.amount || !formData.dueDate) return;
+    if (!formData.description || !formData.amount || !formData.dueDate) {
+      showToast("Preencha os campos obrigatórios.", "warning");
+      return;
+    }
     setIsSubmitting(true);
 
     const payload = {
@@ -128,17 +156,59 @@ export default function FinanceiroPage() {
       : await supabase.from("financial_transactions").insert([payload]);
 
     if (!error) {
-      showToast("Lançamento processado.", "success");
+      showToast("Lançamento processado na ARXUM Cloud.", "success");
+      resetForm();
       setView("list");
       fetchData();
     } else { showToast(error.message, "error"); }
     setIsSubmitting(false);
   };
 
+  const resetForm = () => {
+    setEditId(null);
+    setForm({
+      description: "", type: "income", category: "", amount: "", 
+      status: "pending", dueDate: "", paymentDate: "",
+      serviceOrderId: "", clientId: "", paymentMethod: "pix", attachmentUrl: ""
+    });
+  };
+
+  const openEditForm = (t: Transaction) => {
+    setIsDetailModalOpen(false);
+    setEditId(t.id);
+    setForm({
+      description: t.description,
+      type: t.type,
+      category: t.category,
+      amount: t.amount.toString(),
+      status: t.status,
+      dueDate: t.due_date,
+      paymentDate: t.payment_date || "",
+      serviceOrderId: t.service_order_id || "",
+      clientId: t.client_id || "",
+      paymentMethod: t.payment_method || "pix",
+      attachmentUrl: t.attachment_url || ""
+    });
+    setView("create");
+  };
+
+  const updateStatus = async (id: string, newStatus: string) => {
+    const payload: any = { status: newStatus };
+    payload.payment_date = newStatus === 'paid' ? new Date().toISOString().split('T')[0] : null;
+    
+    const { error } = await supabase.from("financial_transactions").update(payload).eq("id", id);
+    if (!error) {
+      showToast("Status atualizado.", "success");
+      fetchData();
+      if (selectedTransaction?.id === id) {
+        setSelectedTransaction({ ...selectedTransaction, status: newStatus as any, payment_date: payload.payment_date });
+      }
+    }
+  };
+
   const formatCurrency = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(v);
   const isOverdue = (date: string, status: string) => new Date(date) < new Date(new Date().setHours(0,0,0,0)) && status === 'pending';
 
-  // --- LÓGICA DE NOTIFICAÇÃO ---
   const sendWhatsApp = (t: Transaction) => {
     const phone = t.clients?.phone?.replace(/\D/g, "");
     if (!phone) { showToast("Cliente sem telefone cadastrado.", "warning"); return; }
@@ -146,13 +216,12 @@ export default function FinanceiroPage() {
     window.open(`https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`, "_blank");
   };
 
-  // --- CÁLCULOS AGING & DASHBOARD ---
+  // --- CÁLCULOS DASHBOARD ---
   const stats = useMemo(() => {
     const paidIn = transactions.filter(t => t.type === 'income' && t.status === 'paid').reduce((a, b) => a + b.amount, 0);
     const paidOut = transactions.filter(t => t.type === 'expense' && t.status === 'paid').reduce((a, b) => a + b.amount, 0);
     const pendingIn = transactions.filter(t => t.type === 'income' && t.status === 'pending').reduce((a, b) => a + b.amount, 0);
     const overdueIn = transactions.filter(t => t.type === 'income' && isOverdue(t.due_date, t.status)).reduce((a, b) => a + b.amount, 0);
-    
     return { balance: paidIn - paidOut, pendingIn, overdueIn, paidIn, paidOut };
   }, [transactions]);
 
@@ -165,38 +234,137 @@ export default function FinanceiroPage() {
     }).filter(c => c.ltv > 0 || c.debt > 0);
   }, [clients, transactions]);
 
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(t => 
+      t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      t.clients?.company_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      t.category?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [transactions, searchTerm]);
+
+  const renderTable = (typeFilter: "income" | "expense") => {
+    const filtered = filteredTransactions.filter(t => t.type === typeFilter);
+    return (
+      <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden shadow-xl">
+        <div className="p-4 border-b border-surface/50 bg-surface/50 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <h4 className="text-sm font-black uppercase tracking-widest text-white">
+            {typeFilter === 'income' ? receivableLabel : payableLabel}
+          </h4>
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={16} />
+            <input 
+              type="text" 
+              placeholder="Filtrar por cliente ou descrição..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-background border border-surface rounded-md text-xs text-white focus:border-cs-green outline-none"
+            />
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm text-text-secondary">
+            <thead className="bg-background/50 text-[10px] uppercase tracking-widest text-text-secondary font-black">
+              <tr>
+                <th className="px-6 py-4">Lançamento / Cliente</th>
+                <th className="px-6 py-4">Vencimento</th>
+                <th className="px-6 py-4">Valor</th>
+                <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-surface/50">
+              {loading ? (
+                <tr><td colSpan={5} className="px-6 py-12 text-center"><Loader2 className="animate-spin mx-auto text-cs-green" size={32} /></td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={5} className="px-6 py-12 text-center text-text-secondary italic">Nenhum registro localizado.</td></tr>
+              ) : (
+                filtered.map((t) => (
+                  <tr key={t.id} className="hover:bg-background/50 transition-colors group">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-md ${t.type === 'income' ? 'bg-cs-green/10 text-cs-green' : 'bg-red-500/10 text-red-500'}`}>
+                          {t.type === 'income' ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
+                        </div>
+                        <div>
+                          <p className="font-bold text-white group-hover:text-cs-green transition-colors">{t.description}</p>
+                          <p className="text-[10px] font-black uppercase text-text-secondary">{t.clients?.company_name || t.category}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-1.5">
+                        <Clock size={14} className={isOverdue(t.due_date, t.status) ? 'text-red-500' : 'text-text-secondary'} />
+                        <span className={`text-xs font-bold ${isOverdue(t.due_date, t.status) ? 'text-red-500' : 'text-white'}`}>
+                          {new Date(t.due_date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 font-black text-white">{formatCurrency(t.amount)}</td>
+                    <td className="px-6 py-4">
+                      <select
+                        value={t.status}
+                        onChange={(e) => updateStatus(t.id, e.target.value)}
+                        className={`text-[10px] rounded-full px-3 py-1 font-black uppercase border focus:outline-none cursor-pointer ${
+                          t.status === 'paid' ? 'bg-cs-green/10 text-cs-green border-cs-green/20' :
+                          t.status === 'cancelled' ? 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20' :
+                          isOverdue(t.due_date, t.status) ? 'bg-red-500/10 text-red-500 border-red-500/20' :
+                          'bg-cs-gold/10 text-cs-gold border-cs-gold/20'
+                        }`}
+                      >
+                        <option value="pending">Pendente</option>
+                        <option value="paid">Pago</option>
+                        <option value="cancelled">Cancelado</option>
+                      </select>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <button 
+                        onClick={() => { setSelectedTransaction(t); setIsDetailModalOpen(true); }} 
+                        className="bg-surface border border-surface/50 text-text-secondary hover:text-white px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-all"
+                      >
+                        Detalhes
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6 relative pb-12">
       {/* TOASTS ARXUM */}
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-[200] px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border bg-[#1a1413] border-white/10 animate-in fade-in slide-in-from-bottom-4 ${
-          toast.type === 'success' ? 'text-cs-green' : 'text-red-500'
+        <div className={`fixed bottom-6 right-6 z-[100] px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border bg-[#1a1413] ${
+          toast.type === 'success' ? 'border-cs-green text-cs-green' : 'border-red-500 text-red-500'
         }`}>
           {toast.type === 'success' ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
-          <span className="text-sm font-black uppercase tracking-widest text-white">{toast.message}</span>
+          <span className="text-sm font-bold uppercase tracking-widest">{toast.message}</span>
         </div>
       )}
 
-      {/* HEADER */}
-      <div className="flex justify-between items-center bg-surface p-6 border border-surface/50 rounded-xl shadow-lg">
+      {/* HEADER PRINCIPAL */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-surface p-6 border border-surface/50 rounded-xl shadow-lg">
         <div>
           <h3 className="text-2xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
             <Wallet className="text-cs-green" size={28} /> {financialLabel}
           </h3>
-          <p className="text-[10px] text-text-secondary mt-1 uppercase tracking-[0.2em] font-black">Fluxo de Caixa Consolidado ARXUM</p>
+          <p className="text-[10px] text-text-secondary mt-1.5 uppercase font-black tracking-[0.2em]">Fluxo de Caixa Consolidado ARXUM</p>
         </div>
-        <button onClick={() => { setEditId(null); setView("create"); }} className="bg-cs-green text-white px-8 py-3 rounded-md font-black text-xs uppercase tracking-widest hover:bg-opacity-90 transition-all shadow-lg flex items-center gap-2">
+        <button onClick={() => { resetForm(); setView("create"); }} className="bg-cs-green text-white px-8 py-3 rounded-md font-black text-xs uppercase tracking-widest hover:bg-opacity-90 transition-all shadow-lg flex items-center gap-2">
           <Plus size={18} /> Novo {transactionSingular}
         </button>
       </div>
 
       {view === "list" && (
         <>
-          {/* TABS */}
           <div className="flex gap-2 border-b border-surface/50">
             {["dashboard", "receber", "pagar", "clientes"].map((tab) => (
               <button key={tab} onClick={() => setActiveTab(tab as any)} className={`px-8 py-4 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${activeTab === tab ? 'border-cs-green text-cs-green' : 'border-transparent text-text-secondary hover:text-white'}`}>
-                {tab === 'dashboard' ? 'Visão Geral' : tab === 'receber' ? receivableLabel : tab === 'pagar' ? payableLabel : 'Visão por ' + labels.entity_client_singular}
+                {tab === 'dashboard' ? 'Visão Geral' : tab === 'receber' ? receivableLabel : tab === 'pagar' ? payableLabel : 'Visão por ' + clientSingular}
               </button>
             ))}
           </div>
@@ -222,7 +390,6 @@ export default function FinanceiroPage() {
                 </div>
               </div>
 
-              {/* AGING BUCKETS (Visual) */}
               <div className="bg-surface border border-surface/50 p-6 rounded-xl">
                 <h4 className="text-xs font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
                   <TrendingUp size={16} className="text-cs-gold" /> Projeção de Recebíveis (Aging)
@@ -252,7 +419,7 @@ export default function FinanceiroPage() {
               <table className="w-full text-left text-sm">
                 <thead className="bg-background/50 text-[10px] uppercase tracking-widest text-text-secondary font-black">
                   <tr>
-                    <th className="px-8 py-5">Identificação do {labels.entity_client_singular}</th>
+                    <th className="px-8 py-5">Identificação do {clientSingular}</th>
                     <th className="px-8 py-5">LTV (Total Pago)</th>
                     <th className="px-8 py-5">Saldo Devedor</th>
                     <th className="px-8 py-5 text-right">Ações</th>
@@ -274,18 +441,14 @@ export default function FinanceiroPage() {
             </div>
           )}
 
-          {(activeTab === "receber" || activeTab === "pagar") && (
-            <div className="animate-in fade-in duration-300">
-              {renderTable(activeTab === "receber" ? "income" : "expense")}
-            </div>
-          )}
+          {(activeTab === "receber" || activeTab === "pagar") && renderTable(activeTab === "receber" ? "income" : "expense")}
         </>
       )}
 
       {/* FORMULÁRIO DE LANÇAMENTO */}
       {view === "create" && (
         <div className="max-w-5xl mx-auto space-y-6">
-          <button onClick={() => setView("list")} className="flex items-center gap-2 text-text-secondary hover:text-white transition-all uppercase text-[10px] font-black tracking-widest">
+          <button onClick={() => { resetForm(); setView("list"); }} className="flex items-center gap-2 text-text-secondary hover:text-white transition-all uppercase text-[10px] font-black tracking-widest">
             <ArrowLeft size={16} /> Voltar ao Fluxo
           </button>
           <div className="bg-surface border border-surface/50 p-8 rounded-xl shadow-2xl">
@@ -299,10 +462,19 @@ export default function FinanceiroPage() {
                     <button type="button" onClick={() => setForm({...formData, type: 'income'})} className={`px-8 py-2 rounded text-[10px] font-black uppercase transition-all ${formData.type === 'income' ? 'bg-cs-green text-white shadow-lg' : 'text-text-secondary'}`}>Receita</button>
                     <button type="button" onClick={() => setForm({...formData, type: 'expense'})} className={`px-8 py-2 rounded text-[10px] font-black uppercase transition-all ${formData.type === 'expense' ? 'bg-red-500 text-white shadow-lg' : 'text-text-secondary'}`}>Despesa</button>
                   </div>
-                  <InputField label="Descrição *" value={formData.description} onChange={v => setForm({...formData, description: v})} />
+                  <div>
+                    <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Descrição *</label>
+                    <input type="text" required value={formData.description} onChange={e => setForm({...formData, description: e.target.value})} className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none" />
+                  </div>
                   <div className="grid grid-cols-2 gap-4">
-                    <InputField label={`Valor (${currency}) *`} type="number" value={formData.amount} onChange={v => setForm({...formData, amount: v})} />
-                    <InputField label="Vencimento *" type="date" value={formData.dueDate} onChange={v => setForm({...formData, dueDate: v})} />
+                    <div>
+                      <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Valor ({currency}) *</label>
+                      <input type="number" step="0.01" required value={formData.amount} onChange={e => setForm({...formData, amount: e.target.value})} className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Vencimento *</label>
+                      <input type="date" required value={formData.dueDate} onChange={e => setForm({...formData, dueDate: e.target.value})} className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none" style={{ colorScheme: 'dark' }} />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-[10px] font-black text-text-secondary uppercase mb-2 tracking-widest">Categoria (Plano de Contas)</label>
@@ -315,7 +487,7 @@ export default function FinanceiroPage() {
                 </div>
                 <div className="space-y-6">
                   <div>
-                    <label className="block text-[10px] font-black text-text-secondary uppercase mb-2 tracking-widest">Vincular {labels.entity_client_singular}</label>
+                    <label className="block text-[10px] font-black text-text-secondary uppercase mb-2 tracking-widest">Vincular {clientSingular}</label>
                     <select value={formData.clientId} onChange={e => setForm({...formData, clientId: e.target.value})} className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none">
                       <option value="">Nenhum</option>
                       {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
@@ -347,7 +519,7 @@ export default function FinanceiroPage() {
                 </div>
               </div>
               <div className="pt-8 border-t border-surface/50 flex justify-end">
-                <button type="submit" disabled={isSubmitting} className="bg-cs-green text-white px-12 py-4 rounded-md font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:bg-opacity-90 disabled:opacity-50 transition-all flex items-center gap-3">
+                <button type="submit" disabled={isSubmitting} className="bg-cs-green text-white px-12 py-4 rounded-md font-black text-sm uppercase tracking-[0.2em] shadow-2xl hover:bg-opacity-90 disabled:opacity-50 transition-all flex items-center gap-3">
                   {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />} Finalizar Lançamento
                 </button>
               </div>
@@ -405,19 +577,18 @@ export default function FinanceiroPage() {
                 </div>
               </div>
             </div>
+            <div className="p-6 border-t border-surface/50 bg-background/80 flex justify-between items-center">
+              <button onClick={async () => { await supabase.from("financial_transactions").delete().eq("id", selectedTransaction.id); setIsDetailModalOpen(false); fetchData(); showToast("Removido.", "success"); }} className="flex items-center gap-2 text-xs font-black uppercase text-red-500 hover:text-red-400 transition-colors"><Trash2 size={16} /> Excluir</button>
+              <div className="flex gap-4">
+                <button onClick={() => openEditForm(selectedTransaction)} className="bg-surface border border-surface/50 text-white px-6 py-2.5 rounded-md text-xs font-black uppercase tracking-widest hover:bg-surface/80 transition-all">Editar</button>
+                {selectedTransaction.status === 'pending' && (
+                  <button onClick={() => updateStatus(selectedTransaction.id, 'paid')} className="bg-cs-green text-white px-8 py-2.5 rounded-md text-xs font-black uppercase tracking-widest shadow-lg hover:bg-opacity-90 transition-all">Dar Baixa</button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// --- COMPONENTES AUXILIARES ---
-function InputField({ label, value, onChange, type = "text" }: { label: string, value: string, onChange: (v: string) => void, type?: string }) {
-  return (
-    <div>
-      <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">{label}</label>
-      <input type={type} value={value} onChange={e => onChange(e.target.value)} className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none transition-all" style={{ colorScheme: 'dark' }} />
     </div>
   );
 }
