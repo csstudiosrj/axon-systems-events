@@ -99,7 +99,7 @@ const DEFAULT_EXPENSE_CATEGORIES = [
 
 export default function FinanceiroPage() {
   const router = useRouter();
-  const settingsCtx = useSettings() as { systemPreferences?: SystemPreferences; companyProfile?: CompanyProfile };
+  const settingsCtx = useSettings() as unknown as { systemPreferences?: SystemPreferences; companyProfile?: CompanyProfile };
   const systemPreferences = settingsCtx?.systemPreferences;
   const companyProfile = settingsCtx?.companyProfile;
 
