@@ -65,7 +65,7 @@ export default function FinanceiroPage() {
   const router = useRouter();
   const { systemPreferences, companyProfile } = useSettings();
   
-  // --- LABELS E CONFIGURAÇÕES (ARXUM ENGINE) ---
+  // --- EXTRAÇÃO DE LABELS E CONFIGURAÇÕES (ARXUM ENGINE) ---
   const labels = systemPreferences?.custom_labels || {};
   const currency = systemPreferences?.currency_code || "BRL";
   const categories = systemPreferences?.financial_categories || { income: [], expense: [] };
@@ -77,7 +77,7 @@ export default function FinanceiroPage() {
   const clientSingular = labels.entity_client_singular || "Cliente";
 
   // Estados de Interface
-  const [activeTab, setActiveTab] = useState<"dashboard" | "receber" | "pagar" | "pessoal">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "receber" | "pagar" | "pessoal" | "clientes">("dashboard");
   const [view, setView] = useState<"list" | "create">("list");
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -129,7 +129,7 @@ export default function FinanceiroPage() {
       if (osRes.data) setServiceOrders(osRes.data as any[]);
       if (pRes.data) setTeam(pRes.data as Profile[]);
     } catch (err) {
-      showToast("Erro ao sincronizar dados.", "error");
+      showToast("Erro ao sincronizar com ARXUM Cloud.", "error");
     } finally {
       setLoading(false);
     }
@@ -139,11 +139,11 @@ export default function FinanceiroPage() {
 
   // --- BUSCA PREDITIVA ---
   const filteredClientsList = useMemo(() => 
-    clients.filter(c => c.company_name.toLowerCase().includes(clientSearch.toLowerCase())).slice(0, 10),
+    clients.filter(c => c.company_name.toLowerCase().includes(clientSearch.toLowerCase())).slice(0, 8),
   [clients, clientSearch]);
 
   const filteredTeamList = useMemo(() => 
-    team.filter(t => t.full_name.toLowerCase().includes(memberSearch.toLowerCase())).slice(0, 10),
+    team.filter(t => t.full_name.toLowerCase().includes(memberSearch.toLowerCase())).slice(0, 8),
   [team, memberSearch]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -151,12 +151,12 @@ export default function FinanceiroPage() {
     if (!file) return;
     setUploading(true);
     try {
-      const path = `financial/${Date.now()}-${file.name}`;
+      const path = `financial/attachments/${Date.now()}-${file.name}`;
       const { error: uploadError } = await supabase.storage.from('axon-assets').upload(path, file);
       if (uploadError) throw uploadError;
       const { data } = supabase.storage.from('axon-assets').getPublicUrl(path);
       setForm(prev => ({ ...prev, attachmentUrl: data.publicUrl }));
-      showToast("Documento anexado com sucesso.", "success");
+      showToast("Documento processado com sucesso.", "success");
     } catch (err: any) { 
       showToast(err.message, "error"); 
     } finally { 
@@ -193,7 +193,7 @@ export default function FinanceiroPage() {
       : await supabase.from("financial_transactions").insert([payload]);
 
     if (!error) {
-      showToast("Lançamento processado.", "success");
+      showToast("Lançamento gravado com sucesso.", "success");
       setView("list");
       fetchData();
       resetForm();
@@ -241,7 +241,7 @@ export default function FinanceiroPage() {
     
     const { error } = await supabase.from("financial_transactions").update(payload).eq("id", id);
     if (!error) {
-      showToast("Status atualizado.", "success");
+      showToast("Status financeiro atualizado.", "success");
       fetchData();
       if (selectedTransaction?.id === id) {
         setSelectedTransaction({ ...selectedTransaction, status: newStatus as any, payment_date: payload.payment_date });
@@ -259,7 +259,7 @@ export default function FinanceiroPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      showToast("Cobrança enviada por e-mail.", "success");
+      showToast("Cobrança disparada via e-mail.", "success");
       fetchData();
     } catch (err: any) { 
       showToast(err.message, "error"); 
@@ -278,7 +278,7 @@ export default function FinanceiroPage() {
     window.open(`https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`, "_blank");
   };
 
-  // --- CÁLCULOS DASHBOARD ---
+  // --- KPI CALCULATIONS ---
   const stats = useMemo(() => {
     const paidIn = transactions.filter(t => t.type === 'income' && t.status === 'paid').reduce((a, b) => a + Number(b.amount), 0);
     const paidOut = transactions.filter(t => t.type === 'expense' && t.status === 'paid').reduce((a, b) => a + Number(b.amount), 0);
@@ -327,7 +327,7 @@ export default function FinanceiroPage() {
               placeholder="Filtrar lançamentos..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-background border border-surface rounded-md text-xs text-white focus:border-cs-green outline-none"
+              className="w-full pl-9 pr-4 py-2 bg-background border border-surface rounded-md text-xs text-white focus:border-cs-green outline-none transition-all"
             />
           </div>
         </div>
@@ -398,7 +398,7 @@ export default function FinanceiroPage() {
       )}
 
       {/* HEADER */}
-      <div className="flex justify-between items-center bg-surface p-6 border border-surface/50 rounded-xl shadow-lg">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-surface p-6 border border-surface/50 rounded-xl shadow-lg">
         <div>
           <h3 className="text-2xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
             <Wallet className="text-cs-green" size={28} /> {financialLabel}
@@ -438,7 +438,7 @@ export default function FinanceiroPage() {
                   <p className="text-3xl font-black text-cs-green">{formatCurrency(stats.pendingIn)}</p>
                 </div>
                 <div className="bg-surface border border-surface/50 p-6 rounded-xl border-l-4 border-l-red-500">
-                  <p className="text-[10px] font-black text-text-secondary uppercase mb-2">Inadimplência</p>
+                  <p className="text-[10px] font-black text-text-secondary uppercase mb-2">Inadimplência Real</p>
                   <p className="text-3xl font-black text-red-500">{formatCurrency(stats.overdueIn)}</p>
                 </div>
                 <div className="bg-surface border border-surface/50 p-6 rounded-xl">
@@ -484,7 +484,7 @@ export default function FinanceiroPage() {
                 <div className="bg-surface border border-surface/50 p-6 rounded-xl flex items-center justify-between">
                   <div>
                     <p className="text-[10px] font-black text-text-secondary uppercase">Comissões Pagas</p>
-                    <p className="text-2xl font-black text-cs-gold">{formatCurrency(personnelStats.totalCommissions)}</p>
+                    <p className="text-2xl font-black text-white text-cs-gold">{formatCurrency(personnelStats.totalCommissions)}</p>
                   </div>
                   <Percent className="text-cs-gold opacity-20" size={48} />
                 </div>
@@ -564,6 +564,14 @@ export default function FinanceiroPage() {
                       <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Vencimento *</label>
                       <input type="date" required value={formData.dueDate} onChange={e => setForm({...formData, dueDate: e.target.value})} className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none" style={{ colorScheme: 'dark' }} />
                     </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-text-secondary uppercase mb-2 tracking-widest">Categoria (Plano de Contas)</label>
+                    <select value={formData.category} onChange={e => setForm({...formData, category: e.target.value})} className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none">
+                      {(formData.type === 'income' ? categories.income : categories.expense).map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
