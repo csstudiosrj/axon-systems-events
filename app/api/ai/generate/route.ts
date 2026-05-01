@@ -15,8 +15,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // ID do modelo atualizado para a versao 2.0 conforme seu catalogo atual
-    const modelId = 'gemini-2.0-flash';
+    // Atualizado para a versao 2.5 conforme seu catalogo atual de 2026
+    const modelId = 'gemini-2.5-flash';
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
 
     const prompt = `Atue como especialista em marketing digital. 
