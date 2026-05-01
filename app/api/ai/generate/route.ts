@@ -1,70 +1,48 @@
 import { NextResponse } from 'next/server';
 
+export const runtime = 'edge'; // Otimizado para streaming na Vercel
+
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { title, niche, companyName } = body;
-
+    const { mode, title, objective, niche, companyName, platforms } = await request.json();
     const apiKey = process.env.GOOGLE_GEMINI_API;
 
     if (!apiKey) {
-      console.error("ERRO_ARXUM_AI: Variavel GOOGLE_GEMINI_API nao localizada.");
-      return NextResponse.json(
-        { error: 'Configuracao de API ausente no servidor.' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Chave ARXUM Mind nao configurada.' }, { status: 500 });
     }
 
-    // Atualizado para a versao 2.5 conforme seu catalogo atual de 2026
     const modelId = 'gemini-2.5-flash';
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
-    const prompt = `Atue como especialista em marketing digital. 
-    Empresa: ${companyName}, atuando no nicho de ${niche}. 
-    Tema: ${title}. 
-    Tarefa: Gere um post de blog curto e uma legenda de Instagram persuasiva. 
-    Requisitos: Linguagem profissional, direta e luxuosa. Sem cliches. 
-    Formatacao: Separe os dois conteudos com uma linha de asteriscos.`;
+    let prompt = "";
+
+    if (mode === "brainstorm") {
+      prompt = `Aja como Estrategista de Conteudo da empresa ${companyName} (${niche}). 
+      Objetivo: ${objective}. 
+      Tarefa: Sugira 5 temas de postagens para os canais ${platforms.join(", ")}. 
+      Formato: Retorne apenas uma lista numerada com Título e Sugestão de Data.`;
+    } else {
+      prompt = `Aja como Redator de Marketing da ${companyName} (${niche}). 
+      Tema: ${title}. Canais: ${platforms.join(", ")}.
+      Tarefa: Escreva o conteudo completo para cada canal selecionado. 
+      Tom: Profissional e luxuoso. Use emojis e hashtags.`;
+    }
 
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{
-          parts: [{ text: prompt }]
-        }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1000,
-        }
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2000 }
       })
     });
 
-    const data = await response.json();
+    // Retorna o stream diretamente para o frontend
+    return new Response(response.body, {
+      headers: { 'Content-Type': 'text/event-stream' }
+    });
 
-    if (!response.ok) {
-      console.error("ERRO_API_GOOGLE_DETALHADO:", JSON.stringify(data));
-      return NextResponse.json(
-        { error: data.error?.message || 'Falha na resposta do provedor de IA.' },
-        { status: response.status }
-      );
-    }
-
-    const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!aiText) {
-      return NextResponse.json(
-        { error: 'A IA retornou um formato de dados inesperado.' },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ content: aiText });
   } catch (error: any) {
-    console.error("ERRO_INTERNO_AI_ROUTE:", error.message);
-    return NextResponse.json(
-      { error: 'Falha interna no processamento da inteligencia artificial.' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
