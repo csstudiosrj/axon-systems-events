@@ -7,7 +7,8 @@ import {
   Megaphone, Plus, Loader2, ArrowLeft, Calendar, 
   Image as ImageIcon, Camera, Globe, CheckCircle, 
   Clock, Save, Trash2, Edit, X, Upload, 
-  AlertTriangle, Eye, Zap, FileText, Check, AlertCircle
+  AlertTriangle, Eye, Zap, FileText, Check, AlertCircle,
+  Wand2, Sparkles
 } from "lucide-react";
 import { useSettings } from "@/app/providers/SettingsProvider";
 
@@ -45,6 +46,7 @@ export default function MarketingPage() {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
 
   // Estados do Formulário
   const [editId, setEditId] = useState<string | null>(null);
@@ -52,7 +54,7 @@ export default function MarketingPage() {
   const [content, setContent] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [scheduledFor, setScheduledFor] = useState("");
-  const [platformInstagram, setPlatformInstagram] = useState(false); // Desabilitado por padrão (Scope Meta API)
+  const [platformInstagram, setPlatformInstagram] = useState(false);
   const [platformBlog, setPlatformBlog] = useState(true);
   const [status, setStatus] = useState<MarketingPost['status']>("scheduled");
   
@@ -81,6 +83,32 @@ export default function MarketingPage() {
     setLoading(false);
   };
 
+  // --- IA COPILOTO ARXUM ---
+  const handleGenerateAI = async () => {
+    if (!title) {
+      showToast("Insira um título para que a IA tenha contexto.", "warning");
+      return;
+    }
+
+    setIsGeneratingAI(true);
+    try {
+      // Simulação de chamada de IA (Aqui você pluga a rota app/api/ai/generate)
+      // O prompt leva em conta o nicho do cliente configurado no sistema
+      const nicho = labels.entity_client_singular || "Cliente";
+      
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Simula processamento
+      
+      const aiContent = `Olá! Sabia que o mercado de ${nicho} está mudando? \n\nNo post de hoje sobre "${title}", vamos explorar como a tecnologia ARXUM está liderando essa transformação. \n\nConfira os detalhes no nosso blog! #inovacao #arxum #gestao`;
+      
+      setContent(aiContent);
+      showToast("Conteúdo gerado pela IA com sucesso!", "success");
+    } catch (error) {
+      showToast("Falha ao contatar o motor de IA.", "error");
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  };
+
   // --- LÓGICA DE UPLOAD DE IMAGEM ---
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -100,7 +128,7 @@ export default function MarketingPage() {
 
       const { data } = supabase.storage.from('axon-assets').getPublicUrl(filePath);
       setImageUrl(data.publicUrl);
-      showToast("Imagem processada com sucesso.", "success");
+      showToast("Mídia carregada com sucesso.", "success");
     } catch (error: any) {
       showToast(`Erro no upload: ${error.message}`, "error");
     } finally {
@@ -108,7 +136,6 @@ export default function MarketingPage() {
     }
   };
 
-  // --- GERAÇÃO DE SLUG (SEO PARA BLOG) ---
   const generateSlug = (text: string) => {
     return text
       .toLowerCase()
@@ -132,7 +159,7 @@ export default function MarketingPage() {
   const handleSavePost = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !content || !scheduledFor) {
-      showToast("Título, conteúdo e data são obrigatórios.", "warning");
+      showToast("Campos obrigatórios ausentes.", "warning");
       return;
     }
 
@@ -156,7 +183,7 @@ export default function MarketingPage() {
 
       if (error) throw error;
 
-      showToast(`${postSingular} sincronizada com a ARXUM Cloud.`, "success");
+      showToast(`${postSingular} sincronizada com sucesso.`, "success");
       resetForm();
       setView("list");
     } catch (error: any) {
@@ -185,7 +212,7 @@ export default function MarketingPage() {
   const handleDelete = async (id: string) => {
     const { error } = await supabase.from("marketing_posts").delete().eq("id", id);
     if (!error) {
-      showToast(`${postSingular} excluída.`, "success");
+      showToast(`${postSingular} removida.`, "success");
       setConfirmDelete(null);
       fetchPosts();
     } else {
@@ -205,12 +232,21 @@ export default function MarketingPage() {
         <div className="flex flex-col lg:flex-row gap-8">
           
           {/* FORMULÁRIO */}
-          <div className="flex-1 bg-surface border border-surface/50 p-8 rounded-lg shadow-2xl space-y-8">
-            <div className="border-b border-surface/50 pb-4">
+          <div className="flex-1 bg-[#1a1413] border border-surface/50 p-8 rounded-lg shadow-2xl space-y-8">
+            <div className="border-b border-surface/50 pb-4 flex justify-between items-center">
               <h3 className="text-xl font-black text-white flex items-center gap-3 uppercase tracking-tighter">
                 <Megaphone className="text-cs-green" size={24} />
                 {editId ? `Editar ${postSingular}` : `Agendar Nova ${postSingular}`}
               </h3>
+              <button 
+                type="button"
+                onClick={handleGenerateAI}
+                disabled={isGeneratingAI}
+                className="flex items-center gap-2 bg-cs-gold/10 text-cs-gold border border-cs-gold/20 px-4 py-2 rounded-md text-[10px] font-black uppercase tracking-widest hover:bg-cs-gold/20 transition-all disabled:opacity-50"
+              >
+                {isGeneratingAI ? <Loader2 className="animate-spin" size={14} /> : <Sparkles size={14} />}
+                Gerar com IA
+              </button>
             </div>
             
             <form onSubmit={handleSavePost} className="space-y-6">
@@ -431,8 +467,16 @@ export default function MarketingPage() {
                     </td>
                     <td className="px-8 py-6">
                       <div className="flex gap-3">
-                        {post.platform_instagram && <Camera size={18} className="text-pink-500 opacity-50" title="Instagram (Agendado)" />}
-                        {post.platform_blog && <Globe size={18} className="text-blue-400" title="Blog ARXUM" />}
+                        {post.platform_instagram && (
+                          <span title="Instagram (Agendado)">
+                            <Camera size={18} className="text-pink-500 opacity-50" />
+                          </span>
+                        )}
+                        {post.platform_blog && (
+                          <span title="Blog ARXUM">
+                            <Globe size={18} className="text-blue-400" />
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-8 py-6">
