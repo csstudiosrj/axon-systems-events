@@ -8,7 +8,7 @@ import {
   Image as ImageIcon, Camera, Globe, CheckCircle, 
   Clock, Save, Trash2, Edit, X, Upload, 
   AlertTriangle, Eye, Zap, FileText, Check, AlertCircle,
-  Wand2, Sparkles
+  Sparkles
 } from "lucide-react";
 import { useSettings } from "@/app/providers/SettingsProvider";
 
@@ -83,7 +83,7 @@ export default function MarketingPage() {
     setLoading(false);
   };
 
-  // --- IA COPILOTO ARXUM ---
+  // --- IA COPILOTO ARXUM (GOOGLE GEMINI INTEGRATION) ---
   const handleGenerateAI = async () => {
     if (!title) {
       showToast("Insira um título para que a IA tenha contexto.", "warning");
@@ -92,18 +92,24 @@ export default function MarketingPage() {
 
     setIsGeneratingAI(true);
     try {
-      // Simulação de chamada de IA (Aqui você pluga a rota app/api/ai/generate)
-      // O prompt leva em conta o nicho do cliente configurado no sistema
-      const nicho = labels.entity_client_singular || "Cliente";
-      
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Simula processamento
-      
-      const aiContent = `Olá! Sabia que o mercado de ${nicho} está mudando? \n\nNo post de hoje sobre "${title}", vamos explorar como a tecnologia ARXUM está liderando essa transformação. \n\nConfira os detalhes no nosso blog! #inovacao #arxum #gestao`;
-      
-      setContent(aiContent);
-      showToast("Conteúdo gerado pela IA com sucesso!", "success");
-    } catch (error) {
-      showToast("Falha ao contatar o motor de IA.", "error");
+      const response = await fetch('/api/ai/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          niche: labels.entity_client_singular || "Cliente",
+          companyName: companyProfile?.company_name || "ARXUM"
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) throw new Error(data.error || "Erro na IA");
+
+      setContent(data.content);
+      showToast("Conteúdo gerado pelo Gemini com sucesso!", "success");
+    } catch (error: any) {
+      showToast(`Falha na IA: ${error.message}`, "error");
     } finally {
       setIsGeneratingAI(false);
     }
@@ -212,7 +218,7 @@ export default function MarketingPage() {
   const handleDelete = async (id: string) => {
     const { error } = await supabase.from("marketing_posts").delete().eq("id", id);
     if (!error) {
-      showToast(`${postSingular} removida.`, "success");
+      showToast(`${postSingular} excluída.`, "success");
       setConfirmDelete(null);
       fetchPosts();
     } else {
@@ -377,7 +383,7 @@ export default function MarketingPage() {
           toast.type === 'success' ? 'text-cs-green' : 'text-red-500'
         }`}>
           {toast.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
-          <span className="text-sm font-black uppercase tracking-widest">{toast.message}</span>
+          <span className="text-sm font-black uppercase tracking-widest text-white">{toast.message}</span>
         </div>
       )}
 
