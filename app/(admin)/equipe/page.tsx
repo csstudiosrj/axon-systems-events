@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../lib/supabase";
+import { useRouter } from "next/navigation";
 import { 
   ShieldCheck, Loader2, Search, UserCheck, Mail, Building2, 
   Briefcase, X, Send, UserPlus, AlertTriangle, Edit, CheckCircle,
@@ -36,10 +37,11 @@ export default function EquipePage() {
   const { systemPreferences, companyProfile } = useSettings();
   const labels = systemPreferences?.custom_labels || {};
 
-  // Labels Dinâmicas ARXUM
+  // --- LABELS DINÂMICAS ARXUM ---
   const teamLabel = labels.menu_team || "Equipe e Acessos";
   const profileSingular = labels.entity_profile_singular || "Usuário";
   const clientSingular = labels.entity_client_singular || "Cliente";
+  const clientPlural = labels.entity_client_plural || "Clientes";
 
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -47,6 +49,8 @@ export default function EquipePage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentUserRole, setCurrentUserRole] = useState("");
   const [currentUserId, setCurrentUserId] = useState("");
+  
+  // Estado para controlar quais empresas estão expandidas no acordeão
   const [expandedCompanies, setExpandedCompanies] = useState<string[]>([]);
 
   // Estados do Modal de Adicionar/Convidar
@@ -259,7 +263,7 @@ export default function EquipePage() {
   return (
     <div className="space-y-8 pb-12 relative">
       
-      {/* TOASTS PREMIUM */}
+      {/* TOASTS PREMIUM ARXUM */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-[100] px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border animate-in fade-in slide-in-from-bottom-4 ${
           toast.type === 'success' ? 'bg-cs-green/10 border-cs-green/20 text-cs-green' : 'bg-red-500/10 border-red-500/20 text-red-500'
@@ -315,7 +319,7 @@ export default function EquipePage() {
             {internalTeam.length > 0 ? <UserTable users={internalTeam} /> : <p className="p-12 text-center text-sm text-text-secondary italic uppercase tracking-widest">Nenhum membro operacional localizado.</p>}
           </div>
 
-          {/* EXTERNOS (EXPANSÍVEL) */}
+          {/* EXTERNOS (AGRUPAMENTO ACORDEÃO) */}
           <div className="space-y-4">
             <h3 className="text-sm font-black text-white flex items-center gap-2 px-2 uppercase tracking-[0.2em]">
               <Building2 className="text-cs-gold" size={18} /> {clientPlural} e Acessos Externos
@@ -353,7 +357,7 @@ export default function EquipePage() {
         </>
       )}
 
-      {/* MODAL EDIÇÃO */}
+      {/* MODAL DE EDIÇÃO DE ACESSOS */}
       {editModal.isOpen && editModal.user && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
           <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden">
@@ -427,7 +431,7 @@ export default function EquipePage() {
         </div>
       )}
 
-      {/* MODAL ADICIONAR */}
+      {/* MODAL DE ADICIONAR / CONVIDAR */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
           <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden">
