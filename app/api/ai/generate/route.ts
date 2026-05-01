@@ -2,59 +2,64 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const { title, niche, companyName } = await request.json();
+    const body = await request.json();
+    const { title, niche, companyName } = body;
 
-    const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
+    // Nome da variável ajustado para o padrão configurado na Vercel
+    const apiKey = process.env.GOOGLE_GEMINI_API;
 
     if (!apiKey) {
+      console.error("ERRO_ARXUM_AI: Variavel GOOGLE_GEMINI_API nao localizada.");
       return NextResponse.json(
-        { error: 'Credenciais de inteligência artificial não localizadas no servidor.' },
+        { error: 'Credenciais de IA nao configuradas no servidor.' },
         { status: 500 }
       );
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
-    const prompt = `Aja como um especialista em marketing digital. 
-    Contexto: Empresa ${companyName}, atuando no nicho de ${niche}.
-    Tarefa: Escreva um post de blog curto e uma legenda persuasiva para Instagram sobre o tema: "${title}".
-    Requisitos: Use um tom de voz luxuoso, profissional e pragmático. Não use clichês.
-    Formatação: Separe o post do blog da legenda do Instagram com uma linha clara de asteriscos.`;
+    const prompt = `Atue como especialista em marketing digital. 
+    Contexto: Empresa ${companyName}, atuando no nicho de ${niche}. 
+    Tema: ${title}. 
+    Tarefa: Gere um post de blog curto e uma legenda de Instagram persuasiva. 
+    Requisitos: Linguagem profissional, direta e luxuosa. Sem cliches. 
+    Formatacao: Separe os dois conteudos com uma linha de asteriscos.`;
 
-    const response = await fetch(url, {
+    const response = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: prompt }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1000,
-        }
+        contents: [{
+          parts: [{ text: prompt }]
+        }]
       })
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error?.message || 'Falha na comunicação com o provedor de IA.');
+      console.error("ERRO_GOOGLE_API:", data);
+      return NextResponse.json(
+        { error: data.error?.message || 'Erro na comunicacao com o provedor de IA.' },
+        { status: response.status }
+      );
     }
 
-    const aiContent = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    if (!aiContent) {
-      throw new Error('O provedor de IA retornou um conteúdo vazio ou inválido.');
+    if (!aiText) {
+      return NextResponse.json(
+        { error: 'A IA retornou um formato de dados inesperado.' },
+        { status: 500 }
+      );
     }
 
-    return NextResponse.json({ content: aiContent });
+    return NextResponse.json({ content: aiText });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("ERRO_INTERNO_AI_ROUTE:", error);
+    return NextResponse.json(
+      { error: 'Falha interna no processamento da inteligencia artificial.' },
+      { status: 500 }
+    );
   }
 }

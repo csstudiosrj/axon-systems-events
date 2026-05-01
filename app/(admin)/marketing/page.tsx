@@ -86,7 +86,7 @@ export default function MarketingPage() {
   // --- IA COPILOTO ARXUM (GOOGLE GEMINI) ---
   const handleGenerateAI = async () => {
     if (!title) {
-      showToast("Insira um título para fornecer contexto à inteligência artificial.", "warning");
+      showToast("Insira um titulo para fornecer contexto a inteligencia artificial.", "warning");
       return;
     }
 
@@ -104,10 +104,16 @@ export default function MarketingPage() {
 
       const data = await response.json();
 
-      if (!response.ok) throw new Error(data.error || "Falha no processamento da IA.");
+      if (!response.ok) {
+        throw new Error(data.error || "Falha na comunicacao com o servidor de IA.");
+      }
 
-      setContent(data.content);
-      showToast("Conteúdo gerado com sucesso.", "success");
+      if (data.content) {
+        setContent(data.content);
+        showToast("Conteudo gerado com sucesso.", "success");
+      } else {
+        throw new Error("A IA nao retornou conteudo valido.");
+      }
     } catch (error: any) {
       showToast(error.message, "error");
     } finally {
@@ -115,7 +121,7 @@ export default function MarketingPage() {
     }
   };
 
-  // --- LÓGICA DE UPLOAD DE IMAGEM ---
+  // --- LOGICA DE UPLOAD DE IMAGEM ---
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -134,7 +140,7 @@ export default function MarketingPage() {
 
       const { data } = supabase.storage.from('axon-assets').getPublicUrl(filePath);
       setImageUrl(data.publicUrl);
-      showToast("Mídia carregada com sucesso.", "success");
+      showToast("Midia carregada com sucesso.", "success");
     } catch (error: any) {
       showToast(`Erro no upload: ${error.message}`, "error");
     } finally {
@@ -165,7 +171,7 @@ export default function MarketingPage() {
   const handleSavePost = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !content || !scheduledFor) {
-      showToast("Preencha todos os campos obrigatórios.", "warning");
+      showToast("Preencha todos os campos obrigatorios.", "warning");
       return;
     }
 
@@ -218,7 +224,7 @@ export default function MarketingPage() {
   const handleDelete = async (id: string) => {
     const { error } = await supabase.from("marketing_posts").delete().eq("id", id);
     if (!error) {
-      showToast(`${postSingular} excluída.`, "success");
+      showToast(`${postSingular} excluida.`, "success");
       setConfirmDelete(null);
       fetchPosts();
     } else {
@@ -257,17 +263,17 @@ export default function MarketingPage() {
             <form onSubmit={handleSavePost} className="space-y-6">
               <div className="space-y-4">
                 <div>
-                  <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Título da Publicação (SEO Blog) *</label>
-                  <input type="text" required value={title} onChange={(e) => setTitle(e.target.value)} className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none" placeholder="Ex: Tendências de Tecnologia para 2026" />
+                  <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Titulo da Publicacao (SEO Blog) *</label>
+                  <input type="text" required value={title} onChange={(e) => setTitle(e.target.value)} className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none" placeholder="Ex: Tendencias de Tecnologia para 2026" />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Conteúdo / Corpo do Post *</label>
+                  <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Conteudo / Corpo do Post *</label>
                   <textarea required rows={8} value={content} onChange={(e) => setContent(e.target.value)} className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none resize-none custom-scrollbar" placeholder="Escreva o texto completo aqui..." />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Mídia da Postagem</label>
+                  <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Midia da Postagem</label>
                   <div className="flex items-center gap-4">
                     <button 
                       type="button"
@@ -276,7 +282,7 @@ export default function MarketingPage() {
                       className="flex items-center gap-2 bg-surface border border-surface/50 px-4 py-3 rounded-md text-xs font-black uppercase text-white hover:bg-background transition-all"
                     >
                       {uploading ? <Loader2 className="animate-spin" size={16} /> : <Upload size={16} />}
-                      {imageUrl ? "Trocar Imagem" : "Upload de Mídia"}
+                      {imageUrl ? "Trocar Imagem" : "Upload de Midia"}
                     </button>
                     <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" />
                     {imageUrl && (
@@ -289,7 +295,7 @@ export default function MarketingPage() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
                   <div>
-                    <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Data e Hora do Lançamento *</label>
+                    <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Data e Hora do Lancamento *</label>
                     <input type="datetime-local" required value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none" />
                   </div>
                   <div>
@@ -304,7 +310,7 @@ export default function MarketingPage() {
                 </div>
 
                 <div className="pt-6 border-t border-surface/50">
-                  <p className="text-[10px] font-black text-text-secondary uppercase mb-4 tracking-widest">Canais de Distribuição</p>
+                  <p className="text-[10px] font-black text-text-secondary uppercase mb-4 tracking-widest">Canais de Distribuicao</p>
                   <div className="flex gap-8">
                     <label className="flex items-center gap-3 cursor-pointer group">
                       <input type="checkbox" checked={platformInstagram} onChange={(e) => setPlatformInstagram(e.target.checked)} className="rounded border-surface bg-background text-cs-green focus:ring-cs-green w-5 h-5 transition-all" />
@@ -321,14 +327,15 @@ export default function MarketingPage() {
               <div className="flex justify-end pt-8">
                 <button type="submit" disabled={isSubmitting || uploading} className="flex items-center gap-3 bg-cs-green text-white px-12 py-4 rounded-md font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:bg-opacity-90 transition-all disabled:opacity-50">
                   {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-                  {editId ? "Confirmar Alterações" : `Agendar ${postSingular}`}
+                  {editId ? "Confirmar Alteracoes" : `Agendar ${postSingular}`}
                 </button>
               </div>
             </form>
           </div>
 
+          {/* PREVIEW MOBILE STYLE */}
           <div className="w-full lg:w-80 shrink-0">
-            <h4 className="text-[10px] font-black text-text-secondary mb-4 uppercase tracking-[0.2em]">Simulação de Visualização</h4>
+            <h4 className="text-[10px] font-black text-text-secondary mb-4 uppercase tracking-[0.2em]">Simulacao de Visualizacao</h4>
             <div className="bg-background border border-surface/50 rounded-3xl overflow-hidden shadow-2xl sticky top-8">
               <div className="p-4 flex items-center gap-3 border-b border-surface/50">
                 <div className="w-10 h-10 rounded-full bg-cs-green/10 border border-cs-green/20 flex items-center justify-center text-xs font-black text-cs-green">
@@ -348,7 +355,7 @@ export default function MarketingPage() {
                 ) : (
                   <div className="flex flex-col items-center gap-3 text-white/10">
                     <Camera size={48} />
-                    <span className="text-[10px] font-black uppercase tracking-widest">Sem Mídia</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest">Sem Midia</span>
                   </div>
                 )}
               </div>
@@ -361,7 +368,7 @@ export default function MarketingPage() {
                 </div>
                 <p className="text-xs text-white/90 leading-relaxed line-clamp-6">
                   <span className="font-black mr-2 uppercase tracking-tighter text-cs-green">{companyProfile?.company_name?.toLowerCase().replace(/ /g, '') || "arxum"}</span>
-                  {content || "O texto da sua publicação aparecerá aqui nesta área de simulação..."}
+                  {content || "O texto da sua publicacao aparecera aqui nesta area de simulacao..."}
                 </p>
               </div>
             </div>
@@ -385,7 +392,7 @@ export default function MarketingPage() {
         </div>
       )}
 
-      {/* MODAL CONFIRMAÇÃO EXCLUSÃO */}
+      {/* MODAL CONFIRMACAO EXCLUSAO */}
       {confirmDelete && (
         <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-[#1a1413] border border-surface/50 p-8 rounded-xl shadow-2xl max-w-sm w-full text-center">
@@ -393,7 +400,7 @@ export default function MarketingPage() {
               <AlertTriangle size={40} />
             </div>
             <h3 className="text-xl font-black text-white uppercase tracking-tighter mb-2">Excluir {postSingular}?</h3>
-            <p className="text-sm text-text-secondary mb-8 font-medium">Esta ação removerá a postagem do cronograma permanentemente.</p>
+            <p className="text-sm text-text-secondary mb-8 font-medium">Esta acao removera a postagem do cronograma permanentemente.</p>
             <div className="flex gap-4">
               <button onClick={() => setConfirmDelete(null)} className="flex-1 py-3 border border-surface rounded-md text-xs font-black uppercase text-text-secondary hover:text-white transition-all">Cancelar</button>
               <button onClick={() => handleDelete(confirmDelete)} className="flex-1 py-3 bg-red-600 text-white rounded-md text-xs font-black uppercase shadow-lg hover:bg-red-500 transition-all">Excluir</button>
@@ -409,7 +416,7 @@ export default function MarketingPage() {
             <Megaphone className="text-cs-green" size={24} />
             {marketingLabel}
           </h3>
-          <p className="text-[10px] text-text-secondary mt-1 uppercase tracking-[0.2em] font-black">Automação de Conteúdo ARXUM Cloud</p>
+          <p className="text-[10px] text-text-secondary mt-1 uppercase tracking-[0.2em] font-black">Automacao de Conteudo ARXUM Cloud</p>
         </div>
         <button
           onClick={() => { resetForm(); setView("create"); }}
@@ -425,11 +432,11 @@ export default function MarketingPage() {
           <table className="w-full text-left text-sm text-text-secondary">
             <thead className="bg-background/50 text-[10px] uppercase tracking-[0.2em] text-text-secondary font-black">
               <tr>
-                <th className="px-8 py-5">Conteúdo / Mídia</th>
+                <th className="px-8 py-5">Conteudo / Midia</th>
                 <th className="px-8 py-5">Cronograma</th>
                 <th className="px-8 py-5">Canais</th>
                 <th className="px-8 py-5">Status</th>
-                <th className="px-8 py-5 text-right">Gestão</th>
+                <th className="px-8 py-5 text-right">Gestao</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-surface/50">
@@ -466,7 +473,7 @@ export default function MarketingPage() {
                           <Calendar size={14} className="text-cs-gold" />
                           {new Date(post.scheduled_for).toLocaleDateString('pt-BR')}
                         </div>
-                        <span className="text-[10px] font-black text-text-secondary uppercase">às {new Date(post.scheduled_for).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className="text-[10px] font-black text-text-secondary uppercase">as {new Date(post.scheduled_for).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
                     </td>
                     <td className="px-8 py-6">
