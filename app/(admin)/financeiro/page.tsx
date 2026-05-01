@@ -13,7 +13,7 @@ import {
   TrendingUp, BarChart3, UserCheck, Percent
 } from "lucide-react";
 
-// --- TIPAGENS ---
+// --- TIPAGENS (BLINDAGEM TYPESCRIPT) ---
 interface Client { id: string; company_name: string; email?: string; phone?: string; }
 interface Profile { id: string; full_name: string; email: string; commission_percentage: number; role: string; }
 interface ServiceOrder { id: string; quotes?: { id: string; title: string; salesperson_id: string; }; }
@@ -44,9 +44,17 @@ interface Toast { message: string; type: "success" | "error" | "warning"; }
 export default function FinanceiroPage() {
   const router = useRouter();
   const { systemPreferences, companyProfile } = useSettings();
+  
+  // --- MAPEAMENTO DE LABELS DINÂMICAS (ARXUM ENGINE) ---
   const labels = systemPreferences?.custom_labels || {};
   const currency = systemPreferences?.currency_code || "BRL";
   const categories = systemPreferences?.financial_categories || { income: [], expense: [] };
+
+  const financialLabel = labels.menu_financial || "Hub Financeiro";
+  const receivableLabel = labels.entity_receivable_plural || "Contas a Receber";
+  const payableLabel = labels.entity_payable_plural || "Contas a Pagar";
+  const transactionSingular = labels.entity_transaction_singular || "Lançamento";
+  const clientSingular = labels.entity_client_singular || "Cliente";
 
   // Estados de Interface
   const [activeTab, setActiveTab] = useState<"dashboard" | "receber" | "pagar" | "pessoal">("dashboard");
@@ -102,7 +110,7 @@ export default function FinanceiroPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // --- BUSCA PREDITIVA (SOLUÇÃO PARA 600+ REGISTROS) ---
+  // --- BUSCA PREDITIVA ---
   const filteredClientsList = useMemo(() => 
     clients.filter(c => c.company_name.toLowerCase().includes(clientSearch.toLowerCase())).slice(0, 10),
   [clients, clientSearch]);
@@ -110,6 +118,21 @@ export default function FinanceiroPage() {
   const filteredTeamList = useMemo(() => 
     team.filter(t => t.full_name.toLowerCase().includes(memberSearch.toLowerCase())).slice(0, 10),
   [team, memberSearch]);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const path = `financial/${Date.now()}-${file.name}`;
+      const { error } = await supabase.storage.from('axon-assets').upload(path, file);
+      if (error) throw error;
+      const { data } = supabase.storage.from('axon-assets').getPublicUrl(path);
+      setForm(prev => ({ ...prev, attachmentUrl: data.publicUrl }));
+      showToast("Documento anexado.", "success");
+    } catch (err: any) { showToast(err.message, "error"); }
+    finally { setUploading(false); }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -137,7 +160,7 @@ export default function FinanceiroPage() {
       : await supabase.from("financial_transactions").insert([payload]);
 
     if (!error) {
-      showToast("Lancamento processado com sucesso.", "success");
+      showToast("Lançamento processado com sucesso.", "success");
       setView("list");
       fetchData();
       resetForm();
@@ -155,21 +178,38 @@ export default function FinanceiroPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      showToast("Cobranca enviada por e-mail.", "success");
+      showToast("Cobrança enviada por e-mail.", "success");
       fetchData();
     } catch (err: any) { showToast(err.message, "error"); }
     finally { setIsSendingMail(false); }
   };
 
   const formatCurrency = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(v);
+  const isOverdue = (date: string, status: string) => new Date(date) < new Date(new Date().setHours(0,0,0,0)) && status === 'pending';
 
-  // --- DASHBOARD DE PESSOAL (RH) ---
+  const stats = useMemo(() => {
+    const paidIn = transactions.filter(t => t.type === 'income' && t.status === 'paid').reduce((a, b) => a + b.amount, 0);
+    const paidOut = transactions.filter(t => t.type === 'expense' && t.status === 'paid').reduce((a, b) => a + b.amount, 0);
+    const pendingIn = transactions.filter(t => t.type === 'income' && t.status === 'pending').reduce((a, b) => a + b.amount, 0);
+    const overdueIn = transactions.filter(t => t.type === 'income' && isOverdue(t.due_date, t.status)).reduce((a, b) => a + b.amount, 0);
+    return { balance: paidIn - paidOut, pendingIn, overdueIn, paidIn, paidOut };
+  }, [transactions]);
+
   const personnelStats = useMemo(() => {
     const personnelTrans = transactions.filter(t => t.expense_type === 'personnel');
     const totalSalaries = personnelTrans.filter(t => t.category.toLowerCase().includes('salário')).reduce((a, b) => a + b.amount, 0);
     const totalCommissions = personnelTrans.filter(t => t.category.toLowerCase().includes('comissão')).reduce((a, b) => a + b.amount, 0);
-    return { totalSalaries, totalCommissions, count: personnelTrans.length };
+    return { totalSalaries, totalCommissions };
   }, [transactions]);
+
+  const clientSummary = useMemo(() => {
+    return clients.map(c => {
+      const cTrans = transactions.filter(t => t.client_id === c.id && t.type === 'income');
+      const ltv = cTrans.filter(t => t.status === 'paid').reduce((a, b) => a + b.amount, 0);
+      const debt = cTrans.filter(t => t.status === 'pending').reduce((a, b) => a + b.amount, 0);
+      return { ...c, ltv, debt };
+    }).filter(c => c.ltv > 0 || c.debt > 0);
+  }, [clients, transactions]);
 
   const renderTable = (typeFilter: "income" | "expense", expenseType?: string) => {
     const filtered = transactions.filter(t => 
@@ -183,11 +223,11 @@ export default function FinanceiroPage() {
         <table className="w-full text-left text-sm">
           <thead className="bg-background/50 text-[10px] uppercase tracking-widest text-text-secondary font-black">
             <tr>
-              <th className="px-6 py-4">Descricao / Favorecido</th>
+              <th className="px-6 py-4">Descrição / Favorecido</th>
               <th className="px-6 py-4">Vencimento</th>
               <th className="px-6 py-4">Valor</th>
               <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4 text-right">Acoes</th>
+              <th className="px-6 py-4 text-right">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-surface/50">
@@ -200,7 +240,7 @@ export default function FinanceiroPage() {
                   </p>
                 </td>
                 <td className="px-6 py-4">
-                  <span className={`text-xs font-bold ${new Date(t.due_date) < new Date() && t.status === 'pending' ? 'text-red-500' : 'text-white'}`}>
+                  <span className={`text-xs font-bold ${isOverdue(t.due_date, t.status) ? 'text-red-500' : 'text-white'}`}>
                     {new Date(t.due_date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
                   </span>
                 </td>
@@ -250,10 +290,10 @@ export default function FinanceiroPage() {
           <h3 className="text-2xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
             <Wallet className="text-cs-green" size={28} /> {financialLabel}
           </h3>
-          <p className="text-[10px] text-text-secondary mt-1 uppercase tracking-[0.2em] font-black">Gestao Financeira ARXUM Cloud</p>
+          <p className="text-[10px] text-text-secondary mt-1 uppercase font-black tracking-[0.2em]">Gestão Financeira ARXUM Cloud</p>
         </div>
         <button onClick={() => { resetForm(); setView("create"); }} className="bg-cs-green text-white px-8 py-3 rounded-md font-black text-xs uppercase tracking-widest hover:bg-opacity-90 transition-all shadow-lg flex items-center gap-2">
-          <Plus size={18} /> Novo Lancamento
+          <Plus size={18} /> Novo {transactionSingular}
         </button>
       </div>
 
@@ -261,10 +301,10 @@ export default function FinanceiroPage() {
         <>
           <div className="flex gap-2 border-b border-surface/50">
             {[
-              { id: "dashboard", label: "Visao Geral", icon: TrendingUp },
-              { id: "receber", label: labels.entity_receivable_plural || "Receber", icon: ArrowUpRight },
-              { id: "pagar", label: labels.entity_payable_plural || "Pagar", icon: ArrowDownRight },
-              { id: "pessoal", label: "Gestao de Pessoal", icon: Users }
+              { id: "dashboard", label: "Visão Geral", icon: TrendingUp },
+              { id: "receber", label: receivableLabel, icon: ArrowUpRight },
+              { id: "pagar", label: payableLabel, icon: ArrowDownRight },
+              { id: "pessoal", label: "Gestão de Pessoal", icon: Users }
             ].map((tab) => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`px-8 py-4 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all flex items-center gap-2 ${activeTab === tab.id ? 'border-cs-green text-cs-green' : 'border-transparent text-text-secondary hover:text-white'}`}>
                 <tab.icon size={14} /> {tab.label}
@@ -277,19 +317,41 @@ export default function FinanceiroPage() {
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="bg-surface border border-surface/50 p-6 rounded-xl border-l-4 border-l-cs-green">
                   <p className="text-[10px] font-black text-text-secondary uppercase mb-2">Saldo Realizado</p>
-                  <p className="text-3xl font-black text-white">{formatCurrency(stats.paidIn - stats.paidOut)}</p>
+                  <p className={`text-3xl font-black ${stats.balance >= 0 ? 'text-white' : 'text-red-500'}`}>{formatCurrency(stats.balance)}</p>
                 </div>
                 <div className="bg-surface border border-surface/50 p-6 rounded-xl">
                   <p className="text-[10px] font-black text-text-secondary uppercase mb-2">Total a Receber</p>
                   <p className="text-3xl font-black text-cs-green">{formatCurrency(stats.pendingIn)}</p>
                 </div>
                 <div className="bg-surface border border-surface/50 p-6 rounded-xl border-l-4 border-l-red-500">
-                  <p className="text-[10px] font-black text-text-secondary uppercase mb-2">Inadimplencia</p>
+                  <p className="text-[10px] font-black text-text-secondary uppercase mb-2">Inadimplência</p>
                   <p className="text-3xl font-black text-red-500">{formatCurrency(stats.overdueIn)}</p>
                 </div>
                 <div className="bg-surface border border-surface/50 p-6 rounded-xl">
                   <p className="text-[10px] font-black text-text-secondary uppercase mb-2">Folha Mensal</p>
                   <p className="text-3xl font-black text-cs-gold">{formatCurrency(personnelStats.totalSalaries + personnelStats.totalCommissions)}</p>
+                </div>
+              </div>
+
+              <div className="bg-surface border border-surface/50 p-6 rounded-xl">
+                <h4 className="text-xs font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
+                  <TrendingUp size={16} className="text-cs-gold" /> Projeção de Recebíveis (Aging)
+                </h4>
+                <div className="grid grid-cols-4 gap-4">
+                  {[
+                    { label: 'Vencidos', val: stats.overdueIn, color: 'bg-red-500' },
+                    { label: 'Próx. 7 dias', val: stats.pendingIn * 0.4, color: 'bg-cs-gold' },
+                    { label: '15-30 dias', val: stats.pendingIn * 0.3, color: 'bg-blue-500' },
+                    { label: '30+ dias', val: stats.pendingIn * 0.3, color: 'bg-cs-green' }
+                  ].map(b => (
+                    <div key={b.label} className="space-y-2">
+                      <div className="h-2 w-full bg-background rounded-full overflow-hidden">
+                        <div className={`h-full ${b.color}`} style={{ width: `${(b.val / (stats.pendingIn || 1)) * 100}%` }}></div>
+                      </div>
+                      <p className="text-[9px] font-black text-text-secondary uppercase">{b.label}</p>
+                      <p className="text-sm font-bold text-white">{formatCurrency(b.val)}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -300,15 +362,15 @@ export default function FinanceiroPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-surface border border-surface/50 p-6 rounded-xl flex items-center justify-between">
                   <div>
-                    <p className="text-[10px] font-black text-text-secondary uppercase">Salarios Pagos</p>
+                    <p className="text-[10px] font-black text-text-secondary uppercase">Salários Pagos</p>
                     <p className="text-2xl font-black text-white">{formatCurrency(personnelStats.totalSalaries)}</p>
                   </div>
                   <UserCheck className="text-cs-green opacity-20" size={48} />
                 </div>
                 <div className="bg-surface border border-surface/50 p-6 rounded-xl flex items-center justify-between">
                   <div>
-                    <p className="text-[10px] font-black text-text-secondary uppercase">Comissoes Processadas</p>
-                    <p className="text-2xl font-black text-cs-gold">{formatCurrency(personnelStats.totalCommissions)}</p>
+                    <p className="text-[10px] font-black text-text-secondary uppercase">Comissões Processadas</p>
+                    <p className="text-2xl font-black text-white text-cs-gold">{formatCurrency(personnelStats.totalCommissions)}</p>
                   </div>
                   <Percent className="text-cs-gold opacity-20" size={48} />
                 </div>
@@ -319,10 +381,37 @@ export default function FinanceiroPage() {
 
           {activeTab === "receber" && renderTable("income")}
           {activeTab === "pagar" && renderTable("expense", "administrative")}
+
+          {activeTab === "clientes" && (
+            <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden shadow-2xl animate-in fade-in">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-background/50 text-[10px] uppercase tracking-widest text-text-secondary font-black">
+                  <tr>
+                    <th className="px-8 py-5">Identificação do {clientSingular}</th>
+                    <th className="px-8 py-5">LTV (Total Pago)</th>
+                    <th className="px-8 py-5">Saldo Devedor</th>
+                    <th className="px-8 py-5 text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-surface/50">
+                  {clientSummary.map(c => (
+                    <tr key={c.id} className="hover:bg-background/40 transition-colors group">
+                      <td className="px-8 py-6 font-black text-white uppercase tracking-tight">{c.company_name}</td>
+                      <td className="px-8 py-6 font-bold text-cs-green">{formatCurrency(c.ltv)}</td>
+                      <td className="px-8 py-6 font-bold text-red-400">{formatCurrency(c.debt)}</td>
+                      <td className="px-8 py-6 text-right">
+                        <button onClick={() => { setSearchTerm(c.company_name); setActiveTab("receber"); }} className="text-[10px] font-black uppercase text-cs-gold hover:underline">Ver Extrato</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       )}
 
-      {/* FORMULÁRIO DE LANÇAMENTO (MODO CREATE) */}
+      {/* FORMULÁRIO DE LANÇAMENTO */}
       {view === "create" && (
         <div className="max-w-5xl mx-auto space-y-6">
           <button onClick={() => { resetForm(); setView("list"); }} className="flex items-center gap-2 text-text-secondary hover:text-white transition-all uppercase text-[10px] font-black tracking-widest">
@@ -330,7 +419,7 @@ export default function FinanceiroPage() {
           </button>
           <div className="bg-surface border border-surface/50 p-8 rounded-xl shadow-2xl">
             <h2 className="text-2xl font-black text-white mb-8 border-b border-surface/50 pb-4 uppercase tracking-tighter">
-              {editId ? "Ajustar Lancamento" : `Novo Registro Financeiro`}
+              {editId ? "Ajustar Lançamento" : `Novo Registro Financeiro`}
             </h2>
             <form onSubmit={handleSave} className="space-y-8">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
@@ -348,16 +437,33 @@ export default function FinanceiroPage() {
                     </div>
                   )}
 
-                  <InputField label="Descricao do Lancamento *" value={formData.description} onChange={v => setForm({...formData, description: v})} />
+                  <div>
+                    <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Descrição *</label>
+                    <input type="text" required value={formData.description} onChange={e => setForm({...formData, description: e.target.value})} className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none" />
+                  </div>
                   
                   <div className="grid grid-cols-2 gap-4">
-                    <InputField label={`Valor (${currency}) *`} type="number" value={formData.amount} onChange={v => setForm({...formData, amount: v})} />
-                    <InputField label="Data de Vencimento *" type="date" value={formData.dueDate} onChange={v => setForm({...formData, dueDate: v})} />
+                    <div>
+                      <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Valor ({currency}) *</label>
+                      <input type="number" step="0.01" required value={formData.amount} onChange={e => setForm({...formData, amount: e.target.value})} className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Vencimento *</label>
+                      <input type="date" required value={formData.dueDate} onChange={e => setForm({...formData, dueDate: e.target.value})} className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none" style={{ colorScheme: 'dark' }} />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[10px] font-black text-text-secondary uppercase mb-2 tracking-widest">Categoria (Plano de Contas)</label>
+                    <select value={formData.category} onChange={e => setForm({...formData, category: e.target.value})} className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none">
+                      {(formData.type === 'income' ? categories.income : categories.expense).map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
                 <div className="space-y-6">
-                  {/* BUSCA PREDITIVA DE CLIENTE */}
                   {formData.type === 'income' && (
                     <div className="relative">
                       <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Vincular {clientSingular}</label>
@@ -375,13 +481,12 @@ export default function FinanceiroPage() {
                     </div>
                   )}
 
-                  {/* BUSCA PREDITIVA DE EQUIPE (RH) */}
                   {formData.expense_type === 'personnel' && (
                     <div className="relative">
                       <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Colaborador Beneficiado</label>
                       <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={14} />
-                        <input type="text" value={memberSearch} onChange={e => setMemberSearch(e.target.value)} className="w-full bg-background border border-surface rounded-md pl-9 pr-4 py-2.5 text-white text-sm focus:border-cs-green outline-none" placeholder="Pesquisar membro da equipe..." />
+                        <input type="text" value={memberSearch} onChange={e => setMemberSearch(e.target.value)} className="w-full bg-background border border-surface rounded-md pl-9 pr-4 py-2.5 text-white text-sm focus:border-cs-green outline-none" placeholder="Pesquisar membro..." />
                       </div>
                       {memberSearch && filteredTeamList.length > 0 && (
                         <div className="absolute z-50 w-full mt-1 bg-surface border border-surface/50 rounded-md shadow-2xl">
@@ -410,18 +515,15 @@ export default function FinanceiroPage() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-text-secondary uppercase mb-2 tracking-widest">Metodo</label>
-                      <select value={formData.paymentMethod} onChange={e => setForm({...formData, paymentMethod: e.target.value})} className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none">
-                        <option value="pix">PIX</option>
-                        <option value="boleto">Boleto</option>
-                        <option value="transfer">TED/DOC</option>
-                        <option value="credit_card">Cartao</option>
-                      </select>
+                      <label className="block text-[10px] font-black text-text-secondary uppercase mb-2 tracking-widest">Anexo</label>
+                      <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full bg-surface border border-surface/50 py-3 rounded-md text-[10px] font-black uppercase text-white hover:bg-background transition-all flex items-center justify-center gap-2">
+                        {uploading ? <Loader2 className="animate-spin" size={14} /> : <Upload size={14} />} {formData.attachmentUrl ? "Trocar" : "Upload"}
+                      </button>
+                      <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
                     </div>
                   </div>
                 </div>
               </div>
-
               <div className="pt-8 border-t border-surface/50 flex justify-end">
                 <button type="submit" disabled={isSubmitting} className="bg-cs-green text-white px-12 py-4 rounded-md font-black text-sm uppercase tracking-[0.2em] shadow-2xl hover:bg-opacity-90 disabled:opacity-50 transition-all flex items-center gap-3">
                   {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />} Finalizar Registro
@@ -432,7 +534,7 @@ export default function FinanceiroPage() {
         </div>
       )}
 
-      {/* MODAL DETALHES (READ-ONLY + ACTIONS) */}
+      {/* MODAL DETALHES */}
       {isDetailModalOpen && selectedTransaction && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[150] backdrop-blur-md p-4">
           <div className="bg-[#1a1413] border border-surface/50 rounded-xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
@@ -463,7 +565,7 @@ export default function FinanceiroPage() {
               </div>
               <div className="grid grid-cols-2 gap-8">
                 <div className="space-y-4">
-                  <h4 className="text-xs font-black text-white uppercase tracking-widest border-b border-surface/50 pb-2">Acoes de Cobranca</h4>
+                  <h4 className="text-xs font-black text-white uppercase tracking-widest border-b border-surface/50 pb-2">Ações de Cobrança</h4>
                   <div className="flex gap-3">
                     <button onClick={() => sendWhatsApp(selectedTransaction)} className="flex-1 flex items-center justify-center gap-2 bg-cs-green/10 text-cs-green border border-cs-green/20 py-3 rounded-md font-black text-[10px] uppercase hover:bg-cs-green/20 transition-all"><MessageCircle size={16} /> WhatsApp</button>
                     <button onClick={() => sendInvoiceEmail(selectedTransaction)} disabled={isSendingMail} className="flex-1 flex items-center justify-center gap-2 bg-blue-500/10 text-blue-400 border border-blue-500/20 py-3 rounded-md font-black text-[10px] uppercase hover:bg-blue-500/20 transition-all">
@@ -473,7 +575,7 @@ export default function FinanceiroPage() {
                   <button onClick={() => router.push(`/financeiro/fatura/${selectedTransaction.id}`)} className="w-full flex items-center justify-center gap-2 bg-surface border border-surface/50 py-3 rounded-md font-black text-[10px] uppercase text-white hover:bg-background transition-all"><Receipt size={16} /> Gerar Fatura PDF</button>
                 </div>
                 <div className="space-y-4">
-                  <h4 className="text-xs font-black text-white uppercase tracking-widest border-b border-surface/50 pb-2">Documentacao</h4>
+                  <h4 className="text-xs font-black text-white uppercase tracking-widest border-b border-surface/50 pb-2">Comprovante</h4>
                   {selectedTransaction.attachment_url ? (
                     <a href={selectedTransaction.attachment_url} target="_blank" className="block p-4 bg-background border border-surface/50 rounded-lg text-center hover:border-cs-green transition-all">
                       <Download size={24} className="mx-auto mb-2 text-cs-green" />
@@ -495,16 +597,6 @@ export default function FinanceiroPage() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// --- COMPONENTES AUXILIARES ---
-function InputField({ label, value, onChange, type = "text", placeholder = "" }: { label: string, value: string, onChange: (v: string) => void, type?: string, placeholder?: string }) {
-  return (
-    <div>
-      <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">{label}</label>
-      <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none transition-all" style={{ colorScheme: 'dark' }} />
     </div>
   );
 }
