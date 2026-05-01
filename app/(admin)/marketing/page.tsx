@@ -83,10 +83,10 @@ export default function MarketingPage() {
     setLoading(false);
   };
 
-  // --- IA COPILOTO ARXUM (GOOGLE GEMINI INTEGRATION) ---
+  // --- IA COPILOTO ARXUM (GOOGLE GEMINI) ---
   const handleGenerateAI = async () => {
     if (!title) {
-      showToast("Insira um título para que a IA tenha contexto.", "warning");
+      showToast("Insira um título para fornecer contexto à inteligência artificial.", "warning");
       return;
     }
 
@@ -104,12 +104,12 @@ export default function MarketingPage() {
 
       const data = await response.json();
 
-      if (!response.ok) throw new Error(data.error || "Erro na IA");
+      if (!response.ok) throw new Error(data.error || "Falha no processamento da IA.");
 
       setContent(data.content);
-      showToast("Conteúdo gerado pelo Gemini com sucesso!", "success");
+      showToast("Conteúdo gerado com sucesso.", "success");
     } catch (error: any) {
-      showToast(`Falha na IA: ${error.message}`, "error");
+      showToast(error.message, "error");
     } finally {
       setIsGeneratingAI(false);
     }
@@ -165,7 +165,7 @@ export default function MarketingPage() {
   const handleSavePost = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !content || !scheduledFor) {
-      showToast("Campos obrigatórios ausentes.", "warning");
+      showToast("Preencha todos os campos obrigatórios.", "warning");
       return;
     }
 
@@ -237,7 +237,6 @@ export default function MarketingPage() {
 
         <div className="flex flex-col lg:flex-row gap-8">
           
-          {/* FORMULÁRIO */}
           <div className="flex-1 bg-[#1a1413] border border-surface/50 p-8 rounded-lg shadow-2xl space-y-8">
             <div className="border-b border-surface/50 pb-4 flex justify-between items-center">
               <h3 className="text-xl font-black text-white flex items-center gap-3 uppercase tracking-tighter">
@@ -296,9 +295,9 @@ export default function MarketingPage() {
                   <div>
                     <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Status do Workflow</label>
                     <select value={status} onChange={(e) => setStatus(e.target.value as any)} className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none cursor-pointer">
-                      <option value="draft">Rascunho (Privado)</option>
-                      <option value="scheduled">Agendado (Automático)</option>
-                      <option value="published">Publicado (Ao Vivo)</option>
+                      <option value="draft">Rascunho</option>
+                      <option value="scheduled">Agendado</option>
+                      <option value="published">Publicado</option>
                       <option value="archived">Arquivado</option>
                     </select>
                   </div>
@@ -328,7 +327,6 @@ export default function MarketingPage() {
             </form>
           </div>
 
-          {/* PREVIEW MOBILE STYLE */}
           <div className="w-full lg:w-80 shrink-0">
             <h4 className="text-[10px] font-black text-text-secondary mb-4 uppercase tracking-[0.2em]">Simulação de Visualização</h4>
             <div className="bg-background border border-surface/50 rounded-3xl overflow-hidden shadow-2xl sticky top-8">
@@ -395,7 +393,7 @@ export default function MarketingPage() {
               <AlertTriangle size={40} />
             </div>
             <h3 className="text-xl font-black text-white uppercase tracking-tighter mb-2">Excluir {postSingular}?</h3>
-            <p className="text-sm text-text-secondary mb-8 font-medium">Esta ação removerá a postagem do cronograma ARXUM permanentemente.</p>
+            <p className="text-sm text-text-secondary mb-8 font-medium">Esta ação removerá a postagem do cronograma permanentemente.</p>
             <div className="flex gap-4">
               <button onClick={() => setConfirmDelete(null)} className="flex-1 py-3 border border-surface rounded-md text-xs font-black uppercase text-text-secondary hover:text-white transition-all">Cancelar</button>
               <button onClick={() => handleDelete(confirmDelete)} className="flex-1 py-3 bg-red-600 text-white rounded-md text-xs font-black uppercase shadow-lg hover:bg-red-500 transition-all">Excluir</button>
