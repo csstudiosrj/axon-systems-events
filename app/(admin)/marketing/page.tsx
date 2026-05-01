@@ -14,13 +14,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Edit,
-  Facebook,
   Globe,
-  Linkedin,
+  Hash,
+  Link,
   Loader2,
   Megaphone,
+  Music,
   Plus,
   Save,
+  Share2,
   Sparkles,
   Trash2,
   Upload,
@@ -49,11 +51,11 @@ interface Toast {
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
 const AVAILABLE_PLATFORMS = [
-  { id: "blog",      label: "Blog Site",  Icon: Globe,     color: "text-blue-400"  },
-  { id: "instagram", label: "Instagram",  Icon: Camera,    color: "text-pink-500"  },
-  { id: "linkedin",  label: "LinkedIn",   Icon: Linkedin,  color: "text-blue-600"  },
-  { id: "facebook",  label: "Facebook",   Icon: Facebook,  color: "text-blue-500"  },
-  { id: "tiktok",    label: "TikTok",     Icon: Video,     color: "text-zinc-200"  },
+  { id: "blog",      label: "Blog Site",  Icon: Globe,   color: "text-blue-400"  },
+  { id: "instagram", label: "Instagram",  Icon: Camera,  color: "text-pink-500"  },
+  { id: "linkedin",  label: "LinkedIn",   Icon: Link,    color: "text-blue-400"  },
+  { id: "facebook",  label: "Facebook",   Icon: Share2,  color: "text-blue-500"  },
+  { id: "tiktok",    label: "TikTok",     Icon: Music,   color: "text-zinc-200"  },
 ];
 
 // ─── Componente principal ─────────────────────────────────────────────────────
