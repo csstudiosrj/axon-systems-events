@@ -1,31 +1,29 @@
 import { NextResponse } from 'next/server';
 
-export const runtime = 'edge'; // Otimizado para streaming na Vercel
+export const runtime = 'edge';
 
 export async function POST(request: Request) {
   try {
-    const { mode, title, objective, niche, companyName, platforms } = await request.json();
+    const body = await request.json();
+    const { mode, title, objective, niche, companyName, platforms } = body;
+
     const apiKey = process.env.GOOGLE_GEMINI_API;
 
     if (!apiKey) {
-      return NextResponse.json({ error: 'Chave ARXUM Mind nao configurada.' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'Credenciais ARXUM Mind nao localizadas.' },
+        { status: 500 }
+      );
     }
 
     const modelId = 'gemini-2.5-flash';
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
     let prompt = "";
-
     if (mode === "brainstorm") {
-      prompt = `Aja como Estrategista de Conteudo da empresa ${companyName} (${niche}). 
-      Objetivo: ${objective}. 
-      Tarefa: Sugira 5 temas de postagens para os canais ${platforms.join(", ")}. 
-      Formato: Retorne apenas uma lista numerada com Título e Sugestão de Data.`;
+      prompt = `Aja como Estrategista de Conteudo da empresa ${companyName} (${niche}). Objetivo: ${objective}. Sugira 5 temas de postagens para os canais ${platforms.join(", ")}. Retorne apenas uma lista numerada com Titulo e Sugestao de Data.`;
     } else {
-      prompt = `Aja como Redator de Marketing da ${companyName} (${niche}). 
-      Tema: ${title}. Canais: ${platforms.join(", ")}.
-      Tarefa: Escreva o conteudo completo para cada canal selecionado. 
-      Tom: Profissional e luxuoso. Use emojis e hashtags.`;
+      prompt = `Aja como Redator de Marketing da ${companyName} (${niche}). Tema: ${title}. Canais: ${platforms.join(", ")}. Escreva o conteudo completo para cada canal. Tom profissional e luxuoso. Use emojis e hashtags.`;
     }
 
     const response = await fetch(endpoint, {
@@ -37,7 +35,6 @@ export async function POST(request: Request) {
       })
     });
 
-    // Retorna o stream diretamente para o frontend
     return new Response(response.body, {
       headers: { 'Content-Type': 'text/event-stream' }
     });
