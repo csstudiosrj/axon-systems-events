@@ -9,7 +9,7 @@ import {
   DollarSign, Clock, CheckCircle, XCircle, Save, Trash2, 
   Search, Filter, FileText, Building, CreditCard, Eye, 
   Edit, AlertTriangle, Upload, Download, ExternalLink, 
-  Receipt, Send, Mail, MessageCircle, ChevronRight
+  Receipt, Send, Mail, MessageCircle, ChevronRight, TrendingUp
 } from "lucide-react";
 
 // --- TIPAGENS (BLINDAGEM TYPESCRIPT) ---
