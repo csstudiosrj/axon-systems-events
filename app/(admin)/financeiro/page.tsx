@@ -10,13 +10,33 @@ import {
   Search, Filter, FileText, Building, CreditCard, Eye, 
   Edit, AlertTriangle, Upload, Download, ExternalLink, 
   Receipt, Send, Mail, MessageCircle, ChevronRight, Users,
-  TrendingUp, BarChart3, UserCheck, Percent
+  TrendingUp, BarChart3, UserCheck, Percent, AlertCircle
 } from "lucide-react";
 
 // --- TIPAGENS (BLINDAGEM TYPESCRIPT) ---
-interface Client { id: string; company_name: string; email?: string; phone?: string; }
-interface Profile { id: string; full_name: string; email: string; commission_percentage: number; role: string; }
-interface ServiceOrder { id: string; quotes?: { id: string; title: string; salesperson_id: string; }; }
+interface Client { 
+  id: string; 
+  company_name: string; 
+  email?: string; 
+  phone?: string; 
+}
+
+interface Profile { 
+  id: string; 
+  full_name: string; 
+  email: string; 
+  commission_percentage: number; 
+  role: string; 
+}
+
+interface ServiceOrder { 
+  id: string; 
+  quotes?: { 
+    id: string; 
+    title: string; 
+    salesperson_id: string; 
+  }; 
+}
 
 interface Transaction {
   id: string;
@@ -45,7 +65,7 @@ export default function FinanceiroPage() {
   const router = useRouter();
   const { systemPreferences, companyProfile } = useSettings();
   
-  // --- MAPEAMENTO DE LABELS DINÂMICAS (ARXUM ENGINE) ---
+  // --- LABELS E CONFIGURAÇÕES (ARXUM ENGINE) ---
   const labels = systemPreferences?.custom_labels || {};
   const currency = systemPreferences?.currency_code || "BRL";
   const categories = systemPreferences?.financial_categories || { income: [], expense: [] };
@@ -61,6 +81,7 @@ export default function FinanceiroPage() {
   const [view, setView] = useState<"list" | "create">("list");
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [isSendingMail, setIsSendingMail] = useState(false);
 
   // Estados de Dados
@@ -71,6 +92,7 @@ export default function FinanceiroPage() {
 
   // UI States
   const [toast, setToast] = useState<Toast | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -94,19 +116,24 @@ export default function FinanceiroPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [tRes, cRes, osRes, pRes] = await Promise.all([
-      supabase.from("financial_transactions").select("*, clients(*), member:profiles!member_id(*), service_orders(id, quotes(id, title, salesperson_id))").order("due_date", { ascending: true }),
-      supabase.from("clients").select("*").order("company_name"),
-      supabase.from("service_orders").select("id, quotes(id, title, salesperson_id)").order("created_at", { ascending: false }),
-      supabase.from("profiles").select("*").order("full_name")
-    ]);
+    try {
+      const [tRes, cRes, osRes, pRes] = await Promise.all([
+        supabase.from("financial_transactions").select("*, clients(*), member:profiles!member_id(*), service_orders(id, quotes(id, title, salesperson_id))").order("due_date", { ascending: true }),
+        supabase.from("clients").select("*").order("company_name"),
+        supabase.from("service_orders").select("id, quotes(id, title, salesperson_id)").order("created_at", { ascending: false }),
+        supabase.from("profiles").select("*").order("full_name")
+      ]);
 
-    if (tRes.data) setTransactions(tRes.data as unknown as Transaction[]);
-    if (cRes.data) setClients(cRes.data as Client[]);
-    if (osRes.data) setServiceOrders(osRes.data as any[]);
-    if (pRes.data) setTeam(pRes.data as Profile[]);
-    setLoading(false);
-  }, []);
+      if (tRes.data) setTransactions(tRes.data as unknown as Transaction[]);
+      if (cRes.data) setClients(cRes.data as Client[]);
+      if (osRes.data) setServiceOrders(osRes.data as any[]);
+      if (pRes.data) setTeam(pRes.data as Profile[]);
+    } catch (err) {
+      showToast("Erro ao sincronizar dados.", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -125,18 +152,24 @@ export default function FinanceiroPage() {
     setUploading(true);
     try {
       const path = `financial/${Date.now()}-${file.name}`;
-      const { error } = await supabase.storage.from('axon-assets').upload(path, file);
-      if (error) throw error;
+      const { error: uploadError } = await supabase.storage.from('axon-assets').upload(path, file);
+      if (uploadError) throw uploadError;
       const { data } = supabase.storage.from('axon-assets').getPublicUrl(path);
       setForm(prev => ({ ...prev, attachmentUrl: data.publicUrl }));
-      showToast("Documento anexado.", "success");
-    } catch (err: any) { showToast(err.message, "error"); }
-    finally { setUploading(false); }
+      showToast("Documento anexado com sucesso.", "success");
+    } catch (err: any) { 
+      showToast(err.message, "error"); 
+    } finally { 
+      setUploading(false); 
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.description || !formData.amount || !formData.dueDate) return;
+    if (!formData.description || !formData.amount || !formData.dueDate) {
+      showToast("Preencha os campos obrigatórios.", "warning");
+      return;
+    }
     setIsSubmitting(true);
 
     const payload = {
@@ -160,12 +193,60 @@ export default function FinanceiroPage() {
       : await supabase.from("financial_transactions").insert([payload]);
 
     if (!error) {
-      showToast("Lançamento processado com sucesso.", "success");
+      showToast("Lançamento processado.", "success");
       setView("list");
       fetchData();
       resetForm();
-    } else { showToast(error.message, "error"); }
+    } else { 
+      showToast(error.message, "error"); 
+    }
     setIsSubmitting(false);
+  };
+
+  const resetForm = () => {
+    setEditId(null);
+    setForm({
+      description: "", type: "income", expense_type: "administrative", category: "", 
+      amount: "", status: "pending", dueDate: "", paymentDate: "",
+      serviceOrderId: "", clientId: "", memberId: "", paymentMethod: "pix", attachmentUrl: ""
+    });
+    setClientSearch("");
+    setMemberSearch("");
+  };
+
+  const openEditForm = (t: Transaction) => {
+    setIsDetailModalOpen(false);
+    setEditId(t.id);
+    setForm({
+      description: t.description,
+      type: t.type,
+      expense_type: t.expense_type || "administrative",
+      category: t.category,
+      amount: t.amount.toString(),
+      status: t.status,
+      dueDate: t.due_date,
+      paymentDate: t.payment_date || "",
+      serviceOrderId: t.service_order_id || "",
+      clientId: t.client_id || "",
+      memberId: t.member_id || "",
+      paymentMethod: t.payment_method || "pix",
+      attachmentUrl: t.attachment_url || ""
+    });
+    setView("create");
+  };
+
+  const updateStatus = async (id: string, newStatus: string) => {
+    const payload: any = { status: newStatus };
+    payload.payment_date = newStatus === 'paid' ? new Date().toISOString().split('T')[0] : null;
+    
+    const { error } = await supabase.from("financial_transactions").update(payload).eq("id", id);
+    if (!error) {
+      showToast("Status atualizado.", "success");
+      fetchData();
+      if (selectedTransaction?.id === id) {
+        setSelectedTransaction({ ...selectedTransaction, status: newStatus as any, payment_date: payload.payment_date });
+      }
+    }
   };
 
   const sendInvoiceEmail = async (t: Transaction) => {
@@ -180,96 +261,128 @@ export default function FinanceiroPage() {
       if (!res.ok) throw new Error(data.error);
       showToast("Cobrança enviada por e-mail.", "success");
       fetchData();
-    } catch (err: any) { showToast(err.message, "error"); }
-    finally { setIsSendingMail(false); }
+    } catch (err: any) { 
+      showToast(err.message, "error"); 
+    } finally { 
+      setIsSendingMail(false); 
+    }
   };
 
   const formatCurrency = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(v);
   const isOverdue = (date: string, status: string) => new Date(date) < new Date(new Date().setHours(0,0,0,0)) && status === 'pending';
 
+  const sendWhatsApp = (t: Transaction) => {
+    const phone = t.clients?.phone?.replace(/\D/g, "");
+    if (!phone) { showToast("Cliente sem telefone cadastrado.", "warning"); return; }
+    const msg = `Olá, ${t.clients?.company_name}. Consta em nosso sistema um lançamento pendente: ${t.description} no valor de ${formatCurrency(t.amount)}, com vencimento em ${new Date(t.due_date).toLocaleDateString('pt-BR')}. Poderia nos enviar o comprovante?`;
+    window.open(`https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`, "_blank");
+  };
+
+  // --- CÁLCULOS DASHBOARD ---
   const stats = useMemo(() => {
-    const paidIn = transactions.filter(t => t.type === 'income' && t.status === 'paid').reduce((a, b) => a + b.amount, 0);
-    const paidOut = transactions.filter(t => t.type === 'expense' && t.status === 'paid').reduce((a, b) => a + b.amount, 0);
-    const pendingIn = transactions.filter(t => t.type === 'income' && t.status === 'pending').reduce((a, b) => a + b.amount, 0);
-    const overdueIn = transactions.filter(t => t.type === 'income' && isOverdue(t.due_date, t.status)).reduce((a, b) => a + b.amount, 0);
+    const paidIn = transactions.filter(t => t.type === 'income' && t.status === 'paid').reduce((a, b) => a + Number(b.amount), 0);
+    const paidOut = transactions.filter(t => t.type === 'expense' && t.status === 'paid').reduce((a, b) => a + Number(b.amount), 0);
+    const pendingIn = transactions.filter(t => t.type === 'income' && t.status === 'pending').reduce((a, b) => a + Number(b.amount), 0);
+    const overdueIn = transactions.filter(t => t.type === 'income' && isOverdue(t.due_date, t.status)).reduce((a, b) => a + Number(b.amount), 0);
     return { balance: paidIn - paidOut, pendingIn, overdueIn, paidIn, paidOut };
   }, [transactions]);
 
   const personnelStats = useMemo(() => {
     const personnelTrans = transactions.filter(t => t.expense_type === 'personnel');
-    const totalSalaries = personnelTrans.filter(t => t.category.toLowerCase().includes('salário')).reduce((a, b) => a + b.amount, 0);
-    const totalCommissions = personnelTrans.filter(t => t.category.toLowerCase().includes('comissão')).reduce((a, b) => a + b.amount, 0);
+    const totalSalaries = personnelTrans.filter(t => t.category.toLowerCase().includes('salário')).reduce((a, b) => a + Number(b.amount), 0);
+    const totalCommissions = personnelTrans.filter(t => t.category.toLowerCase().includes('comissão')).reduce((a, b) => a + Number(b.amount), 0);
     return { totalSalaries, totalCommissions };
   }, [transactions]);
 
   const clientSummary = useMemo(() => {
     return clients.map(c => {
       const cTrans = transactions.filter(t => t.client_id === c.id && t.type === 'income');
-      const ltv = cTrans.filter(t => t.status === 'paid').reduce((a, b) => a + b.amount, 0);
-      const debt = cTrans.filter(t => t.status === 'pending').reduce((a, b) => a + b.amount, 0);
+      const ltv = cTrans.filter(t => t.status === 'paid').reduce((a, b) => a + Number(b.amount), 0);
+      const debt = cTrans.filter(t => t.status === 'pending').reduce((a, b) => a + Number(b.amount), 0);
       return { ...c, ltv, debt };
     }).filter(c => c.ltv > 0 || c.debt > 0);
   }, [clients, transactions]);
 
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(t => 
+      t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      t.clients?.company_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      t.category?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [transactions, searchTerm]);
+
   const renderTable = (typeFilter: "income" | "expense", expenseType?: string) => {
-    const filtered = transactions.filter(t => 
+    const filtered = filteredTransactions.filter(t => 
       t.type === typeFilter && 
-      (!expenseType || t.expense_type === expenseType) &&
-      (t.description.toLowerCase().includes(searchTerm.toLowerCase()) || t.clients?.company_name?.toLowerCase().includes(searchTerm.toLowerCase()))
+      (!expenseType || t.expense_type === expenseType)
     );
 
     return (
       <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden shadow-xl">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-background/50 text-[10px] uppercase tracking-widest text-text-secondary font-black">
-            <tr>
-              <th className="px-6 py-4">Descrição / Favorecido</th>
-              <th className="px-6 py-4">Vencimento</th>
-              <th className="px-6 py-4">Valor</th>
-              <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4 text-right">Ações</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-surface/50">
-            {filtered.map((t) => (
-              <tr key={t.id} className="hover:bg-background/50 transition-colors group">
-                <td className="px-6 py-4">
-                  <p className="font-bold text-white group-hover:text-cs-green transition-colors">{t.description}</p>
-                  <p className="text-[10px] font-black uppercase text-text-secondary">
-                    {t.clients?.company_name || t.member?.full_name || t.category}
-                  </p>
-                </td>
-                <td className="px-6 py-4">
-                  <span className={`text-xs font-bold ${isOverdue(t.due_date, t.status) ? 'text-red-500' : 'text-white'}`}>
-                    {new Date(t.due_date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
-                  </span>
-                </td>
-                <td className="px-6 py-4 font-black text-white">{formatCurrency(t.amount)}</td>
-                <td className="px-6 py-4">
-                  <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${
-                    t.status === 'paid' ? 'bg-cs-green/10 text-cs-green border-cs-green/20' : 'bg-cs-gold/10 text-cs-gold border-cs-gold/20'
-                  }`}>{t.status}</span>
-                </td>
-                <td className="px-6 py-4 text-right">
-                  <button onClick={() => { setSelectedTransaction(t); setIsDetailModalOpen(true); }} className="text-text-secondary hover:text-white transition-all"><Eye size={18} /></button>
-                </td>
+        <div className="p-4 border-b border-surface/50 bg-surface/50 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={16} />
+            <input 
+              type="text" 
+              placeholder="Filtrar lançamentos..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-background border border-surface rounded-md text-xs text-white focus:border-cs-green outline-none"
+            />
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-background/50 text-[10px] uppercase tracking-widest text-text-secondary font-black">
+              <tr>
+                <th className="px-6 py-4">Descrição / Favorecido</th>
+                <th className="px-6 py-4">Vencimento</th>
+                <th className="px-6 py-4">Valor</th>
+                <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4 text-right">Ações</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-surface/50">
+              {filtered.map((t) => (
+                <tr key={t.id} className="hover:bg-background/50 transition-colors group">
+                  <td className="px-6 py-4">
+                    <p className="font-bold text-white group-hover:text-cs-green transition-colors">{t.description}</p>
+                    <p className="text-[10px] font-black uppercase text-text-secondary">
+                      {t.clients?.company_name || t.member?.full_name || t.category}
+                    </p>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={`text-xs font-bold ${isOverdue(t.due_date, t.status) ? 'text-red-500' : 'text-white'}`}>
+                      {new Date(t.due_date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 font-black text-white">{formatCurrency(t.amount)}</td>
+                  <td className="px-6 py-4">
+                    <select
+                      value={t.status}
+                      onChange={(e) => updateStatus(t.id, e.target.value)}
+                      className={`text-[10px] rounded-full px-3 py-1 font-black uppercase border focus:outline-none cursor-pointer ${
+                        t.status === 'paid' ? 'bg-cs-green/10 text-cs-green border-cs-green/20' :
+                        t.status === 'cancelled' ? 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20' :
+                        isOverdue(t.due_date, t.status) ? 'bg-red-500/10 text-red-500 border-red-500/20' :
+                        'bg-cs-gold/10 text-cs-gold border-cs-gold/20'
+                      }`}
+                    >
+                      <option value="pending">Pendente</option>
+                      <option value="paid">Pago</option>
+                      <option value="cancelled">Cancelado</option>
+                    </select>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <button onClick={() => { setSelectedTransaction(t); setIsDetailModalOpen(true); }} className="text-text-secondary hover:text-white transition-all"><Eye size={18} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
-  };
-
-  const resetForm = () => {
-    setEditId(null);
-    setForm({
-      description: "", type: "income", expense_type: "administrative", category: "", 
-      amount: "", status: "pending", dueDate: "", paymentDate: "",
-      serviceOrderId: "", clientId: "", memberId: "", paymentMethod: "pix", attachmentUrl: ""
-    });
-    setClientSearch("");
-    setMemberSearch("");
   };
 
   return (
@@ -304,7 +417,8 @@ export default function FinanceiroPage() {
               { id: "dashboard", label: "Visão Geral", icon: TrendingUp },
               { id: "receber", label: receivableLabel, icon: ArrowUpRight },
               { id: "pagar", label: payableLabel, icon: ArrowDownRight },
-              { id: "pessoal", label: "Gestão de Pessoal", icon: Users }
+              { id: "pessoal", label: "Gestão de Pessoal", icon: Users },
+              { id: "clientes", label: "Análise por " + clientSingular, icon: Building }
             ].map((tab) => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`px-8 py-4 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all flex items-center gap-2 ${activeTab === tab.id ? 'border-cs-green text-cs-green' : 'border-transparent text-text-secondary hover:text-white'}`}>
                 <tab.icon size={14} /> {tab.label}
@@ -337,7 +451,7 @@ export default function FinanceiroPage() {
                 <h4 className="text-xs font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
                   <TrendingUp size={16} className="text-cs-gold" /> Projeção de Recebíveis (Aging)
                 </h4>
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {[
                     { label: 'Vencidos', val: stats.overdueIn, color: 'bg-red-500' },
                     { label: 'Próx. 7 dias', val: stats.pendingIn * 0.4, color: 'bg-cs-gold' },
@@ -369,8 +483,8 @@ export default function FinanceiroPage() {
                 </div>
                 <div className="bg-surface border border-surface/50 p-6 rounded-xl flex items-center justify-between">
                   <div>
-                    <p className="text-[10px] font-black text-text-secondary uppercase">Comissões Processadas</p>
-                    <p className="text-2xl font-black text-white text-cs-gold">{formatCurrency(personnelStats.totalCommissions)}</p>
+                    <p className="text-[10px] font-black text-text-secondary uppercase">Comissões Pagas</p>
+                    <p className="text-2xl font-black text-cs-gold">{formatCurrency(personnelStats.totalCommissions)}</p>
                   </div>
                   <Percent className="text-cs-gold opacity-20" size={48} />
                 </div>
@@ -441,7 +555,6 @@ export default function FinanceiroPage() {
                     <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Descrição *</label>
                     <input type="text" required value={formData.description} onChange={e => setForm({...formData, description: e.target.value})} className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none" />
                   </div>
-                  
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Valor ({currency}) *</label>
@@ -451,15 +564,6 @@ export default function FinanceiroPage() {
                       <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">Vencimento *</label>
                       <input type="date" required value={formData.dueDate} onChange={e => setForm({...formData, dueDate: e.target.value})} className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none" style={{ colorScheme: 'dark' }} />
                     </div>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-[10px] font-black text-text-secondary uppercase mb-2 tracking-widest">Categoria (Plano de Contas)</label>
-                    <select value={formData.category} onChange={e => setForm({...formData, category: e.target.value})} className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none">
-                      {(formData.type === 'income' ? categories.income : categories.expense).map(cat => (
-                        <option key={cat} value={cat}>{cat}</option>
-                      ))}
-                    </select>
                   </div>
                 </div>
 
@@ -508,18 +612,20 @@ export default function FinanceiroPage() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[10px] font-black text-text-secondary uppercase mb-2 tracking-widest">Status Inicial</label>
-                      <select value={formData.status} onChange={e => setForm({...formData, status: e.target.value})} className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none">
-                        <option value="pending">Pendente</option>
-                        <option value="paid">Pago / Efetivado</option>
-                      </select>
-                    </div>
-                    <div>
                       <label className="block text-[10px] font-black text-text-secondary uppercase mb-2 tracking-widest">Anexo</label>
                       <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full bg-surface border border-surface/50 py-3 rounded-md text-[10px] font-black uppercase text-white hover:bg-background transition-all flex items-center justify-center gap-2">
                         {uploading ? <Loader2 className="animate-spin" size={14} /> : <Upload size={14} />} {formData.attachmentUrl ? "Trocar" : "Upload"}
                       </button>
                       <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-text-secondary uppercase mb-2 tracking-widest">Método</label>
+                      <select value={formData.paymentMethod} onChange={e => setForm({...formData, paymentMethod: e.target.value})} className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none">
+                        <option value="pix">PIX</option>
+                        <option value="boleto">Boleto</option>
+                        <option value="transfer">TED/DOC</option>
+                        <option value="credit_card">Cartão</option>
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -597,6 +703,39 @@ export default function FinanceiroPage() {
           </div>
         </div>
       )}
+
+      {/* MODAL CONFIRMAÇÃO EXCLUSÃO */}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[120] backdrop-blur-sm">
+          <div className="bg-[#1a1413] border border-surface/50 rounded-xl w-full max-w-sm p-8 text-center space-y-6 shadow-2xl">
+            <div className="mx-auto w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center border border-red-500/20">
+              <AlertTriangle size={32} className="text-red-500" />
+            </div>
+            <h3 className="text-xl font-black text-white uppercase tracking-tighter">Remover Registro?</h3>
+            <p className="text-sm text-text-secondary font-medium">Esta ação é irreversível e afetará os relatórios de DRE e Fluxo de Caixa.</p>
+            <div className="flex gap-4">
+              <button onClick={() => setConfirmDeleteId(null)} className="flex-1 py-3 border border-surface rounded-md text-xs font-black uppercase text-text-secondary hover:text-white transition-all">Cancelar</button>
+              <button onClick={async () => {
+                await supabase.from("financial_transactions").delete().eq("id", confirmDeleteId);
+                setConfirmDeleteId(null);
+                setIsDetailModalOpen(false);
+                fetchData();
+                showToast("Registro removido.", "success");
+              }} className="flex-1 py-3 bg-red-600 text-white rounded-md text-xs font-black uppercase shadow-lg hover:bg-red-500 transition-all">Excluir</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- COMPONENTES AUXILIARES ---
+function InputField({ label, value, onChange, type = "text", placeholder = "" }: { label: string, value: string, onChange: (v: string) => void, type?: string, placeholder?: string }) {
+  return (
+    <div>
+      <label className="block text-[10px] font-black text-text-secondary uppercase mb-1.5 tracking-widest">{label}</label>
+      <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none transition-all" style={{ colorScheme: 'dark' }} />
     </div>
   );
 }
