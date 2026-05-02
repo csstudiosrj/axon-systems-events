@@ -10,19 +10,41 @@ import {
   Stethoscope, UserX, ChevronRight, Download
 } from "lucide-react";
 
+// DEFINICAO DE INTERFACES PARA O TYPESCRIPT
+interface Employee {
+  id: string;
+  full_name: string;
+  role_label: string;
+  contract_type: string;
+  base_salary: number;
+  status: string;
+}
+
+interface Reimbursement {
+  id: string;
+  employee_id: string;
+  description: string;
+  amount: number;
+  status: string;
+  quote_id?: string;
+  service_order_id?: string;
+  hr_employee_details: {
+    full_name: string;
+  };
+}
+
 type HRTab = "colaboradores" | "ocorrencias" | "reembolsos" | "folha";
 
 export default function RHPage() {
   const { systemPreferences, companyProfile } = useSettings();
   const L = systemPreferences?.custom_labels || {};
   
-  // Nomenclaturas Dinâmicas White Label
   const labelEquipe = L.menu_team || "Equipe";
   const labelColaborador = L.entity_member_singular || "Colaborador";
 
   const [activeTab, setActiveTab] = useState<HRTab>("colaboradores");
-  const [members, setMembers] = useState([]);
-  const [reimbursements, setReimbursements] = useState([]);
+  const [members, setMembers] = useState<Employee[]>([]);
+  const [reimbursements, setReimbursements] = useState<Reimbursement[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -32,19 +54,30 @@ export default function RHPage() {
 
   async function fetchInitialData() {
     setLoading(true);
-    if (activeTab === "colaboradores") {
-      const { data } = await supabase.from('hr_employee_details').select('*').order('full_name');
-      if (data) setMembers(data);
-    } else if (activeTab === "reembolsos") {
-      const { data } = await supabase.from('hr_reimbursements').select('*, hr_employee_details(full_name)').eq('batch_status', 'submitted');
-      if (data) setReimbursements(data);
+    try {
+      if (activeTab === "colaboradores") {
+        const { data, error } = await supabase
+          .from('hr_employee_details')
+          .select('*')
+          .order('full_name');
+        if (error) throw error;
+        setMembers(data || []);
+      } else if (activeTab === "reembolsos") {
+        const { data, error } = await supabase
+          .from('hr_reimbursements')
+          .select('*, hr_employee_details(full_name)')
+          .eq('batch_status', 'submitted');
+        if (error) throw error;
+        setReimbursements(data as unknown as Reimbursement[] || []);
+      }
+    } catch (err) {
+      console.error("Erro ao buscar dados:", err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
-  // Lógica de Aprovação de Reembolso com Rastro Financeiro
-  const approveReimbursement = async (item: any) => {
-    // 1. Aprova no RH
+  const approveReimbursement = async (item: Reimbursement) => {
     const { error: hrError } = await supabase
       .from('hr_reimbursements')
       .update({ status: 'approved' })
@@ -52,7 +85,6 @@ export default function RHPage() {
 
     if (hrError) return;
 
-    // 2. Injeta no Financeiro (financial_transactions)
     await supabase.from('financial_transactions').insert([{
       description: `Reembolso: ${item.description} - ${item.hr_employee_details.full_name}`,
       type: 'expense',
@@ -62,7 +94,7 @@ export default function RHPage() {
       status: 'pending',
       due_date: new Date().toISOString().split('T')[0],
       member_id: item.employee_id,
-      quote_id: item.quote_id, // Rastro do Centro de Custo
+      quote_id: item.quote_id,
       service_order_id: item.service_order_id
     }]);
 
@@ -70,10 +102,16 @@ export default function RHPage() {
     fetchInitialData();
   };
 
+  const filteredMembers = useMemo(() => {
+    return members.filter(m => 
+      m.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      m.role_label?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [members, searchTerm]);
+
   return (
     <div className="space-y-6 pb-12 animate-in fade-in duration-500">
       
-      {/* HEADER DINÂMICO */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-surface p-6 border border-surface/50 rounded-xl shadow-lg">
         <div>
           <h3 className="text-2xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
@@ -93,7 +131,6 @@ export default function RHPage() {
         </div>
       </div>
 
-      {/* NAVEGAÇÃO DE SUB-ABAS */}
       <div className="flex gap-0 border-b border-surface/50 overflow-x-auto">
         {[
           { id: "colaboradores", label: labelEquipe, icon: Users },
@@ -115,10 +152,8 @@ export default function RHPage() {
         ))}
       </div>
 
-      {/* CONTEÚDO DAS ABAS */}
       <div className="min-h-[400px]">
         
-        {/* ABA: COLABORADORES */}
         {activeTab === "colaboradores" && (
           <div className="space-y-4">
             <div className="bg-surface border border-surface/50 p-4 rounded-lg flex gap-4">
@@ -135,7 +170,7 @@ export default function RHPage() {
             </div>
 
             <div className="grid grid-cols-1 gap-4">
-              {members.map((member: any) => (
+              {filteredMembers.map((member) => (
                 <div key={member.id} className="bg-surface border border-surface/50 p-5 rounded-xl flex flex-col md:flex-row justify-between items-center gap-6 hover:border-cs-green/30 transition-all group">
                   <div className="flex items-center gap-5 flex-1">
                     <div className="h-14 w-14 rounded-full bg-cs-darkbg border border-white/5 flex items-center justify-center text-cs-green text-xl font-black shadow-inner">
@@ -174,7 +209,6 @@ export default function RHPage() {
           </div>
         )}
 
-        {/* ABA: REEMBOLSOS (A FILA DE APROVAÇÃO) */}
         {activeTab === "reembolsos" && (
           <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden shadow-xl">
             <table className="w-full text-left text-sm">
@@ -191,12 +225,12 @@ export default function RHPage() {
                 {reimbursements.length === 0 ? (
                   <tr><td colSpan={5} className="px-6 py-20 text-center text-text-secondary uppercase font-bold">Nenhum reembolso pendente na fila.</td></tr>
                 ) : (
-                  reimbursements.map((item: any) => (
+                  reimbursements.map((item) => (
                     <tr key={item.id} className="hover:bg-background/50 transition-colors">
                       <td className="px-6 py-4 font-bold text-white">{item.hr_employee_details.full_name}</td>
                       <td className="px-6 py-4">
                         <p className="text-white">{item.description}</p>
-                        <p className="text-[10px] font-black text-cs-gold uppercase">OS vinculada detectada</p>
+                        <p className="text-[10px] font-black text-cs-gold uppercase">Rastro financeiro ativo</p>
                       </td>
                       <td className="px-6 py-4 font-black text-cs-green">R$ {item.amount.toLocaleString()}</td>
                       <td className="px-6 py-4">
@@ -223,7 +257,6 @@ export default function RHPage() {
           </div>
         )}
 
-        {/* PLACEHOLDERS PARA AS OUTRAS ABAS */}
         {(activeTab === "ocorrencias" || activeTab === "folha") && (
           <div className="bg-surface border border-surface/50 p-20 rounded-xl text-center">
             <Clock size={48} className="mx-auto text-zinc-800 mb-4 animate-pulse" />
