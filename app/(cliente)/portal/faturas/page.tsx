@@ -1,20 +1,24 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 import { useSettings } from "../../../providers/SettingsProvider";
 import {
-  CreditCard,
-  Loader2,
-  Calendar,
-  Receipt,
-  CircleDollarSign,
-  CheckCircle2,
   AlertTriangle,
+  CheckCircle2,
+  ChevronRight,
+  CircleDollarSign,
   Clock3,
+  CreditCard,
+  FileText,
+  Loader2,
+  MessageSquare,
+  Paperclip,
+  Upload,
+  X,
 } from "lucide-react";
 
-type FinancialTransactionRow = {
+type FinancialTransaction = {
   id: string;
   description: string;
   type: string | null;
@@ -35,15 +39,115 @@ type FinancialTransactionRow = {
   source: string | null;
   invoice_notes: string | null;
   document_number: string | null;
+  workflow_status: string | null;
+  dispute_status: string | null;
+  dispute_reason: string | null;
+  dispute_category: string | null;
+  customer_last_action_at: string | null;
+  finance_last_action_at: string | null;
+  last_interaction_at: string | null;
+  payment_reported_amount: number | null;
+  payment_reported_method: string | null;
+  payment_reported_reference: string | null;
+  payment_reported_at: string | null;
+  payment_confirmed_at: string | null;
+  resolution_type: string | null;
+  resolution_notes: string | null;
 };
+
+type FinancialEvent = {
+  id: string;
+  financial_transaction_id: string;
+  author_id: string | null;
+  author_type: "client" | "finance" | "system";
+  visibility: "shared" | "internal";
+  event_type: string;
+  title: string;
+  message: string | null;
+  metadata: Record<string, any> | null;
+  created_at: string;
+};
+
+type FinancialAttachment = {
+  id: string;
+  financial_transaction_id: string;
+  event_id: string | null;
+  uploaded_by: string | null;
+  uploaded_by_type: "client" | "finance" | "system";
+  visibility: "shared" | "internal";
+  attachment_type: string;
+  file_name: string;
+  file_path: string;
+  file_url: string | null;
+  mime_type: string | null;
+  file_size: number | null;
+  created_at: string;
+};
+
+type ToastState = {
+  type: "success" | "error";
+  text: string;
+};
+
+const STORAGE_BUCKET = "files-main";
 
 export default function PortalFaturasPage() {
   const { resolvedClientId, systemPreferences } = useSettings();
-  const [transactions, setTransactions] = useState<FinancialTransactionRow[]>([]);
+
   const [loading, setLoading] = useState(true);
+  const [transactions, setTransactions] = useState<FinancialTransaction[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [events, setEvents] = useState<FinancialEvent[]>([]);
+  const [attachments, setAttachments] = useState<FinancialAttachment[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [toast, setToast] = useState<ToastState>({ type: "success", text: "" });
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [paymentFile, setPaymentFile] = useState<File | null>(null);
+  const [disputeFile, setDisputeFile] = useState<File | null>(null);
+  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+
+  const [paymentForm, setPaymentForm] = useState({
+    amount: "",
+    method: "pix",
+    reference: "",
+    message: "",
+  });
+
+  const [disputeForm, setDisputeForm] = useState({
+    category: "amount_divergence",
+    reason: "",
+    message: "",
+  });
+
+  const toastTimer = useRef<number | null>(null);
 
   const labels = systemPreferences?.custom_labels;
   const clientSingular = labels?.entity_client_singular || "Cliente";
+
+  const showToast = useCallback((text: string, type: "success" | "error") => {
+    setToast({ text, type });
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => {
+      setToast({ type: "success", text: "" });
+    }, 4000);
+  }, []);
+
+  const currency = (value: number | null | undefined) =>
+    new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    }).format(Number(value || 0));
+
+  const formatDate = (value: string | null) => {
+    if (!value) return "-";
+    return new Date(value).toLocaleDateString("pt-BR");
+  };
+
+  const formatDateTime = (value: string | null) => {
+    if (!value) return "-";
+    return new Date(value).toLocaleString("pt-BR");
+  };
 
   const fetchTransactions = useCallback(async () => {
     if (!resolvedClientId) {
@@ -53,6 +157,12 @@ export default function PortalFaturasPage() {
     }
 
     setLoading(true);
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    setCurrentUserId(session?.user?.id || null);
 
     const { data, error } = await supabase
       .from("financial_transactions")
@@ -76,200 +186,678 @@ export default function PortalFaturasPage() {
         attachment_url,
         source,
         invoice_notes,
-        document_number
+        document_number,
+        workflow_status,
+        dispute_status,
+        dispute_reason,
+        dispute_category,
+        customer_last_action_at,
+        finance_last_action_at,
+        last_interaction_at,
+        payment_reported_amount,
+        payment_reported_method,
+        payment_reported_reference,
+        payment_reported_at,
+        payment_confirmed_at,
+        resolution_type,
+        resolution_notes
       `)
       .eq("client_id", resolvedClientId)
       .order("due_date", { ascending: true });
 
-    if (!error && data) {
-      setTransactions(data as FinancialTransactionRow[]);
-    } else {
+    if (error) {
       setTransactions([]);
+      setLoading(false);
+      return;
+    }
+
+    const rows = (data || []) as FinancialTransaction[];
+    setTransactions(rows);
+
+    if (rows.length > 0 && !selectedId) {
+      setSelectedId(rows[0].id);
+    }
+
+    if (rows.length === 0) {
+      setSelectedId(null);
+      setEvents([]);
+      setAttachments([]);
     }
 
     setLoading(false);
-  }, [resolvedClientId]);
+  }, [resolvedClientId, selectedId]);
+
+  const fetchDetails = useCallback(async (transactionId: string) => {
+    setDetailLoading(true);
+
+    const [eventsResult, attachmentsResult] = await Promise.all([
+      supabase
+        .from("financial_transaction_events")
+        .select("id, financial_transaction_id, author_id, author_type, visibility, event_type, title, message, metadata, created_at")
+        .eq("financial_transaction_id", transactionId)
+        .eq("visibility", "shared")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("financial_transaction_attachments")
+        .select("id, financial_transaction_id, event_id, uploaded_by, uploaded_by_type, visibility, attachment_type, file_name, file_path, file_url, mime_type, file_size, created_at")
+        .eq("financial_transaction_id", transactionId)
+        .eq("visibility", "shared")
+        .order("created_at", { ascending: false }),
+    ]);
+
+    setEvents((eventsResult.data || []) as FinancialEvent[]);
+    setAttachments((attachmentsResult.data || []) as FinancialAttachment[]);
+    setDetailLoading(false);
+  }, []);
 
   useEffect(() => {
     fetchTransactions();
   }, [fetchTransactions]);
 
-  const currency = (value: number) =>
-    new Intl.NumberFormat("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    }).format(Number(value || 0));
+  useEffect(() => {
+    if (selectedId) {
+      fetchDetails(selectedId);
+    }
+  }, [selectedId, fetchDetails]);
 
-  const formatDate = (value: string | null) => {
-    if (!value) return "-";
-    return new Date(value).toLocaleDateString("pt-BR");
-  };
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    };
+  }, []);
 
-  const today = new Date();
+  const selectedTransaction = useMemo(
+    () => transactions.find((item) => item.id === selectedId) || null,
+    [transactions, selectedId]
+  );
 
   const summary = useMemo(() => {
-    const open = transactions.filter(
-      (item) => item.status !== "paid" && item.status !== "received"
-    );
-
-    const paid = transactions.filter(
-      (item) => item.status === "paid" || item.status === "received"
-    );
-
+    const today = new Date();
+    const open = transactions.filter((item) => item.status !== "paid" && item.status !== "received");
+    const paid = transactions.filter((item) => item.status === "paid" || item.status === "received");
     const overdue = open.filter((item) => new Date(item.due_date) < today);
 
-    const totalOpen = open.reduce((acc, item) => acc + Number(item.amount || 0), 0);
-    const totalPaid = paid.reduce((acc, item) => acc + Number(item.amount || 0), 0);
-    const totalOverdue = overdue.reduce((acc, item) => acc + Number(item.amount || 0), 0);
-
     return {
-      totalOpen,
-      totalPaid,
-      totalOverdue,
-      countOpen: open.length,
-      countPaid: paid.length,
-      countOverdue: overdue.length,
+      totalOpen: open.reduce((acc, item) => acc + Number(item.amount || 0), 0),
+      totalPaid: paid.reduce((acc, item) => acc + Number(item.amount || 0), 0),
+      totalOverdue: overdue.reduce((acc, item) => acc + Number(item.amount || 0), 0),
     };
   }, [transactions]);
 
-  const getStatusBadge = (item: FinancialTransactionRow) => {
+  const getStatusBadge = (item: FinancialTransaction) => {
     const status = item.status || "pending";
-    const isPaid = status === "paid" || status === "received";
-    const isOverdue = !isPaid && new Date(item.due_date) < today;
+    const isPaid = status === "paid" || status === "received" || item.workflow_status === "confirmed";
+    const isDisputed = item.dispute_status && item.dispute_status !== "none" && item.dispute_status !== "resolved";
+    const isAwaitingFinance = item.workflow_status === "awaiting_finance" || item.workflow_status === "under_review";
+    const isOverdue = !isPaid && new Date(item.due_date) < new Date();
 
     if (isPaid) {
-      return (
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-cs-green/20 bg-cs-green/10 px-3 py-1 text-xs font-bold text-cs-green">
-          <CheckCircle2 size={14} /> Pago
-        </span>
-      );
+      return <span className="inline-flex rounded-full border border-cs-green/20 bg-cs-green/10 px-3 py-1 text-xs font-bold text-cs-green">Pago</span>;
+    }
+
+    if (isDisputed) {
+      return <span className="inline-flex rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-bold text-orange-400">Contestação</span>;
+    }
+
+    if (isAwaitingFinance) {
+      return <span className="inline-flex rounded-full border border-cs-gold/20 bg-cs-gold/10 px-3 py-1 text-xs font-bold text-cs-gold">Em análise</span>;
     }
 
     if (isOverdue) {
-      return (
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1 text-xs font-bold text-red-400">
-          <AlertTriangle size={14} /> Vencido
-        </span>
-      );
+      return <span className="inline-flex rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1 text-xs font-bold text-red-400">Vencido</span>;
     }
 
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-cs-gold/20 bg-cs-gold/10 px-3 py-1 text-xs font-bold text-cs-gold">
-        <Clock3 size={14} /> Em aberto
-      </span>
-    );
+    return <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-bold text-zinc-300">Em aberto</span>;
   };
+
+  const uploadFile = async (file: File, transactionId: string, attachmentType: string) => {
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const path = `financial/${resolvedClientId}/${transactionId}/${Date.now()}-${safeName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(path, file, { upsert: false, contentType: file.type || undefined });
+
+    if (uploadError) {
+      throw new Error(uploadError.message || "Erro ao enviar arquivo.");
+    }
+
+    return {
+      file_path: path,
+      file_name: file.name,
+      mime_type: file.type || null,
+      file_size: file.size || null,
+      attachment_type: attachmentType,
+    };
+  };
+
+  const refreshAll = async (transactionId: string) => {
+    await fetchTransactions();
+    setSelectedId(transactionId);
+    await fetchDetails(transactionId);
+  };
+
+  const handleReportPayment = async () => {
+    if (!selectedTransaction) return;
+    if (!paymentForm.amount || !paymentForm.method || !paymentForm.message.trim()) {
+      showToast("Preencha valor, forma de pagamento e mensagem.", "error");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const { data: eventData, error: eventError } = await supabase
+        .from("financial_transaction_events")
+        .insert({
+          financial_transaction_id: selectedTransaction.id,
+          author_id: currentUserId,
+          author_type: "client",
+          visibility: "shared",
+          event_type: "payment_reported",
+          title: "Pagamento informado pelo cliente",
+          message: paymentForm.message.trim(),
+          metadata: {
+            amount: Number(paymentForm.amount),
+            method: paymentForm.method,
+            reference: paymentForm.reference || null,
+          },
+        })
+        .select("id")
+        .single();
+
+      if (eventError || !eventData) {
+        throw new Error(eventError?.message || "Erro ao registrar pagamento.");
+      }
+
+      if (paymentFile) {
+        const uploaded = await uploadFile(paymentFile, selectedTransaction.id, "receipt");
+
+        const { error: attachmentError } = await supabase
+          .from("financial_transaction_attachments")
+          .insert({
+            financial_transaction_id: selectedTransaction.id,
+            event_id: eventData.id,
+            uploaded_by: currentUserId,
+            uploaded_by_type: "client",
+            visibility: "shared",
+            attachment_type: uploaded.attachment_type,
+            file_name: uploaded.file_name,
+            file_path: uploaded.file_path,
+            mime_type: uploaded.mime_type,
+            file_size: uploaded.file_size,
+          });
+
+        if (attachmentError) {
+          throw new Error(attachmentError.message || "Erro ao salvar comprovante.");
+        }
+      }
+
+      const { error: updateError } = await supabase
+        .from("financial_transactions")
+        .update({
+          workflow_status: "awaiting_finance",
+          payment_reported_amount: Number(paymentForm.amount),
+          payment_reported_method: paymentForm.method,
+          payment_reported_reference: paymentForm.reference || null,
+          payment_reported_at: new Date().toISOString(),
+          customer_last_action_at: new Date().toISOString(),
+          last_interaction_at: new Date().toISOString(),
+        })
+        .eq("id", selectedTransaction.id);
+
+      if (updateError) {
+        throw new Error(updateError.message || "Erro ao atualizar cobrança.");
+      }
+
+      setPaymentForm({ amount: "", method: "pix", reference: "", message: "" });
+      setPaymentFile(null);
+      showToast("Pagamento informado com sucesso.", "success");
+      await refreshAll(selectedTransaction.id);
+    } catch (error: any) {
+      showToast(error?.message || "Erro ao informar pagamento.", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleOpenDispute = async () => {
+    if (!selectedTransaction) return;
+    if (!disputeForm.reason.trim() || !disputeForm.message.trim()) {
+      showToast("Preencha o motivo e a descrição da contestação.", "error");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const { data: eventData, error: eventError } = await supabase
+        .from("financial_transaction_events")
+        .insert({
+          financial_transaction_id: selectedTransaction.id,
+          author_id: currentUserId,
+          author_type: "client",
+          visibility: "shared",
+          event_type: "dispute_opened",
+          title: "Contestação aberta pelo cliente",
+          message: disputeForm.message.trim(),
+          metadata: {
+            category: disputeForm.category,
+            reason: disputeForm.reason.trim(),
+          },
+        })
+        .select("id")
+        .single();
+
+      if (eventError || !eventData) {
+        throw new Error(eventError?.message || "Erro ao abrir contestação.");
+      }
+
+      if (disputeFile) {
+        const uploaded = await uploadFile(disputeFile, selectedTransaction.id, "dispute_evidence");
+
+        const { error: attachmentError } = await supabase
+          .from("financial_transaction_attachments")
+          .insert({
+            financial_transaction_id: selectedTransaction.id,
+            event_id: eventData.id,
+            uploaded_by: currentUserId,
+            uploaded_by_type: "client",
+            visibility: "shared",
+            attachment_type: uploaded.attachment_type,
+            file_name: uploaded.file_name,
+            file_path: uploaded.file_path,
+            mime_type: uploaded.mime_type,
+            file_size: uploaded.file_size,
+          });
+
+        if (attachmentError) {
+          throw new Error(attachmentError.message || "Erro ao salvar anexo da contestação.");
+        }
+      }
+
+      const { error: updateError } = await supabase
+        .from("financial_transactions")
+        .update({
+          workflow_status: "disputed",
+          dispute_status: "open",
+          dispute_category: disputeForm.category,
+          dispute_reason: disputeForm.reason.trim(),
+          customer_last_action_at: new Date().toISOString(),
+          last_interaction_at: new Date().toISOString(),
+        })
+        .eq("id", selectedTransaction.id);
+
+      if (updateError) {
+        throw new Error(updateError.message || "Erro ao atualizar contestação.");
+      }
+
+      setDisputeForm({ category: "amount_divergence", reason: "", message: "" });
+      setDisputeFile(null);
+      showToast("Contestação registrada com sucesso.", "success");
+      await refreshAll(selectedTransaction.id);
+    } catch (error: any) {
+      showToast(error?.message || "Erro ao abrir contestação.", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const resolveAttachmentUrls = useCallback(async () => {
+    const pending = attachments.filter((file) => file.file_path && !signedUrls[file.id]);
+    if (pending.length === 0) return;
+
+    const nextMap: Record<string, string> = {};
+
+    await Promise.all(
+      pending.map(async (file) => {
+        const { data } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(file.file_path, 3600);
+        if (data?.signedUrl) {
+          nextMap[file.id] = data.signedUrl;
+        }
+      })
+    );
+
+    if (Object.keys(nextMap).length > 0) {
+      setSignedUrls((prev) => ({ ...prev, ...nextMap }));
+    }
+  }, [attachments, signedUrls]);
+
+  useEffect(() => {
+    resolveAttachmentUrls();
+  }, [resolveAttachmentUrls]);
 
   return (
     <main className="min-h-screen bg-background text-white p-8">
+      {toast.text ? (
+        <div className={`fixed bottom-6 right-6 z-[100] rounded-lg border px-5 py-3 text-sm font-bold shadow-2xl ${toast.type === "success" ? "border-cs-green bg-[#1a1413] text-cs-green" : "border-red-500 bg-[#1a1413] text-red-400"}`}>
+          {toast.text}
+        </div>
+      ) : null}
+
       <section className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <header className="rounded-2xl border border-surface/50 bg-surface p-6 shadow-lg">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="flex items-center gap-3 text-2xl font-bold text-white sm:text-3xl">
-                <CreditCard className="text-cs-gold" size={28} />
-                Faturas
-              </h1>
-              <p className="mt-2 text-sm text-text-secondary sm:text-base">
-                Acompanhe cobranças, vencimentos e pagamentos vinculados ao seu cadastro de {clientSingular.toLowerCase()}.
-              </p>
-            </div>
-          </div>
+          <h1 className="flex items-center gap-3 text-2xl font-bold text-white sm:text-3xl">
+            <CreditCard className="text-cs-gold" size={28} />
+            Faturas
+          </h1>
+          <p className="mt-2 text-sm text-text-secondary sm:text-base">
+            Acompanhe cobranças, informe pagamento, anexe comprovantes e conteste lançamentos pelo portal do {clientSingular.toLowerCase()}.
+          </p>
         </header>
 
         <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div className="rounded-2xl border border-surface/50 bg-surface p-5 shadow-md">
             <p className="text-xs uppercase tracking-wider text-text-secondary">Em aberto</p>
             <p className="mt-3 text-2xl font-bold text-white">{currency(summary.totalOpen)}</p>
-            <p className="mt-1 text-xs text-text-secondary">{summary.countOpen} lançamento(s)</p>
           </div>
-
           <div className="rounded-2xl border border-surface/50 bg-surface p-5 shadow-md">
             <p className="text-xs uppercase tracking-wider text-text-secondary">Pagos</p>
             <p className="mt-3 text-2xl font-bold text-cs-green">{currency(summary.totalPaid)}</p>
-            <p className="mt-1 text-xs text-text-secondary">{summary.countPaid} lançamento(s)</p>
           </div>
-
           <div className="rounded-2xl border border-surface/50 bg-surface p-5 shadow-md">
             <p className="text-xs uppercase tracking-wider text-text-secondary">Vencidos</p>
             <p className="mt-3 text-2xl font-bold text-red-400">{currency(summary.totalOverdue)}</p>
-            <p className="mt-1 text-xs text-text-secondary">{summary.countOverdue} lançamento(s)</p>
           </div>
         </section>
 
-        <section className="rounded-2xl border border-surface/50 bg-surface shadow-lg overflow-hidden">
-          {loading ? (
-            <div className="flex justify-center py-16">
-              <Loader2 className="animate-spin text-cs-gold" size={36} />
+        {loading ? (
+          <div className="flex justify-center py-20">
+            <Loader2 className="animate-spin text-cs-gold" size={38} />
+          </div>
+        ) : transactions.length === 0 ? (
+          <section className="rounded-2xl border border-surface/50 bg-surface p-10 text-center shadow-lg">
+            <FileText className="mx-auto mb-4 text-surface" size={44} />
+            <h2 className="text-xl font-bold text-white">Nenhuma fatura encontrada</h2>
+            <p className="mt-2 text-sm text-text-secondary">Não há cobranças vinculadas ao seu cadastro neste momento.</p>
+          </section>
+        ) : (
+          <section className="grid grid-cols-1 gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
+            <div className="rounded-2xl border border-surface/50 bg-surface shadow-lg overflow-hidden">
+              <div className="border-b border-surface/50 px-5 py-4">
+                <h2 className="text-sm font-bold uppercase tracking-wider text-white">Cobranças</h2>
+              </div>
+              <div className="max-h-[900px] overflow-y-auto">
+                {transactions.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setSelectedId(item.id)}
+                    className={`w-full border-b border-surface/40 px-5 py-4 text-left transition-colors hover:bg-background/30 ${selectedId === item.id ? "bg-background/30" : "bg-transparent"}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-white">{item.description}</p>
+                        <p className="mt-1 text-xs text-text-secondary">Documento: {item.document_number || "-"}</p>
+                        <p className="mt-1 text-xs text-text-secondary">Vencimento: {formatDate(item.due_date)}</p>
+                      </div>
+                      <ChevronRight className="shrink-0 text-text-secondary" size={18} />
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <span className="text-sm font-bold text-white">{currency(item.amount)}</span>
+                      {getStatusBadge(item)}
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
-          ) : transactions.length === 0 ? (
-            <div className="px-6 py-16 text-center">
-              <Receipt className="mx-auto mb-4 text-surface" size={44} />
-              <h2 className="text-xl font-bold text-white">Nenhuma fatura encontrada</h2>
-              <p className="mt-2 text-sm text-text-secondary">
-                Não há lançamentos financeiros vinculados ao seu cadastro no momento.
-              </p>
+
+            <div className="rounded-2xl border border-surface/50 bg-surface shadow-lg">
+              {!selectedTransaction ? (
+                <div className="p-8 text-sm text-text-secondary">Selecione uma cobrança.</div>
+              ) : (
+                <div className="flex h-full flex-col">
+                  <div className="border-b border-surface/50 p-6">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <h2 className="text-2xl font-bold text-white">{selectedTransaction.description}</h2>
+                        <div className="mt-3 flex flex-wrap gap-3 text-sm text-text-secondary">
+                          <span>Documento: {selectedTransaction.document_number || "-"}</span>
+                          <span>Vencimento: {formatDate(selectedTransaction.due_date)}</span>
+                          <span>Parcela: {selectedTransaction.installment_number && selectedTransaction.total_installments ? `${selectedTransaction.installment_number}/${selectedTransaction.total_installments}` : "-"}</span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-3xl font-extrabold text-white">{currency(selectedTransaction.amount)}</p>
+                        <div className="mt-3 flex justify-end">{getStatusBadge(selectedTransaction)}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-6 p-6 2xl:grid-cols-[minmax(0,1fr)_380px]">
+                    <div className="space-y-6">
+                      <section className="rounded-2xl border border-surface/50 bg-background/30 p-5">
+                        <h3 className="text-sm font-bold uppercase tracking-wider text-white">Resumo</h3>
+                        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                          <div>
+                            <p className="text-xs uppercase tracking-wider text-text-secondary">Status financeiro</p>
+                            <p className="mt-1 text-sm font-medium text-white">{selectedTransaction.status || "-"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wider text-text-secondary">Workflow</p>
+                            <p className="mt-1 text-sm font-medium text-white">{selectedTransaction.workflow_status || "open"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wider text-text-secondary">Pagamento informado</p>
+                            <p className="mt-1 text-sm font-medium text-white">{selectedTransaction.payment_reported_at ? formatDateTime(selectedTransaction.payment_reported_at) : "-"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wider text-text-secondary">Pagamento confirmado</p>
+                            <p className="mt-1 text-sm font-medium text-white">{selectedTransaction.payment_confirmed_at ? formatDateTime(selectedTransaction.payment_confirmed_at) : "-"}</p>
+                          </div>
+                          <div className="md:col-span-2">
+                            <p className="text-xs uppercase tracking-wider text-text-secondary">Observações</p>
+                            <p className="mt-1 text-sm text-white">{selectedTransaction.invoice_notes || selectedTransaction.notes || "-"}</p>
+                          </div>
+                          <div className="md:col-span-2">
+                            <p className="text-xs uppercase tracking-wider text-text-secondary">Resultado / retorno do financeiro</p>
+                            <p className="mt-1 text-sm text-white">{selectedTransaction.resolution_notes || "-"}</p>
+                          </div>
+                        </div>
+                      </section>
+
+                      <section className="rounded-2xl border border-surface/50 bg-background/30 p-5">
+                        <div className="flex items-center justify-between gap-3">
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-white">Timeline</h3>
+                          {detailLoading ? <Loader2 className="animate-spin text-cs-gold" size={18} /> : null}
+                        </div>
+                        <div className="mt-4 space-y-3">
+                          {events.length === 0 ? (
+                            <p className="text-sm text-text-secondary">Nenhuma interação registrada.</p>
+                          ) : (
+                            events.map((event) => (
+                              <div key={event.id} className="rounded-xl border border-surface/50 bg-surface p-4">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <p className="font-semibold text-white">{event.title}</p>
+                                  <span className="text-xs text-text-secondary">{formatDateTime(event.created_at)}</span>
+                                </div>
+                                <p className="mt-1 text-xs uppercase tracking-wider text-text-secondary">{event.author_type}</p>
+                                <p className="mt-3 text-sm text-zinc-200">{event.message || "-"}</p>
+                                {event.metadata && Object.keys(event.metadata).length > 0 ? (
+                                  <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                                    {Object.entries(event.metadata).map(([key, value]) => (
+                                      <div key={key} className="rounded-lg border border-surface/40 bg-background/30 px-3 py-2 text-xs text-text-secondary">
+                                        <span className="block uppercase tracking-wider">{key}</span>
+                                        <span className="mt-1 block text-white">{String(value ?? "-")}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </section>
+
+                      <section className="rounded-2xl border border-surface/50 bg-background/30 p-5">
+                        <h3 className="text-sm font-bold uppercase tracking-wider text-white">Anexos</h3>
+                        <div className="mt-4 space-y-3">
+                          {attachments.length === 0 ? (
+                            <p className="text-sm text-text-secondary">Nenhum anexo disponível.</p>
+                          ) : (
+                            attachments.map((file) => (
+                              <div key={file.id} className="flex flex-col gap-3 rounded-xl border border-surface/50 bg-surface p-4 md:flex-row md:items-center md:justify-between">
+                                <div className="min-w-0">
+                                  <p className="truncate font-semibold text-white">{file.file_name}</p>
+                                  <p className="mt-1 text-xs uppercase tracking-wider text-text-secondary">{file.attachment_type} · {formatDateTime(file.created_at)}</p>
+                                </div>
+                                <div className="flex gap-2">
+                                  {signedUrls[file.id] ? (
+                                    <a
+                                      href={signedUrls[file.id]}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-2 rounded-lg border border-surface/50 bg-background px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-background/70"
+                                    >
+                                      <Paperclip size={16} /> Abrir
+                                    </a>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-2 rounded-lg border border-surface/50 bg-background px-4 py-2 text-sm font-semibold text-text-secondary">
+                                      <Loader2 className="animate-spin" size={16} /> Carregando
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </section>
+                    </div>
+
+                    <div className="space-y-6">
+                      <section className="rounded-2xl border border-cs-green/20 bg-cs-green/5 p-5">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="text-cs-green" size={18} />
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-white">Informar pagamento</h3>
+                        </div>
+                        <div className="mt-4 space-y-4">
+                          <div>
+                            <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-text-secondary">Valor pago</label>
+                            <input
+                              value={paymentForm.amount}
+                              onChange={(e) => setPaymentForm((prev) => ({ ...prev, amount: e.target.value }))}
+                              className="w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-green"
+                              placeholder="0,00"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-text-secondary">Forma de pagamento</label>
+                            <select
+                              value={paymentForm.method}
+                              onChange={(e) => setPaymentForm((prev) => ({ ...prev, method: e.target.value }))}
+                              className="w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-green"
+                            >
+                              <option value="pix">PIX</option>
+                              <option value="boleto">Boleto</option>
+                              <option value="transferencia">Transferência</option>
+                              <option value="cartao">Cartão</option>
+                              <option value="outro">Outro</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-text-secondary">Referência</label>
+                            <input
+                              value={paymentForm.reference}
+                              onChange={(e) => setPaymentForm((prev) => ({ ...prev, reference: e.target.value }))}
+                              className="w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-green"
+                              placeholder="ID da transação, NSU, banco, observação"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-text-secondary">Mensagem</label>
+                            <textarea
+                              value={paymentForm.message}
+                              onChange={(e) => setPaymentForm((prev) => ({ ...prev, message: e.target.value }))}
+                              className="min-h-[110px] w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-green"
+                              placeholder="Descreva o pagamento realizado."
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-text-secondary">Comprovante</label>
+                            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-surface bg-background px-4 py-3 text-sm text-white hover:border-cs-green">
+                              <Upload size={16} />
+                              <span>{paymentFile ? paymentFile.name : "Selecionar arquivo"}</span>
+                              <input type="file" className="hidden" onChange={(e) => setPaymentFile(e.target.files?.[0] || null)} />
+                            </label>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleReportPayment}
+                            disabled={submitting}
+                            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-cs-green px-4 py-3 text-sm font-bold text-white shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50"
+                          >
+                            {submitting ? <Loader2 className="animate-spin" size={18} /> : <CircleDollarSign size={18} />}
+                            Registrar pagamento
+                          </button>
+                        </div>
+                      </section>
+
+                      <section className="rounded-2xl border border-orange-500/20 bg-orange-500/5 p-5">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="text-orange-400" size={18} />
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-white">Contestar cobrança</h3>
+                        </div>
+                        <div className="mt-4 space-y-4">
+                          <div>
+                            <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-text-secondary">Categoria</label>
+                            <select
+                              value={disputeForm.category}
+                              onChange={(e) => setDisputeForm((prev) => ({ ...prev, category: e.target.value }))}
+                              className="w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-orange-400"
+                            >
+                              <option value="amount_divergence">Valor divergente</option>
+                              <option value="duplicate_charge">Cobrança duplicada</option>
+                              <option value="service_not_delivered">Serviço não entregue</option>
+                              <option value="wrong_due_date">Data incorreta</option>
+                              <option value="wrong_document">Documento incorreto</option>
+                              <option value="unknown_charge">Cobrança desconhecida</option>
+                              <option value="other">Outro</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-text-secondary">Motivo curto</label>
+                            <input
+                              value={disputeForm.reason}
+                              onChange={(e) => setDisputeForm((prev) => ({ ...prev, reason: e.target.value }))}
+                              className="w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-orange-400"
+                              placeholder="Resumo objetivo do problema"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-text-secondary">Descrição</label>
+                            <textarea
+                              value={disputeForm.message}
+                              onChange={(e) => setDisputeForm((prev) => ({ ...prev, message: e.target.value }))}
+                              className="min-h-[110px] w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-orange-400"
+                              placeholder="Explique a contestação com detalhes."
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-text-secondary">Anexo</label>
+                            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-surface bg-background px-4 py-3 text-sm text-white hover:border-orange-400">
+                              <Upload size={16} />
+                              <span>{disputeFile ? disputeFile.name : "Selecionar arquivo"}</span>
+                              <input type="file" className="hidden" onChange={(e) => setDisputeFile(e.target.files?.[0] || null)} />
+                            </label>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleOpenDispute}
+                            disabled={submitting}
+                            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-3 text-sm font-bold text-white shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50"
+                          >
+                            {submitting ? <Loader2 className="animate-spin" size={18} /> : <MessageSquare size={18} />}
+                            Abrir contestação
+                          </button>
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[960px] text-left">
-                <thead className="bg-background/40">
-                  <tr className="text-xs uppercase tracking-wider text-text-secondary">
-                    <th className="px-6 py-4 font-medium">Descrição</th>
-                    <th className="px-6 py-4 font-medium">Valor</th>
-                    <th className="px-6 py-4 font-medium">Vencimento</th>
-                    <th className="px-6 py-4 font-medium">Pagamento</th>
-                    <th className="px-6 py-4 font-medium">Parcela</th>
-                    <th className="px-6 py-4 font-medium">Documento</th>
-                    <th className="px-6 py-4 font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface/50">
-                  {transactions.map((item) => (
-                    <tr key={item.id} className="hover:bg-background/20 transition-colors align-top">
-                      <td className="px-6 py-4">
-                        <p className="font-semibold text-white">{item.description}</p>
-                        <div className="mt-2 flex flex-col gap-1 text-xs text-text-secondary">
-                          {item.category ? <span>Categoria: {item.category}</span> : null}
-                          {item.payment_method ? <span>Pagamento: {item.payment_method}</span> : null}
-                          {item.source ? <span>Origem: {item.source}</span> : null}
-                        </div>
-                      </td>
-
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2 font-bold text-white">
-                          <CircleDollarSign size={16} className="text-cs-gold" />
-                          {currency(item.amount)}
-                        </div>
-                      </td>
-
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2 text-sm text-white">
-                          <Calendar size={15} className="text-text-secondary" />
-                          {formatDate(item.due_date)}
-                        </div>
-                      </td>
-
-                      <td className="px-6 py-4 text-sm text-white">{formatDate(item.payment_date)}</td>
-
-                      <td className="px-6 py-4 text-sm text-white">
-                        {item.installment_number && item.total_installments
-                          ? `${item.installment_number}/${item.total_installments}`
-                          : "-"}
-                      </td>
-
-                      <td className="px-6 py-4 text-sm text-white">
-                        {item.document_number || "-"}
-                      </td>
-
-                      <td className="px-6 py-4">{getStatusBadge(item)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+          </section>
+        )}
       </section>
     </main>
   );
