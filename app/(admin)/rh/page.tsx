@@ -254,7 +254,7 @@ export default function RHPage() {
   const { systemPreferences, companyProfile } = useSettings();
   const L = systemPreferences?.custom_labels ?? {};
   const labelEquipe = L.menu_team ?? "Equipe";
-  const labelColaborador = L.entity_salesperson_singular ?? "Colaborador";
+  const labelColaborador = "Colaborador";
   const companyName = companyProfile?.company_name ?? "AXON";
 
   const [tab, setTab]           = useState<HRTab>("colaboradores");
