@@ -6,16 +6,15 @@ import { useSettings } from "../../../providers/SettingsProvider";
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   CircleDollarSign,
-  Clock3,
   CreditCard,
   FileText,
   Loader2,
   MessageSquare,
   Paperclip,
   Upload,
-  X,
 } from "lucide-react";
 
 type FinancialTransaction = {
@@ -89,6 +88,19 @@ type ToastState = {
   text: string;
 };
 
+type InvoiceGroup = {
+  id: string;
+  title: string;
+  documentNumber: string | null;
+  totalAmount: number;
+  paidAmount: number;
+  openAmount: number;
+  earliestDueDate: string;
+  latestDueDate: string;
+  totalInstallments: number;
+  items: FinancialTransaction[];
+};
+
 const STORAGE_BUCKET = "files-main";
 
 export default function PortalFaturasPage() {
@@ -106,6 +118,7 @@ export default function PortalFaturasPage() {
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
   const [disputeFile, setDisputeFile] = useState<File | null>(null);
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   const [paymentForm, setPaymentForm] = useState({
     amount: "",
@@ -147,6 +160,74 @@ export default function PortalFaturasPage() {
   const formatDateTime = (value: string | null) => {
     if (!value) return "-";
     return new Date(value).toLocaleString("pt-BR");
+  };
+
+  const translateFinancialStatus = (status: string | null) => {
+    const map: Record<string, string> = {
+      pending: "Pendente",
+      paid: "Pago",
+      received: "Recebido",
+      overdue: "Vencido",
+      cancelled: "Cancelado",
+    };
+    return map[status || ""] || status || "-";
+  };
+
+  const translateWorkflowStatus = (status: string | null) => {
+    const map: Record<string, string> = {
+      open: "Em aberto",
+      awaiting_client: "Aguardando cliente",
+      awaiting_finance: "Aguardando financeiro",
+      under_review: "Em análise",
+      confirmed: "Confirmado",
+      disputed: "Contestado",
+      resolved: "Resolvido",
+      cancelled: "Cancelado",
+    };
+    return map[status || ""] || status || "Em aberto";
+  };
+
+  const translateDisputeCategory = (value: string | null) => {
+    const map: Record<string, string> = {
+      amount_divergence: "Valor divergente",
+      duplicate_charge: "Cobrança duplicada",
+      service_not_delivered: "Serviço não entregue",
+      wrong_due_date: "Data incorreta",
+      wrong_document: "Documento incorreto",
+      unknown_charge: "Cobrança desconhecida",
+      other: "Outro",
+    };
+    return map[value || ""] || value || "-";
+  };
+
+  const translateEventType = (value: string) => {
+    const map: Record<string, string> = {
+      charge_created: "Cobrança criada",
+      payment_reported: "Pagamento informado",
+      payment_receipt_attached: "Comprovante anexado",
+      dispute_opened: "Contestação aberta",
+      dispute_comment: "Comentário da contestação",
+      finance_comment: "Comentário do financeiro",
+      payment_confirmed: "Pagamento confirmado",
+      payment_rejected: "Pagamento rejeitado",
+      charge_adjusted: "Cobrança ajustada",
+      charge_cancelled: "Cobrança cancelada",
+      status_changed: "Status alterado",
+      resolution_added: "Resolução registrada",
+      attachment_added: "Anexo incluído",
+    };
+    return map[value] || value;
+  };
+
+  const buildGroupKey = (item: FinancialTransaction) => {
+    if (item.service_order_id) return `os:${item.service_order_id}`;
+    if (item.quote_id) return `quote:${item.quote_id}`;
+    if (item.document_number) return `doc:${item.document_number}`;
+
+    const normalizedDescription = (item.description || "").replace(/-\s*parcela\s*\d+\/\d+/i, "").trim();
+    if (normalizedDescription) return `desc:${normalizedDescription}`;
+
+    return `single:${item.id}`;
   };
 
   const fetchTransactions = useCallback(async () => {
@@ -203,7 +284,8 @@ export default function PortalFaturasPage() {
         resolution_notes
       `)
       .eq("client_id", resolvedClientId)
-      .order("due_date", { ascending: true });
+      .order("due_date", { ascending: true })
+      .order("created_at", { ascending: true });
 
     if (error) {
       setTransactions([]);
@@ -213,19 +295,8 @@ export default function PortalFaturasPage() {
 
     const rows = (data || []) as FinancialTransaction[];
     setTransactions(rows);
-
-    if (rows.length > 0 && !selectedId) {
-      setSelectedId(rows[0].id);
-    }
-
-    if (rows.length === 0) {
-      setSelectedId(null);
-      setEvents([]);
-      setAttachments([]);
-    }
-
     setLoading(false);
-  }, [resolvedClientId, selectedId]);
+  }, [resolvedClientId]);
 
   const fetchDetails = useCallback(async (transactionId: string) => {
     setDetailLoading(true);
@@ -245,8 +316,18 @@ export default function PortalFaturasPage() {
         .order("created_at", { ascending: false }),
     ]);
 
-    setEvents((eventsResult.data || []) as FinancialEvent[]);
-    setAttachments((attachmentsResult.data || []) as FinancialAttachment[]);
+    if (eventsResult.error) {
+      setEvents([]);
+    } else {
+      setEvents((eventsResult.data || []) as FinancialEvent[]);
+    }
+
+    if (attachmentsResult.error) {
+      setAttachments([]);
+    } else {
+      setAttachments((attachmentsResult.data || []) as FinancialAttachment[]);
+    }
+
     setDetailLoading(false);
   }, []);
 
@@ -255,16 +336,84 @@ export default function PortalFaturasPage() {
   }, [fetchTransactions]);
 
   useEffect(() => {
-    if (selectedId) {
-      fetchDetails(selectedId);
-    }
-  }, [selectedId, fetchDetails]);
-
-  useEffect(() => {
     return () => {
       if (toastTimer.current) window.clearTimeout(toastTimer.current);
     };
   }, []);
+
+  const groupedInvoices = useMemo<InvoiceGroup[]>(() => {
+    const map = new Map<string, InvoiceGroup>();
+
+    for (const item of transactions) {
+      const key = buildGroupKey(item);
+      const normalizedTitle = (item.description || "Fatura").replace(/-\s*parcela\s*\d+\/\d+/i, "").trim();
+
+      if (!map.has(key)) {
+        map.set(key, {
+          id: key,
+          title: normalizedTitle,
+          documentNumber: item.document_number,
+          totalAmount: 0,
+          paidAmount: 0,
+          openAmount: 0,
+          earliestDueDate: item.due_date,
+          latestDueDate: item.due_date,
+          totalInstallments: item.total_installments || 1,
+          items: [],
+        });
+      }
+
+      const group = map.get(key)!;
+      group.items.push(item);
+      group.totalAmount += Number(item.amount || 0);
+
+      const isPaid = item.status === "paid" || item.status === "received" || item.workflow_status === "confirmed";
+      if (isPaid) {
+        group.paidAmount += Number(item.amount || 0);
+      } else {
+        group.openAmount += Number(item.amount || 0);
+      }
+
+      if (new Date(item.due_date) < new Date(group.earliestDueDate)) group.earliestDueDate = item.due_date;
+      if (new Date(item.due_date) > new Date(group.latestDueDate)) group.latestDueDate = item.due_date;
+      if ((item.total_installments || 1) > group.totalInstallments) group.totalInstallments = item.total_installments || 1;
+      if (!group.documentNumber && item.document_number) group.documentNumber = item.document_number;
+    }
+
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(a.earliestDueDate).getTime() - new Date(b.earliestDueDate).getTime()
+    );
+  }, [transactions]);
+
+  useEffect(() => {
+    if (groupedInvoices.length === 0) {
+      setSelectedId(null);
+      setEvents([]);
+      setAttachments([]);
+      return;
+    }
+
+    setExpandedGroups((prev) => {
+      const next = { ...prev };
+      for (const group of groupedInvoices) {
+        if (next[group.id] === undefined) {
+          next[group.id] = group.items.length === 1;
+        }
+      }
+      return next;
+    });
+
+    const allIds = groupedInvoices.flatMap((group) => group.items.map((item) => item.id));
+    if (!selectedId || !allIds.includes(selectedId)) {
+      setSelectedId(groupedInvoices[0].items[0].id);
+    }
+  }, [groupedInvoices, selectedId]);
+
+  useEffect(() => {
+    if (selectedId) {
+      fetchDetails(selectedId);
+    }
+  }, [selectedId, fetchDetails]);
 
   const selectedTransaction = useMemo(
     () => transactions.find((item) => item.id === selectedId) || null,
@@ -283,6 +432,11 @@ export default function PortalFaturasPage() {
       totalOverdue: overdue.reduce((acc, item) => acc + Number(item.amount || 0), 0),
     };
   }, [transactions]);
+
+  const selectedGroup = useMemo(
+    () => groupedInvoices.find((group) => group.items.some((item) => item.id === selectedId)) || null,
+    [groupedInvoices, selectedId]
+  );
 
   const getStatusBadge = (item: FinancialTransaction) => {
     const status = item.status || "pending";
@@ -358,9 +512,9 @@ export default function PortalFaturasPage() {
           title: "Pagamento informado pelo cliente",
           message: paymentForm.message.trim(),
           metadata: {
-            amount: Number(paymentForm.amount),
-            method: paymentForm.method,
-            reference: paymentForm.reference || null,
+            valor: Number(paymentForm.amount),
+            forma_pagamento: paymentForm.method,
+            referencia: paymentForm.reference || null,
           },
         })
         .select("id")
@@ -442,8 +596,8 @@ export default function PortalFaturasPage() {
           title: "Contestação aberta pelo cliente",
           message: disputeForm.message.trim(),
           metadata: {
-            category: disputeForm.category,
-            reason: disputeForm.reason.trim(),
+            categoria: disputeForm.category,
+            motivo: disputeForm.reason.trim(),
           },
         })
         .select("id")
@@ -527,6 +681,10 @@ export default function PortalFaturasPage() {
     resolveAttachmentUrls();
   }, [resolveAttachmentUrls]);
 
+  const toggleGroup = (groupId: string) => {
+    setExpandedGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
+  };
+
   return (
     <main className="min-h-screen bg-background text-white p-8">
       {toast.text ? (
@@ -565,7 +723,7 @@ export default function PortalFaturasPage() {
           <div className="flex justify-center py-20">
             <Loader2 className="animate-spin text-cs-gold" size={38} />
           </div>
-        ) : transactions.length === 0 ? (
+        ) : groupedInvoices.length === 0 ? (
           <section className="rounded-2xl border border-surface/50 bg-surface p-10 text-center shadow-lg">
             <FileText className="mx-auto mb-4 text-surface" size={44} />
             <h2 className="text-xl font-bold text-white">Nenhuma fatura encontrada</h2>
@@ -578,27 +736,78 @@ export default function PortalFaturasPage() {
                 <h2 className="text-sm font-bold uppercase tracking-wider text-white">Cobranças</h2>
               </div>
               <div className="max-h-[900px] overflow-y-auto">
-                {transactions.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setSelectedId(item.id)}
-                    className={`w-full border-b border-surface/40 px-5 py-4 text-left transition-colors hover:bg-background/30 ${selectedId === item.id ? "bg-background/30" : "bg-transparent"}`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold text-white">{item.description}</p>
-                        <p className="mt-1 text-xs text-text-secondary">Documento: {item.document_number || "-"}</p>
-                        <p className="mt-1 text-xs text-text-secondary">Vencimento: {formatDate(item.due_date)}</p>
-                      </div>
-                      <ChevronRight className="shrink-0 text-text-secondary" size={18} />
+                {groupedInvoices.map((group) => {
+                  const isExpanded = expandedGroups[group.id];
+                  const hasMany = group.items.length > 1;
+                  const hasSelected = group.items.some((item) => item.id === selectedId);
+
+                  return (
+                    <div key={group.id} className="border-b border-surface/40">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (hasMany) {
+                            toggleGroup(group.id);
+                          } else {
+                            setSelectedId(group.items[0].id);
+                          }
+                        }}
+                        className={`w-full px-5 py-4 text-left transition-colors hover:bg-background/30 ${hasSelected ? "bg-background/20" : "bg-transparent"}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="line-clamp-2 font-semibold text-white">{group.title}</p>
+                            <p className="mt-1 text-xs text-text-secondary">Documento: {group.documentNumber || "-"}</p>
+                            <p className="mt-1 text-xs text-text-secondary">
+                              {hasMany
+                                ? `Parcelas: ${group.items.length} · De ${formatDate(group.earliestDueDate)} até ${formatDate(group.latestDueDate)}`
+                                : `Vencimento: ${formatDate(group.items[0].due_date)}`}
+                            </p>
+                          </div>
+                          {hasMany ? (
+                            isExpanded ? <ChevronDown className="shrink-0 text-text-secondary" size={18} /> : <ChevronRight className="shrink-0 text-text-secondary" size={18} />
+                          ) : (
+                            <ChevronRight className="shrink-0 text-text-secondary" size={18} />
+                          )}
+                        </div>
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          <span className="text-sm font-bold text-white">{currency(group.totalAmount)}</span>
+                          {hasMany ? (
+                            <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-bold text-zinc-300">
+                              {group.items.length} parcelas
+                            </span>
+                          ) : (
+                            getStatusBadge(group.items[0])
+                          )}
+                        </div>
+                      </button>
+
+                      {hasMany && isExpanded ? (
+                        <div className="border-t border-surface/30 bg-background/20">
+                          {group.items.map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setSelectedId(item.id)}
+                              className={`flex w-full items-center justify-between gap-3 border-b border-surface/20 px-5 py-3 text-left transition-colors hover:bg-background/30 last:border-b-0 ${selectedId === item.id ? "bg-background/30" : "bg-transparent"}`}
+                            >
+                              <div>
+                                <p className="text-sm font-semibold text-white">
+                                  Parcela {item.installment_number || 1}/{item.total_installments || group.items.length}
+                                </p>
+                                <p className="mt-1 text-xs text-text-secondary">Vencimento: {formatDate(item.due_date)}</p>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-sm font-bold text-white">{currency(item.amount)}</span>
+                                {getStatusBadge(item)}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
-                    <div className="mt-3 flex items-center justify-between gap-3">
-                      <span className="text-sm font-bold text-white">{currency(item.amount)}</span>
-                      {getStatusBadge(item)}
-                    </div>
-                  </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -610,11 +819,11 @@ export default function PortalFaturasPage() {
                   <div className="border-b border-surface/50 p-6">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div>
-                        <h2 className="text-2xl font-bold text-white">{selectedTransaction.description}</h2>
+                        <h2 className="text-2xl font-bold text-white">{selectedGroup?.title || selectedTransaction.description}</h2>
                         <div className="mt-3 flex flex-wrap gap-3 text-sm text-text-secondary">
                           <span>Documento: {selectedTransaction.document_number || "-"}</span>
                           <span>Vencimento: {formatDate(selectedTransaction.due_date)}</span>
-                          <span>Parcela: {selectedTransaction.installment_number && selectedTransaction.total_installments ? `${selectedTransaction.installment_number}/${selectedTransaction.total_installments}` : "-"}</span>
+                          <span>Parcela: {selectedTransaction.installment_number && selectedTransaction.total_installments ? `${selectedTransaction.installment_number}/${selectedTransaction.total_installments}` : "Única"}</span>
                         </div>
                       </div>
                       <div className="text-right">
@@ -631,11 +840,11 @@ export default function PortalFaturasPage() {
                         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                           <div>
                             <p className="text-xs uppercase tracking-wider text-text-secondary">Status financeiro</p>
-                            <p className="mt-1 text-sm font-medium text-white">{selectedTransaction.status || "-"}</p>
+                            <p className="mt-1 text-sm font-medium text-white">{translateFinancialStatus(selectedTransaction.status)}</p>
                           </div>
                           <div>
                             <p className="text-xs uppercase tracking-wider text-text-secondary">Workflow</p>
-                            <p className="mt-1 text-sm font-medium text-white">{selectedTransaction.workflow_status || "open"}</p>
+                            <p className="mt-1 text-sm font-medium text-white">{translateWorkflowStatus(selectedTransaction.workflow_status)}</p>
                           </div>
                           <div>
                             <p className="text-xs uppercase tracking-wider text-text-secondary">Pagamento informado</p>
@@ -644,6 +853,14 @@ export default function PortalFaturasPage() {
                           <div>
                             <p className="text-xs uppercase tracking-wider text-text-secondary">Pagamento confirmado</p>
                             <p className="mt-1 text-sm font-medium text-white">{selectedTransaction.payment_confirmed_at ? formatDateTime(selectedTransaction.payment_confirmed_at) : "-"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wider text-text-secondary">Categoria da contestação</p>
+                            <p className="mt-1 text-sm font-medium text-white">{translateDisputeCategory(selectedTransaction.dispute_category)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wider text-text-secondary">Motivo da contestação</p>
+                            <p className="mt-1 text-sm font-medium text-white">{selectedTransaction.dispute_reason || "-"}</p>
                           </div>
                           <div className="md:col-span-2">
                             <p className="text-xs uppercase tracking-wider text-text-secondary">Observações</p>
@@ -668,16 +885,18 @@ export default function PortalFaturasPage() {
                             events.map((event) => (
                               <div key={event.id} className="rounded-xl border border-surface/50 bg-surface p-4">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
-                                  <p className="font-semibold text-white">{event.title}</p>
+                                  <p className="font-semibold text-white">{event.title || translateEventType(event.event_type)}</p>
                                   <span className="text-xs text-text-secondary">{formatDateTime(event.created_at)}</span>
                                 </div>
-                                <p className="mt-1 text-xs uppercase tracking-wider text-text-secondary">{event.author_type}</p>
+                                <p className="mt-1 text-xs uppercase tracking-wider text-text-secondary">
+                                  {event.author_type === "client" ? "Cliente" : event.author_type === "finance" ? "Financeiro" : "Sistema"}
+                                </p>
                                 <p className="mt-3 text-sm text-zinc-200">{event.message || "-"}</p>
                                 {event.metadata && Object.keys(event.metadata).length > 0 ? (
                                   <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
                                     {Object.entries(event.metadata).map(([key, value]) => (
                                       <div key={key} className="rounded-lg border border-surface/40 bg-background/30 px-3 py-2 text-xs text-text-secondary">
-                                        <span className="block uppercase tracking-wider">{key}</span>
+                                        <span className="block uppercase tracking-wider">{key.replaceAll("_", " ")}</span>
                                         <span className="mt-1 block text-white">{String(value ?? "-")}</span>
                                       </div>
                                     ))}
@@ -760,7 +979,7 @@ export default function PortalFaturasPage() {
                               value={paymentForm.reference}
                               onChange={(e) => setPaymentForm((prev) => ({ ...prev, reference: e.target.value }))}
                               className="w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-green"
-                              placeholder="ID da transação, NSU, banco, observação"
+                              placeholder="ID da transação, banco ou observação"
                             />
                           </div>
                           <div>
