@@ -2,8 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabase";
-import { useSettings } from "../../providers/SettingsProvider";
+import { supabase } from "../../../lib/supabase";
+import { useSettings } from "../../../providers/SettingsProvider";
 import {
   Ticket,
   Loader2,
@@ -19,12 +19,9 @@ import {
 type TicketStatus = "open" | "in_progress" | "resolved";
 type TicketPriority = "low" | "medium" | "high" | "critical";
 
-type ServiceOrderRow = {
+type QuoteRow = {
   id: string;
-  title?: string | null;
-  quotes?: {
-    title?: string | null;
-  } | null;
+  title: string | null;
 };
 
 type TicketRow = {
@@ -58,14 +55,12 @@ export default function ClientSupportPage() {
 
   const supportEnabled = systemPreferences?.feature_toggles?.enable_support ?? true;
   const labels = systemPreferences?.custom_labels;
-
   const clientSingular = labels?.entity_client_singular || "Cliente";
-  const serviceOrderSingular = labels?.entity_service_order_singular || "OS";
   const supportMenuLabel = labels?.menu_support || "Suporte";
 
   const [view, setView] = useState<"list" | "create">("list");
   const [tickets, setTickets] = useState<TicketRow[]>([]);
-  const [serviceOrders, setServiceOrders] = useState<ServiceOrderRow[]>([]);
+  const [quotes, setQuotes] = useState<QuoteRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -96,17 +91,30 @@ export default function ClientSupportPage() {
   };
 
   const currentTicket = useMemo(
-    () => tickets.find((t) => t.id === activeTicketId) || null,
+    () => tickets.find((ticket) => ticket.id === activeTicketId) || null,
     [tickets, activeTicketId]
   );
 
   const getCurrentUser = useCallback(async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    setCurrentUserId(session?.user?.id || null);
-  }, []);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.user?.id) {
+      router.replace("/acesso");
+      return;
+    }
+
+    setCurrentUserId(session.user.id);
+  }, [router]);
 
   const fetchMyTickets = useCallback(async () => {
-    if (!resolvedClientId) return;
+    if (!resolvedClientId) {
+      setTickets([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
 
     const { data, error } = await supabase
@@ -121,35 +129,53 @@ export default function ClientSupportPage() {
         created_at,
         service_order_id,
         client_id,
-        service_orders ( quotes ( title ) )
+        service_orders (
+          quotes ( title )
+        )
       `)
       .eq("client_id", resolvedClientId)
       .order("created_at", { ascending: false });
 
-    if (!error) setTickets((data as TicketRow[]) || []);
+    if (!error && data) {
+      setTickets(data as TicketRow[]);
+    } else {
+      setTickets([]);
+    }
+
     setLoading(false);
   }, [resolvedClientId]);
 
-  const fetchMyServiceOrders = useCallback(async () => {
-    if (!resolvedClientId) return;
+  const fetchMyQuotes = useCallback(async () => {
+    if (!resolvedClientId) {
+      setQuotes([]);
+      return;
+    }
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("quotes")
-      .select(`id, title`)
+      .select("id, title")
       .eq("client_id", resolvedClientId)
       .order("created_at", { ascending: false });
 
-    if (data) setServiceOrders((data as ServiceOrderRow[]) || []);
+    if (!error && data) {
+      setQuotes(data as QuoteRow[]);
+    } else {
+      setQuotes([]);
+    }
   }, [resolvedClientId]);
 
   const fetchMessages = useCallback(async (ticketId: string) => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("ticket_messages")
-      .select(`id, ticket_id, sender_id, message, created_at`)
+      .select("id, ticket_id, sender_id, message, created_at")
       .eq("ticket_id", ticketId)
       .order("created_at", { ascending: true });
 
-    if (data) setMessages((data as TicketMessageRow[]) || []);
+    if (!error && data) {
+      setMessages(data as TicketMessageRow[]);
+    } else {
+      setMessages([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -162,9 +188,14 @@ export default function ClientSupportPage() {
       return;
     }
 
-    if (view === "list") fetchMyTickets();
-    if (view === "create") fetchMyServiceOrders();
-  }, [view, supportEnabled, router, fetchMyTickets, fetchMyServiceOrders]);
+    if (view === "list") {
+      fetchMyTickets();
+    }
+
+    if (view === "create") {
+      fetchMyQuotes();
+    }
+  }, [supportEnabled, router, view, fetchMyTickets, fetchMyQuotes]);
 
   useEffect(() => {
     if (!currentTicket?.id) return;
@@ -202,12 +233,14 @@ export default function ClientSupportPage() {
 
   const handleCreateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!title || !description || !serviceOrderId || !resolvedClientId) return;
 
     setIsSubmitting(true);
 
     const now = new Date();
     let slaHours = 24;
+
     if (priority === "critical") slaHours = 2;
     if (priority === "high") slaHours = 4;
     if (priority === "low") slaHours = 48;
@@ -242,6 +275,7 @@ export default function ClientSupportPage() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!newMessage.trim() || !currentTicket?.id || !currentUserId) return;
 
     setIsSending(true);
@@ -285,7 +319,9 @@ export default function ClientSupportPage() {
     }
   };
 
-  if (!supportEnabled) return null;
+  if (!supportEnabled) {
+    return null;
+  }
 
   if (view === "create") {
     return (
@@ -312,7 +348,7 @@ export default function ClientSupportPage() {
             <form onSubmit={handleCreateTicket} className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-text-secondary mb-2">
-                  Qual evento está apresentando problema? *
+                  Qual orçamento/evento está apresentando problema? *
                 </label>
                 <select
                   required
@@ -320,10 +356,10 @@ export default function ClientSupportPage() {
                   onChange={(e) => setServiceOrderId(e.target.value)}
                   className="block w-full rounded-lg border border-surface bg-background px-4 py-3 text-white focus:border-cs-gold focus:outline-none focus:ring-1 focus:ring-cs-gold transition-colors"
                 >
-                  <option value="">Selecione o evento...</option>
-                  {serviceOrders.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.title || o.quotes?.title || "Evento sem título"}
+                  <option value="">Selecione...</option>
+                  {quotes.map((quote) => (
+                    <option key={quote.id} value={quote.id}>
+                      {quote.title || "Evento sem título"}
                     </option>
                   ))}
                 </select>
@@ -417,9 +453,7 @@ export default function ClientSupportPage() {
               <Ticket className="text-cs-gold" size={28} />
               Central de {supportMenuLabel}
             </h2>
-            <p className="text-text-secondary mt-1">
-              Acompanhe o status dos seus chamados técnicos.
-            </p>
+            <p className="text-text-secondary mt-1">Acompanhe o status dos seus chamados técnicos.</p>
           </div>
 
           <button
@@ -449,7 +483,7 @@ export default function ClientSupportPage() {
             </div>
 
             <h3 className="text-xl font-bold text-white">{currentTicket.title}</h3>
-            <p className="text-sm text-text-secondary">{currentTicket.description}</p>
+            <p className="text-sm text-text-secondary">{currentTicket.description || "Sem descrição."}</p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-text-secondary">
               <div>
@@ -511,7 +545,13 @@ export default function ClientSupportPage() {
                     disabled={isSending || !newMessage.trim()}
                     className="flex items-center gap-2 rounded-lg bg-cs-gold text-black py-3 px-6 font-bold shadow-lg hover:bg-opacity-90 transition-all disabled:opacity-50"
                   >
-                    {isSending ? <Loader2 className="animate-spin" size={18} /> : <><Send size={18} /> Enviar</>}
+                    {isSending ? (
+                      <Loader2 className="animate-spin" size={18} />
+                    ) : (
+                      <>
+                        <Send size={18} /> Enviar
+                      </>
+                    )}
                   </button>
                 </div>
               </form>
