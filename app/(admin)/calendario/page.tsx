@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import { useSettings } from "../../providers/SettingsProvider";
 
+type CalendarEventType = "os" | "finance" | "marketing" | "ticket";
+
 type CalendarEvent = {
   id: string;
   rawId: string;
@@ -26,7 +28,7 @@ type CalendarEvent = {
   time: string;
   title: string;
   description: string;
-  type: "os" | "finance" | "marketing" | "ticket";
+  type: CalendarEventType;
   moduleName: string;
   route: string;
   icon: any;
@@ -38,7 +40,7 @@ const MAX_VISIBLE_EVENTS_PER_DAY = 2;
 
 export default function CalendarioPage() {
   const router = useRouter();
-  const { systemPreferences, companyProfile } = useSettings();
+  const { systemPreferences } = useSettings();
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -57,17 +59,11 @@ export default function CalendarioPage() {
   const supportLabel = customLabels?.menu_support || "Suporte Técnico";
   const financeLabel = customLabels?.menu_financial || "Financeiro";
   const marketingLabel = customLabels?.menu_marketing || "Marketing";
-  const calendarLabel = customLabels?.menu_calendar || "Calendário";
 
-  const isCrmEnabled = featureToggles?.enable_crm !== false;
   const isFinancialEnabled = featureToggles?.enable_financial !== false;
   const isMarketingEnabled = featureToggles?.enable_marketing !== false;
   const isSupportEnabled = featureToggles?.enable_support !== false;
   const isServiceOrdersEnabled = featureToggles?.enable_service_orders !== false;
-
-  useEffect(() => {
-    fetchAllEvents();
-  }, [currentDate, systemPreferences]);
 
   const formatCurrency = (value: number) => {
     try {
@@ -121,60 +117,56 @@ export default function CalendarioPage() {
     ).toISOString();
 
     try {
-      const requests: Promise<any>[] = [];
+      const osPromise = isServiceOrdersEnabled
+        ? Promise.resolve(
+            supabase
+              .from("service_orders")
+              .select("id, event_start_date, status, quotes(title)")
+              .gte("event_start_date", startOfMonth)
+              .lte("event_start_date", endOfMonth)
+          )
+        : Promise.resolve({ data: [], error: null });
 
-      if (isServiceOrdersEnabled) {
-        requests.push(
-          supabase
-            .from("service_orders")
-            .select("id, event_start_date, status, quotes(title)")
-            .gte("event_start_date", startOfMonth)
-            .lte("event_start_date", endOfMonth)
-        );
-      } else {
-        requests.push(Promise.resolve({ data: [], error: null }));
-      }
+      const finPromise = isFinancialEnabled
+        ? Promise.resolve(
+            supabase
+              .from("financial_transactions")
+              .select("id, due_date, description, type, status, amount")
+              .gte("due_date", startOfMonth)
+              .lte("due_date", endOfMonth)
+          )
+        : Promise.resolve({ data: [], error: null });
 
-      if (isFinancialEnabled) {
-        requests.push(
-          supabase
-            .from("financial_transactions")
-            .select("id, due_date, description, type, status, amount")
-            .gte("due_date", startOfMonth)
-            .lte("due_date", endOfMonth)
-        );
-      } else {
-        requests.push(Promise.resolve({ data: [], error: null }));
-      }
+      const mktPromise = isMarketingEnabled
+        ? Promise.resolve(
+            supabase
+              .from("marketing_posts")
+              .select("id, scheduled_for, title, status")
+              .gte("scheduled_for", startOfMonth)
+              .lte("scheduled_for", endOfMonth)
+          )
+        : Promise.resolve({ data: [], error: null });
 
-      if (isMarketingEnabled) {
-        requests.push(
-          supabase
-            .from("marketing_posts")
-            .select("id, scheduled_for, title, status")
-            .gte("scheduled_for", startOfMonth)
-            .lte("scheduled_for", endOfMonth)
-        );
-      } else {
-        requests.push(Promise.resolve({ data: [], error: null }));
-      }
+      const tktPromise = isSupportEnabled
+        ? Promise.resolve(
+            supabase
+              .from("tickets")
+              .select("id, sla_deadline, title, status, priority")
+              .gte("sla_deadline", startOfMonth)
+              .lte("sla_deadline", endOfMonth)
+          )
+        : Promise.resolve({ data: [], error: null });
 
-      if (isSupportEnabled) {
-        requests.push(
-          supabase
-            .from("tickets")
-            .select("id, sla_deadline, title, status, priority")
-            .gte("sla_deadline", startOfMonth)
-            .lte("sla_deadline", endOfMonth)
-        );
-      } else {
-        requests.push(Promise.resolve({ data: [], error: null }));
-      }
+      const [osRes, finRes, mktRes, tktRes] = await Promise.all([
+        osPromise,
+        finPromise,
+        mktPromise,
+        tktPromise,
+      ]);
 
-      const [osRes, finRes, mktRes, tktRes] = await Promise.all(requests);
       const normalizedEvents: CalendarEvent[] = [];
 
-      if (osRes?.data?.length) {
+      if (osRes?.data) {
         osRes.data.forEach((os: any) => {
           if (!os?.event_start_date) return;
 
@@ -199,12 +191,11 @@ export default function CalendarioPage() {
         });
       }
 
-      if (finRes?.data?.length) {
+      if (finRes?.data) {
         finRes.data.forEach((fin: any) => {
           if (!fin?.due_date) return;
 
-          const transactionType =
-            fin.type === "income" ? "Receber" : "Pagar";
+          const transactionType = fin.type === "income" ? "Receber" : "Pagar";
           const transactionStatus = String(fin.status || "não informado").replace(/_/g, " ");
 
           normalizedEvents.push({
@@ -227,7 +218,7 @@ export default function CalendarioPage() {
         });
       }
 
-      if (mktRes?.data?.length) {
+      if (mktRes?.data) {
         mktRes.data.forEach((mkt: any) => {
           if (!mkt?.scheduled_for) return;
 
@@ -248,7 +239,7 @@ export default function CalendarioPage() {
         });
       }
 
-      if (tktRes?.data?.length) {
+      if (tktRes?.data) {
         tktRes.data.forEach((tkt: any) => {
           if (!tkt?.sla_deadline || tkt?.status === "resolved") return;
 
@@ -278,6 +269,10 @@ export default function CalendarioPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchAllEvents();
+  }, [currentDate, systemPreferences]);
 
   const nextMonth = () =>
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
