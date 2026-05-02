@@ -19,7 +19,6 @@ import {
   Eye,
   AlertTriangle,
   Upload,
-  Download,
   Receipt,
   Mail,
   MessageCircle,
@@ -37,6 +36,8 @@ import {
   Paperclip,
   RefreshCw,
   X,
+  Scale,
+  Clock3,
 } from "lucide-react";
 
 interface Client {
@@ -203,31 +204,6 @@ const isOverdue = (date: string, status: string) =>
   new Date(`${date}T00:00:00`) < new Date(new Date().setHours(0, 0, 0, 0)) &&
   status === "pending";
 
-const statusLabel = (t: Transaction) => {
-  if (t.workflow_status === "confirmed") return "Confirmado";
-  if (t.status === "paid" || t.status === "received") return "Pago";
-  if (t.status === "cancelled") return "Cancelado";
-  if (t.dispute_status && t.dispute_status !== "resolved") return "Contestação";
-  if (t.workflow_status === "awaiting_finance") return "Aguardando financeiro";
-  if (isOverdue(t.due_date, t.status || "pending")) return "Vencido";
-  return "Pendente";
-};
-
-const statusClass = (t: Transaction) => {
-  if (t.workflow_status === "confirmed" || t.status === "paid" || t.status === "received") {
-    return "bg-cs-green/10 text-cs-green border-cs-green/20";
-  }
-  if (t.dispute_status && t.dispute_status !== "resolved") {
-    return "bg-orange-500/10 text-orange-400 border-orange-500/20";
-  }
-  if (t.workflow_status === "awaiting_finance" || t.workflow_status === "under_review") {
-    return "bg-cs-gold/10 text-cs-gold border-cs-gold/20";
-  }
-  if (t.status === "cancelled") return "bg-zinc-500/10 text-zinc-400 border-zinc-500/20";
-  if (isOverdue(t.due_date, t.status || "pending")) return "bg-red-500/10 text-red-500 border-red-500/20";
-  return "bg-white/5 text-zinc-300 border-white/10";
-};
-
 const translateWorkflowStatus = (value?: string | null) => {
   const map: Record<string, string> = {
     open: "Em aberto",
@@ -274,6 +250,80 @@ const translateEventType = (value?: string | null) => {
   return map[value || ""] || value || "-";
 };
 
+const statusLabel = (t: Transaction) => {
+  if (t.workflow_status === "confirmed") return "Confirmado";
+  if (t.status === "paid" || t.status === "received") return "Pago";
+  if (t.status === "cancelled") return "Cancelado";
+  if (t.dispute_status && t.dispute_status !== "resolved") return "Contestação";
+  if (t.workflow_status === "awaiting_finance") return "Aguardando financeiro";
+  if (t.workflow_status === "under_review") return "Em análise";
+  if (isOverdue(t.due_date, t.status || "pending")) return "Vencido";
+  return "Pendente";
+};
+
+const statusClass = (t: Transaction) => {
+  if (t.workflow_status === "confirmed" || t.status === "paid" || t.status === "received") {
+    return "bg-cs-green/10 text-cs-green border-cs-green/20";
+  }
+  if (t.dispute_status && t.dispute_status !== "resolved") {
+    return "bg-orange-500/10 text-orange-400 border-orange-500/20";
+  }
+  if (t.workflow_status === "awaiting_finance" || t.workflow_status === "under_review") {
+    return "bg-cs-gold/10 text-cs-gold border-cs-gold/20";
+  }
+  if (t.status === "cancelled") return "bg-zinc-500/10 text-zinc-400 border-zinc-500/20";
+  if (isOverdue(t.due_date, t.status || "pending")) return "bg-red-500/10 text-red-500 border-red-500/20";
+  return "bg-white/5 text-zinc-300 border-white/10";
+};
+
+const getPaymentDifference = (transaction: Transaction) => {
+  const expected = Number(transaction.amount || 0);
+  const reported = Number(transaction.payment_reported_amount || 0);
+  const difference = reported - expected;
+
+  if (!transaction.payment_reported_at || reported <= 0) {
+    return {
+      expected,
+      reported,
+      difference: 0,
+      scenario: "none" as const,
+      label: "Sem pagamento informado",
+      helper: "Ainda não houve informação de pagamento pelo cliente.",
+    };
+  }
+
+  if (difference === 0) {
+    return {
+      expected,
+      reported,
+      difference,
+      scenario: "exact" as const,
+      label: "Valor exato",
+      helper: "O valor informado bate com a parcela atual.",
+    };
+  }
+
+  if (difference < 0) {
+    return {
+      expected,
+      reported,
+      difference,
+      scenario: "partial" as const,
+      label: "Pagamento parcial",
+      helper: "O cliente informou valor menor que a parcela. Exige decisão do financeiro.",
+    };
+  }
+
+  return {
+    expected,
+    reported,
+    difference,
+    scenario: "over" as const,
+    label: "Valor acima da parcela",
+    helper: "O valor informado é maior que a parcela. Pode indicar quitação de mais de uma parcela ou erro de referência.",
+  };
+};
+
 export default function FinanceiroPage() {
   const router = useRouter();
   const settingsCtx = useSettings() as unknown as {
@@ -281,7 +331,6 @@ export default function FinanceiroPage() {
       custom_labels?: Record<string, string>;
       currency_code?: string;
       financial_categories?: { income?: string[]; expense?: string[] };
-      primary_color?: string;
     };
     companyProfile?: { company_name?: string; [k: string]: unknown };
   };
@@ -318,10 +367,6 @@ export default function FinanceiroPage() {
     return raw?.length ? raw : DEFAULT_INCOME_CATEGORIES;
   }, [sys]);
 
-  const expenseAdminCategories = DEFAULT_EXPENSE_ADMIN_CATEGORIES;
-  const expenseOpCategories = DEFAULT_EXPENSE_OPERATIONAL_CATEGORIES;
-  const expensePersonnelCategories = DEFAULT_EXPENSE_PERSONNEL_CATEGORIES;
-
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [view, setView] = useState<"list" | "create">("list");
   const [loading, setLoading] = useState(true);
@@ -334,7 +379,6 @@ export default function FinanceiroPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [team, setTeam] = useState<Profile[]>([]);
-  const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
   const [approvedQuotes, setApprovedQuotes] = useState<ApprovedQuote[]>([]);
 
   const [events, setEvents] = useState<FinancialEvent[]>([]);
@@ -411,7 +455,7 @@ export default function FinanceiroPage() {
     try {
       await fetchCurrentUser();
 
-      const [tRes, cRes, qRes, pRes, soRes] = await Promise.all([
+      const [tRes, cRes, qRes, pRes] = await Promise.all([
         supabase
           .from("financial_transactions")
           .select(
@@ -454,8 +498,7 @@ export default function FinanceiroPage() {
               resolution_notes,
               created_at,
               clients(*),
-              member:profiles!member_id(id, full_name, email, role, commission_percentage),
-              service_orders(id, quote_id, quotes(id, title, salesperson_id))
+              member:profiles!member_id(id, full_name, email, role, commission_percentage)
             `
           )
           .order("due_date", { ascending: true }),
@@ -469,32 +512,14 @@ export default function FinanceiroPage() {
           .from("profiles")
           .select("id, full_name, email, role, commission_percentage")
           .order("full_name"),
-        supabase
-          .from("service_orders")
-          .select("id, quote_id, quotes(id, title, salesperson_id)")
-          .order("id", { ascending: false }),
       ]);
 
-      const quotesData = (qRes.data ?? []) as unknown as ApprovedQuote[];
-      if (qRes.data) setApprovedQuotes(quotesData);
+      if (qRes.data) setApprovedQuotes(qRes.data as unknown as ApprovedQuote[]);
       if (cRes.data) setClients(cRes.data as Client[]);
       if (pRes.data) setTeam(pRes.data as unknown as Profile[]);
-      if (soRes.data) setServiceOrders(soRes.data as unknown as ServiceOrder[]);
 
-      if (tRes.error) {
-        throw tRes.error;
-      }
-
-      if (tRes.data) {
-        const quotesMap = new Map(quotesData.map((q) => [q.id, q]));
-        const merged = (tRes.data as unknown as Transaction[]).map((t) => ({
-          ...t,
-          quote: t.quote_id ? (quotesMap.get(t.quote_id) ?? undefined) : undefined,
-        }));
-        setTransactions(merged);
-      } else {
-        setTransactions([]);
-      }
+      if (tRes.error) throw tRes.error;
+      setTransactions((tRes.data || []) as unknown as Transaction[]);
     } catch (error) {
       console.error(error);
       showToast("Erro ao sincronizar com a nuvem.", "error");
@@ -558,86 +583,71 @@ export default function FinanceiroPage() {
 
   useEffect(() => {
     const channel = supabase
-      .channel("financeiro-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "financial_transactions" },
-        async () => {
-          await fetchData();
-          if (selectedTransaction?.id) {
-            const latest = await supabase
-              .from("financial_transactions")
-              .select(
-                `
-                  id,
-                  description,
-                  type,
-                  expense_type,
-                  category,
-                  amount,
-                  status,
-                  due_date,
-                  payment_date,
-                  service_order_id,
-                  client_id,
-                  member_id,
-                  attachment_url,
-                  payment_method,
-                  last_notified_at,
-                  invoice_hash,
-                  quote_id,
-                  installment_number,
-                  total_installments,
-                  source,
-                  invoice_notes,
-                  document_number,
-                  workflow_status,
-                  dispute_status,
-                  dispute_reason,
-                  dispute_category,
-                  customer_last_action_at,
-                  finance_last_action_at,
-                  last_interaction_at,
-                  payment_reported_amount,
-                  payment_reported_method,
-                  payment_reported_reference,
-                  payment_reported_at,
-                  payment_confirmed_at,
-                  resolution_type,
-                  resolution_notes,
-                  created_at,
-                  clients(*),
-                  member:profiles!member_id(id, full_name, email, role, commission_percentage),
-                  service_orders(id, quote_id, quotes(id, title, salesperson_id))
-                `
-              )
-              .eq("id", selectedTransaction.id)
-              .single();
+      .channel("financeiro-realtime-v2")
+      .on("postgres_changes", { event: "*", schema: "public", table: "financial_transactions" }, async () => {
+        await fetchData();
+        if (selectedTransaction?.id) {
+          const latest = await supabase
+            .from("financial_transactions")
+            .select(
+              `
+                id,
+                description,
+                type,
+                expense_type,
+                category,
+                amount,
+                status,
+                due_date,
+                payment_date,
+                service_order_id,
+                client_id,
+                member_id,
+                attachment_url,
+                payment_method,
+                last_notified_at,
+                invoice_hash,
+                quote_id,
+                installment_number,
+                total_installments,
+                source,
+                invoice_notes,
+                document_number,
+                workflow_status,
+                dispute_status,
+                dispute_reason,
+                dispute_category,
+                customer_last_action_at,
+                finance_last_action_at,
+                last_interaction_at,
+                payment_reported_amount,
+                payment_reported_method,
+                payment_reported_reference,
+                payment_reported_at,
+                payment_confirmed_at,
+                resolution_type,
+                resolution_notes,
+                created_at,
+                clients(*),
+                member:profiles!member_id(id, full_name, email, role, commission_percentage)
+              `
+            )
+            .eq("id", selectedTransaction.id)
+            .single();
 
-            if (latest.data) {
-              setSelectedTransaction(latest.data as unknown as Transaction);
-            }
-          }
+          if (latest.data) setSelectedTransaction(latest.data as unknown as Transaction);
         }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "financial_transaction_events" },
-        async () => {
-          if (selectedTransaction?.id && isDetailModalOpen) {
-            await fetchInteractionDetails(selectedTransaction.id);
-          }
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "financial_transaction_events" }, async () => {
+        if (selectedTransaction?.id && isDetailModalOpen) {
+          await fetchInteractionDetails(selectedTransaction.id);
         }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "financial_transaction_attachments" },
-        async () => {
-          if (selectedTransaction?.id && isDetailModalOpen) {
-            await fetchInteractionDetails(selectedTransaction.id);
-          }
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "financial_transaction_attachments" }, async () => {
+        if (selectedTransaction?.id && isDetailModalOpen) {
+          await fetchInteractionDetails(selectedTransaction.id);
         }
-      )
+      })
       .subscribe();
 
     return () => {
@@ -661,27 +671,75 @@ export default function FinanceiroPage() {
     [team, memberSearch]
   );
 
+  const filteredTransactions = useMemo(
+    () =>
+      transactions.filter(
+        (t) =>
+          t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (t.clients?.company_name?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false) ||
+          (t.category?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false) ||
+          (t.document_number?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false)
+      ),
+    [transactions, searchTerm]
+  );
+
   const stats = useMemo(() => {
     const paidIn = transactions
       .filter((t) => t.type === "income" && (t.status === "paid" || t.status === "received"))
       .reduce((a, b) => a + Number(b.amount), 0);
+
     const paidOut = transactions
       .filter((t) => t.type === "expense" && (t.status === "paid" || t.status === "received"))
       .reduce((a, b) => a + Number(b.amount), 0);
+
     const pendingIn = transactions
       .filter((t) => t.type === "income" && t.status === "pending")
       .reduce((a, b) => a + Number(b.amount), 0);
+
     const overdueIn = transactions
       .filter((t) => t.type === "income" && isOverdue(t.due_date, t.status || "pending"))
       .reduce((a, b) => a + Number(b.amount), 0);
+
     const waitingFinance = transactions
       .filter((t) => t.type === "income" && t.workflow_status === "awaiting_finance")
       .reduce((a, b) => a + Number(b.amount), 0);
+
     const disputedOpen = transactions
       .filter((t) => t.type === "income" && t.dispute_status && t.dispute_status !== "resolved")
       .reduce((a, b) => a + Number(b.amount), 0);
 
-    return { balance: paidIn - paidOut, pendingIn, overdueIn, paidIn, paidOut, waitingFinance, disputedOpen };
+    const paidThisMonth = transactions
+      .filter((t) => {
+        if (t.type !== "income") return false;
+        if (!(t.status === "paid" || t.status === "received")) return false;
+        const date = t.payment_date || t.payment_confirmed_at || t.last_interaction_at;
+        if (!date) return false;
+        const d = new Date(date);
+        const now = new Date();
+        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      })
+      .reduce((a, b) => a + Number(b.amount), 0);
+
+    const expensePaid = transactions
+      .filter((t) => t.type === "expense" && (t.status === "paid" || t.status === "received"))
+      .reduce((a, b) => a + Number(b.amount), 0);
+
+    const peopleCost = transactions
+      .filter((t) => t.expense_type === "personnel" && (t.status === "paid" || t.status === "received"))
+      .reduce((a, b) => a + Number(b.amount), 0);
+
+    return {
+      balance: paidIn - paidOut,
+      pendingIn,
+      overdueIn,
+      paidIn,
+      paidOut,
+      waitingFinance,
+      disputedOpen,
+      paidThisMonth,
+      expensePaid,
+      peopleCost,
+    };
   }, [transactions]);
 
   const personnelStats = useMemo(() => {
@@ -693,6 +751,7 @@ export default function FinanceiroPage() {
         )
       )
       .reduce((a, b) => a + Number(b.amount), 0);
+
     const totalCommissions = pt
       .filter((t) =>
         [L.comissao.toLowerCase(), "comissão", "comissao"].some((k) =>
@@ -751,22 +810,14 @@ export default function FinanceiroPage() {
     [clients, transactions]
   );
 
-  const filteredTransactions = useMemo(
-    () =>
-      transactions.filter(
-        (t) =>
-          t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (t.clients?.company_name?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false) ||
-          (t.category?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false) ||
-          (t.document_number?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false)
-      ),
-    [transactions, searchTerm]
+  const receivableRows = useMemo(
+    () => filteredTransactions.filter((t) => t.type === "income"),
+    [filteredTransactions]
   );
 
   const clientActionQueue = useMemo(
     () =>
-      filteredTransactions
-        .filter((t) => t.type === "income")
+      receivableRows
         .filter(
           (t) =>
             t.workflow_status === "awaiting_finance" ||
@@ -778,14 +829,14 @@ export default function FinanceiroPage() {
           const dateB = new Date(b.last_interaction_at || b.payment_reported_at || b.due_date).getTime();
           return dateB - dateA;
         }),
-    [filteredTransactions]
+    [receivableRows]
   );
 
   const currentCategories = useMemo(() => {
     if (formType === "income") return incomeCategories;
-    if (expenseType === "administrative") return expenseAdminCategories;
-    if (expenseType === "operational") return expenseOpCategories;
-    return expensePersonnelCategories;
+    if (expenseType === "administrative") return DEFAULT_EXPENSE_ADMIN_CATEGORIES;
+    if (expenseType === "operational") return DEFAULT_EXPENSE_OPERATIONAL_CATEGORIES;
+    return DEFAULT_EXPENSE_PERSONNEL_CATEGORIES;
   }, [formType, expenseType, incomeCategories]);
 
   const tabs = [
@@ -925,12 +976,10 @@ export default function FinanceiroPage() {
 
     const getCategoryForType = () => {
       if (formType === "income") return formData.category || incomeCategories[0] || "";
-      if (expenseType === "administrative") return formData.category || expenseAdminCategories[0] || "";
-      if (expenseType === "operational") return formData.category || expenseOpCategories[0] || "";
-      return formData.category || expensePersonnelCategories[0] || "";
+      if (expenseType === "administrative") return formData.category || DEFAULT_EXPENSE_ADMIN_CATEGORIES[0] || "";
+      if (expenseType === "operational") return formData.category || DEFAULT_EXPENSE_OPERATIONAL_CATEGORIES[0] || "";
+      return formData.category || DEFAULT_EXPENSE_PERSONNEL_CATEGORIES[0] || "";
     };
-
-    const hasServiceOrder = formType === "income" || expenseType === "operational";
 
     const payload: Record<string, unknown> = {
       description: formData.description,
@@ -942,7 +991,7 @@ export default function FinanceiroPage() {
       due_date: formData.dueDate,
       payment_date: formData.status === "paid" ? formData.paymentDate || new Date().toISOString().split("T")[0] : null,
       service_order_id: null,
-      quote_id: hasServiceOrder ? formData.serviceOrderId || null : null,
+      quote_id: formData.serviceOrderId || null,
       client_id: formType === "income" ? formData.clientId || null : null,
       member_id: expenseType === "personnel" && formType === "expense" ? formData.memberId || null : null,
       payment_method: formData.paymentMethod,
@@ -1166,8 +1215,7 @@ export default function FinanceiroPage() {
           resolution_notes,
           created_at,
           clients(*),
-          member:profiles!member_id(id, full_name, email, role, commission_percentage),
-          service_orders(id, quote_id, quotes(id, title, salesperson_id))
+          member:profiles!member_id(id, full_name, email, role, commission_percentage)
         `
       )
       .eq("id", transactionId)
@@ -1183,13 +1231,17 @@ export default function FinanceiroPage() {
 
     try {
       const now = new Date().toISOString();
+      const paymentInfo = getPaymentDifference(selectedTransaction);
+
       const eventId = await registerFinanceEvent(
         selectedTransaction.id,
         "payment_confirmed",
         "Pagamento confirmado pelo financeiro",
         financeActionForm.comment.trim() || "Pagamento conferido e confirmado pelo financeiro.",
         {
-          valor_confirmado: selectedTransaction.payment_reported_amount || selectedTransaction.amount,
+          valor_previsto: paymentInfo.expected,
+          valor_informado: paymentInfo.reported,
+          diferenca: paymentInfo.difference,
           forma_pagamento: selectedTransaction.payment_reported_method || selectedTransaction.payment_method || null,
           referencia: selectedTransaction.payment_reported_reference || null,
         }
@@ -1200,21 +1252,30 @@ export default function FinanceiroPage() {
       const { error } = await supabase
         .from("financial_transactions")
         .update({
-          status: "paid",
-          workflow_status: "confirmed",
-          payment_date: new Date().toISOString().split("T")[0],
-          payment_confirmed_at: now,
+          status: paymentInfo.scenario === "partial" ? "pending" : "paid",
+          workflow_status: paymentInfo.scenario === "partial" ? "under_review" : "confirmed",
+          payment_date: paymentInfo.scenario === "partial" ? null : new Date().toISOString().split("T")[0],
+          payment_confirmed_at: paymentInfo.scenario === "partial" ? null : now,
           finance_last_action_at: now,
           last_interaction_at: now,
-          resolution_type: "payment_confirmed",
-          resolution_notes: financeActionForm.resolutionNotes.trim() || financeActionForm.comment.trim() || "Pagamento confirmado pelo financeiro.",
+          resolution_type: paymentInfo.scenario === "partial" ? "partial_payment_registered" : "payment_confirmed",
+          resolution_notes:
+            financeActionForm.resolutionNotes.trim() ||
+            (paymentInfo.scenario === "partial"
+              ? "Pagamento parcial confirmado. Mantida pendência de saldo."
+              : financeActionForm.comment.trim() || "Pagamento confirmado pelo financeiro."),
           dispute_status: selectedTransaction.dispute_status === "open" ? "resolved" : selectedTransaction.dispute_status || null,
         })
         .eq("id", selectedTransaction.id);
 
       if (error) throw new Error(error.message || "Erro ao confirmar pagamento.");
 
-      showToast("Pagamento confirmado e baixa realizada.", "success");
+      showToast(
+        paymentInfo.scenario === "partial"
+          ? "Pagamento parcial registrado. A cobrança segue em análise."
+          : "Pagamento confirmado e baixa realizada.",
+        "success"
+      );
       setFinanceActionForm({ comment: "", resolutionType: "payment_confirmed", resolutionNotes: "" });
       setFinanceAttachmentFile(null);
       await fetchData();
@@ -1367,7 +1428,10 @@ export default function FinanceiroPage() {
       const { error } = await supabase
         .from("financial_transactions")
         .update({
-          workflow_status: selectedTransaction.workflow_status === "awaiting_finance" ? "under_review" : selectedTransaction.workflow_status || "open",
+          workflow_status:
+            selectedTransaction.workflow_status === "awaiting_finance"
+              ? "under_review"
+              : selectedTransaction.workflow_status || "open",
           finance_last_action_at: now,
           last_interaction_at: now,
         })
@@ -1385,6 +1449,68 @@ export default function FinanceiroPage() {
     } finally {
       setActionSubmitting(false);
     }
+  };
+
+  const receivableForGroup = useMemo(() => {
+    if (!selectedTransaction || selectedTransaction.type !== "income") return [];
+    return transactions
+      .filter((t) => t.type === "income")
+      .filter((t) => {
+        if (selectedTransaction.document_number && t.document_number) {
+          return t.document_number === selectedTransaction.document_number;
+        }
+        if (selectedTransaction.quote_id && t.quote_id) {
+          return t.quote_id === selectedTransaction.quote_id;
+        }
+        if (selectedTransaction.client_id && t.client_id && selectedTransaction.description) {
+          const baseA = selectedTransaction.description.replace(/-\s*parcela\s*\d+\/\d+/i, "").trim();
+          const baseB = t.description.replace(/-\s*parcela\s*\d+\/\d+/i, "").trim();
+          return selectedTransaction.client_id === t.client_id && baseA === baseB;
+        }
+        return t.id === selectedTransaction.id;
+      })
+      .sort((a, b) => {
+        const aN = a.installment_number || 999;
+        const bN = b.installment_number || 999;
+        if (aN !== bN) return aN - bN;
+        return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+      });
+  }, [selectedTransaction, transactions]);
+
+  const selectedPaymentInfo = useMemo(
+    () => (selectedTransaction ? getPaymentDifference(selectedTransaction) : null),
+    [selectedTransaction]
+  );
+
+  const renderMetricCard = (label: string, value: string, tone?: "default" | "green" | "gold" | "red" | "orange") => {
+    const valueColor =
+      tone === "green"
+        ? "text-cs-green"
+        : tone === "gold"
+        ? "text-cs-gold"
+        : tone === "red"
+        ? "text-red-500"
+        : tone === "orange"
+        ? "text-orange-400"
+        : "text-white";
+
+    const borderTone =
+      tone === "green"
+        ? "border-cs-green/20"
+        : tone === "gold"
+        ? "border-cs-gold/20"
+        : tone === "red"
+        ? "border-red-500/20"
+        : tone === "orange"
+        ? "border-orange-500/20"
+        : "border-surface/50";
+
+    return (
+      <div className={`rounded-xl border ${borderTone} bg-surface p-5 shadow-lg`}>
+        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-text-secondary">{label}</p>
+        <p className={`mt-3 break-words text-2xl font-black leading-tight ${valueColor}`}>{value}</p>
+      </div>
+    );
   };
 
   const renderTable = (
@@ -1406,7 +1532,7 @@ export default function FinanceiroPage() {
                   Fila de ações do cliente
                 </h4>
                 <p className="mt-1 text-xs uppercase tracking-wide text-text-secondary">
-                  Cobranças com pagamento informado, contestação ou atendimento pendente.
+                  Apenas cobranças a receber com pagamento informado, divergência ou contestação.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -1450,7 +1576,9 @@ export default function FinanceiroPage() {
                     <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-text-secondary">
                       <span>{formatCurrency(Number(t.amount))}</span>
                       <span>Vence em {formatDate(t.due_date)}</span>
-                      <span>{translateWorkflowStatus(t.workflow_status)}</span>
+                      {t.payment_reported_amount ? (
+                        <span>Informado: {formatCurrency(Number(t.payment_reported_amount))}</span>
+                      ) : null}
                     </div>
                   </button>
                 ))
@@ -1515,16 +1643,11 @@ export default function FinanceiroPage() {
                           <p className="text-xs font-black uppercase text-text-secondary">
                             {t.clients?.company_name || t.member?.full_name || "—"}
                           </p>
-                          {t.workflow_status === "awaiting_finance" && (
+                          {typeFilter === "income" && t.payment_reported_amount ? (
                             <span className="rounded-full border border-cs-gold/20 bg-cs-gold/10 px-2 py-0.5 text-[10px] font-black uppercase text-cs-gold">
-                              Aguardando conferência
+                              Informado: {formatCurrency(Number(t.payment_reported_amount))}
                             </span>
-                          )}
-                          {t.dispute_status && t.dispute_status !== "resolved" && (
-                            <span className="rounded-full border border-orange-500/20 bg-orange-500/10 px-2 py-0.5 text-[10px] font-black uppercase text-orange-400">
-                              Contestação
-                            </span>
-                          )}
+                          ) : null}
                         </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-text-secondary">{t.category}</td>
@@ -1567,7 +1690,7 @@ export default function FinanceiroPage() {
     <div className="space-y-6 relative pb-12">
       {toast && (
         <div
-          className={`fixed bottom-6 right-6 z-[200] px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border bg-[#1a1413] ${
+          className={`fixed bottom-6 right-6 z-[200] max-w-[92vw] px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border bg-[#1a1413] ${
             toast.type === "success"
               ? "border-cs-green text-cs-green"
               : toast.type === "warning"
@@ -1617,41 +1740,24 @@ export default function FinanceiroPage() {
 
           {activeTab === "dashboard" && (
             <div className="space-y-6 animate-in fade-in duration-500">
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
-                <div className="bg-surface border border-surface/50 p-6 rounded-xl border-l-4 border-l-cs-green">
-                  <p className="text-xs font-bold text-text-secondary uppercase mb-2">Saldo Realizado</p>
-                  <p className={`text-3xl font-black ${stats.balance >= 0 ? "text-white" : "text-red-500"}`}>
-                    {formatCurrency(stats.balance)}
-                  </p>
-                </div>
-                <div className="bg-surface border border-surface/50 p-6 rounded-xl">
-                  <p className="text-xs font-bold text-text-secondary uppercase mb-2">{L.receber} Pendentes</p>
-                  <p className="text-3xl font-black text-cs-green">{formatCurrency(stats.pendingIn)}</p>
-                </div>
-                <div className="bg-surface border border-surface/50 p-6 rounded-xl border-l-4 border-l-cs-gold">
-                  <p className="text-xs font-bold text-text-secondary uppercase mb-2">Aguardando Financeiro</p>
-                  <p className="text-3xl font-black text-cs-gold">{formatCurrency(stats.waitingFinance)}</p>
-                </div>
-                <div className="bg-surface border border-surface/50 p-6 rounded-xl border-l-4 border-l-orange-500">
-                  <p className="text-xs font-bold text-text-secondary uppercase mb-2">Contestação em Aberto</p>
-                  <p className="text-3xl font-black text-orange-400">{formatCurrency(stats.disputedOpen)}</p>
-                </div>
-                <div className="bg-surface border border-surface/50 p-6 rounded-xl border-l-4 border-l-red-500">
-                  <p className="text-xs font-bold text-text-secondary uppercase mb-2">Inadimplência Real</p>
-                  <p className="text-3xl font-black text-red-500">{formatCurrency(stats.overdueIn)}</p>
-                </div>
-                <div className="bg-surface border border-surface/50 p-6 rounded-xl">
-                  <p className="text-xs font-bold text-text-secondary uppercase mb-2">Folha + {L.comissao}</p>
-                  <p className="text-3xl font-black text-cs-gold">
-                    {formatCurrency(personnelStats.totalSalaries + personnelStats.totalCommissions)}
-                  </p>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                {renderMetricCard("Saldo realizado", formatCurrency(stats.balance), stats.balance >= 0 ? "green" : "red")}
+                {renderMetricCard(`${L.receber} pendente`, formatCurrency(stats.pendingIn), "green")}
+                {renderMetricCard("Aguardando financeiro", formatCurrency(stats.waitingFinance), "gold")}
+                {renderMetricCard("Contestação em aberto", formatCurrency(stats.disputedOpen), "orange")}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                {renderMetricCard("Inadimplência real", formatCurrency(stats.overdueIn), "red")}
+                {renderMetricCard("Pago no mês", formatCurrency(stats.paidThisMonth), "green")}
+                {renderMetricCard("Despesas pagas", formatCurrency(stats.expensePaid), "red")}
+                {renderMetricCard("Folha + comissão", formatCurrency(stats.peopleCost), "gold")}
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="bg-surface border border-surface/50 p-6 rounded-xl">
                   <h4 className="text-xs font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
-                    <TrendingUp size={16} className="text-cs-gold" /> Projeção de {L.receber} (Aging)
+                    <TrendingUp size={16} className="text-cs-gold" /> Projeção de {L.receber}
                   </h4>
                   <div className="grid grid-cols-2 gap-4">
                     {[
@@ -1665,7 +1771,7 @@ export default function FinanceiroPage() {
                           <div className={`h-full ${b.color} transition-all`} style={{ width: `${Math.min((b.val / (stats.pendingIn || 1)) * 100, 100)}%` }} />
                         </div>
                         <p className="text-[9px] font-black text-text-secondary uppercase">{b.label}</p>
-                        <p className="text-sm font-bold text-white">{formatCurrency(b.val)}</p>
+                        <p className="text-sm font-bold text-white break-words">{formatCurrency(b.val)}</p>
                       </div>
                     ))}
                   </div>
@@ -1673,7 +1779,7 @@ export default function FinanceiroPage() {
 
                 <div className="bg-surface border border-surface/50 p-6 rounded-xl">
                   <h4 className="text-xs font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
-                    <PieChart size={16} className="text-cs-gold" /> Centro de Custos — Despesas Efetivadas
+                    <PieChart size={16} className="text-cs-gold" /> Centro de Custos
                   </h4>
                   {expenseByCategory.length === 0 ? (
                     <p className="text-text-secondary text-xs uppercase font-black text-center py-8">
@@ -1683,8 +1789,8 @@ export default function FinanceiroPage() {
                     <div className="space-y-3">
                       {expenseByCategory.map((item, i) => (
                         <div key={item.cat} className="space-y-1">
-                          <div className="flex justify-between items-center">
-                            <span className="text-xs font-semibold text-text-secondary uppercase truncate max-w-[60%]">{item.cat}</span>
+                          <div className="flex justify-between items-center gap-3">
+                            <span className="text-xs font-semibold text-text-secondary uppercase truncate max-w-[65%]">{item.cat}</span>
                             <span className="text-xs font-black text-white">{formatCurrency(item.val)}</span>
                           </div>
                           <div className="h-1.5 w-full bg-background rounded-full overflow-hidden">
@@ -1692,7 +1798,7 @@ export default function FinanceiroPage() {
                           </div>
                         </div>
                       ))}
-                      <div className="pt-2 border-t border-surface/50 flex justify-between">
+                      <div className="pt-2 border-t border-surface/50 flex justify-between gap-3">
                         <span className="text-xs font-bold text-text-secondary uppercase">Total Despesas</span>
                         <span className="text-xs font-black text-red-400">{formatCurrency(totalExpenses)}</span>
                       </div>
@@ -1713,14 +1819,14 @@ export default function FinanceiroPage() {
                 <div className="bg-surface border border-surface/50 p-6 rounded-xl flex items-center justify-between">
                   <div>
                     <p className="text-xs font-bold text-text-secondary uppercase">{L.salario}s Pagos</p>
-                    <p className="text-2xl font-black text-white">{formatCurrency(personnelStats.totalSalaries)}</p>
+                    <p className="text-2xl font-black text-white break-words">{formatCurrency(personnelStats.totalSalaries)}</p>
                   </div>
                   <UserCheck className="text-cs-green opacity-20" size={48} />
                 </div>
                 <div className="bg-surface border border-surface/50 p-6 rounded-xl flex items-center justify-between">
                   <div>
                     <p className="text-xs font-bold text-text-secondary uppercase">{L.comissao} Pagas</p>
-                    <p className="text-2xl font-black text-cs-gold">{formatCurrency(personnelStats.totalCommissions)}</p>
+                    <p className="text-2xl font-black text-cs-gold break-words">{formatCurrency(personnelStats.totalCommissions)}</p>
                   </div>
                   <Percent className="text-cs-gold opacity-20" size={48} />
                 </div>
@@ -1736,7 +1842,7 @@ export default function FinanceiroPage() {
                       <div key={m.name} className="flex items-center gap-4">
                         <span className="text-xs font-bold text-text-secondary w-5 text-right">{i + 1}.</span>
                         <div className="flex-1">
-                          <div className="flex justify-between mb-1">
+                          <div className="flex justify-between mb-1 gap-3">
                             <span className="text-xs font-bold text-white">{m.name}</span>
                             <span className="text-xs font-black text-cs-gold">{formatCurrency(m.total)}</span>
                           </div>
@@ -2037,9 +2143,6 @@ export default function FinanceiroPage() {
                           </option>
                         ))}
                       </select>
-                      {approvedQuotes.length === 0 && (
-                        <p className="text-xs text-text-secondary mt-1">Nenhum {L.orcamento} aprovado localizado.</p>
-                      )}
                     </div>
                   )}
 
@@ -2172,7 +2275,7 @@ export default function FinanceiroPage() {
 
       {isDetailModalOpen && selectedTransaction && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[150] backdrop-blur-md p-4">
-          <div className="bg-[#1a1413] border border-surface/50 rounded-xl w-full max-w-6xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+          <div className="bg-[#1a1413] border border-surface/50 rounded-xl w-full max-w-7xl overflow-hidden shadow-2xl flex flex-col max-h-[94vh]">
             <div className="p-6 bg-background/50 border-b border-surface/50 flex justify-between items-start gap-4">
               <div className="min-w-0">
                 <h2 className="text-2xl font-black text-white uppercase tracking-tighter mb-2">
@@ -2191,11 +2294,6 @@ export default function FinanceiroPage() {
                   <span className="text-xs font-black px-3 py-1 rounded-full uppercase bg-surface border border-surface/50 text-text-secondary">
                     {selectedTransaction.category}
                   </span>
-                  {(selectedTransaction.quote || selectedTransaction.service_orders?.quotes) && (
-                    <span className="text-xs font-black px-3 py-1 rounded-full uppercase bg-blue-500/10 border border-blue-500/20 text-blue-400">
-                      {L.orcamento}: {selectedTransaction.quote?.title || selectedTransaction.service_orders?.quotes?.title || "—"}
-                    </span>
-                  )}
                   {selectedTransaction.document_number && (
                     <span className="text-xs font-black px-3 py-1 rounded-full uppercase bg-white/5 border border-white/10 text-zinc-300">
                       Documento: {selectedTransaction.document_number}
@@ -2212,12 +2310,12 @@ export default function FinanceiroPage() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_420px] gap-0 overflow-hidden">
-              <div className="p-6 overflow-y-auto space-y-6 max-h-[calc(92vh-110px)]">
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_430px] gap-0 overflow-hidden">
+              <div className="p-6 overflow-y-auto space-y-6 max-h-[calc(94vh-110px)]">
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div className="bg-background p-4 rounded-lg border border-surface/50">
                     <p className="text-[9px] font-black text-text-secondary uppercase mb-1">Montante</p>
-                    <p className="text-xl font-black text-white">{formatCurrency(Number(selectedTransaction.amount))}</p>
+                    <p className="text-xl font-black text-white break-words">{formatCurrency(Number(selectedTransaction.amount))}</p>
                   </div>
                   <div className="bg-background p-4 rounded-lg border border-surface/50">
                     <p className="text-[9px] font-black text-text-secondary uppercase mb-1">Vencimento</p>
@@ -2235,9 +2333,76 @@ export default function FinanceiroPage() {
                   </div>
                 </div>
 
+                {selectedTransaction.type === "income" && selectedPaymentInfo ? (
+                  <section className="rounded-xl border border-cs-gold/20 bg-cs-gold/5 p-5">
+                    <div className="flex items-center gap-2">
+                      <Scale size={18} className="text-cs-gold" />
+                      <h4 className="text-sm font-black uppercase tracking-widest text-white">Conciliação do pagamento</h4>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <div className="rounded-lg border border-white/10 bg-background/40 p-4">
+                        <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Valor da parcela</p>
+                        <p className="mt-2 text-lg font-black text-white">{formatCurrency(selectedPaymentInfo.expected)}</p>
+                      </div>
+                      <div className="rounded-lg border border-white/10 bg-background/40 p-4">
+                        <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Valor informado</p>
+                        <p className="mt-2 text-lg font-black text-cs-gold">{formatCurrency(selectedPaymentInfo.reported)}</p>
+                      </div>
+                      <div className="rounded-lg border border-white/10 bg-background/40 p-4">
+                        <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Diferença</p>
+                        <p
+                          className={`mt-2 text-lg font-black ${
+                            selectedPaymentInfo.difference === 0
+                              ? "text-cs-green"
+                              : selectedPaymentInfo.difference < 0
+                              ? "text-orange-400"
+                              : "text-blue-400"
+                          }`}
+                        >
+                          {selectedPaymentInfo.difference >= 0 ? "+" : ""}
+                          {formatCurrency(selectedPaymentInfo.difference)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-white/10 bg-background/40 p-4">
+                        <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Classificação</p>
+                        <p className="mt-2 text-sm font-black text-white uppercase">{selectedPaymentInfo.label}</p>
+                      </div>
+                    </div>
+
+                    <p className="mt-4 text-sm text-zinc-200">{selectedPaymentInfo.helper}</p>
+
+                    {receivableForGroup.length > 1 ? (
+                      <div className="mt-4 rounded-lg border border-white/10 bg-background/30 p-4">
+                        <div className="flex items-center gap-2">
+                          <Clock3 size={16} className="text-cs-gold" />
+                          <p className="text-xs font-black uppercase tracking-widest text-text-secondary">
+                            Grupo relacionado da cobrança
+                          </p>
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          {receivableForGroup.map((row) => (
+                            <div key={row.id} className="flex flex-col gap-2 rounded-lg border border-white/10 bg-background/40 px-3 py-3 md:flex-row md:items-center md:justify-between">
+                              <div>
+                                <p className="text-sm font-semibold text-white">
+                                  Parcela {row.installment_number || 1}/{row.total_installments || receivableForGroup.length}
+                                </p>
+                                <p className="text-xs uppercase tracking-wide text-text-secondary">
+                                  Vencimento {formatDate(row.due_date)} · {statusLabel(row)}
+                                </p>
+                              </div>
+                              <div className="text-sm font-black text-white">{formatCurrency(Number(row.amount))}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </section>
+                ) : null}
+
                 <section className="rounded-xl border border-surface/50 bg-background/40 p-5">
                   <h4 className="text-xs font-black text-white uppercase tracking-widest border-b border-surface/50 pb-3">
-                    Resumo financeiro e operacional
+                    Resumo financeiro
                   </h4>
                   <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -2272,16 +2437,20 @@ export default function FinanceiroPage() {
                         {selectedTransaction.payment_confirmed_at ? formatDateTime(selectedTransaction.payment_confirmed_at) : "-"}
                       </p>
                     </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Categoria da contestação</p>
-                      <p className="mt-1 text-sm text-white">{translateDisputeCategory(selectedTransaction.dispute_category)}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Motivo da contestação</p>
-                      <p className="mt-1 text-sm text-white">{selectedTransaction.dispute_reason || "-"}</p>
-                    </div>
+                    {selectedTransaction.type === "income" ? (
+                      <>
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Categoria da contestação</p>
+                          <p className="mt-1 text-sm text-white">{translateDisputeCategory(selectedTransaction.dispute_category)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Motivo da contestação</p>
+                          <p className="mt-1 text-sm text-white">{selectedTransaction.dispute_reason || "-"}</p>
+                        </div>
+                      </>
+                    ) : null}
                     <div className="md:col-span-2">
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Observações da cobrança</p>
+                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Observações</p>
                       <p className="mt-1 text-sm text-white">{selectedTransaction.invoice_notes || selectedTransaction.attachment_url || "-"}</p>
                     </div>
                     <div className="md:col-span-2">
@@ -2373,40 +2542,48 @@ export default function FinanceiroPage() {
 
                 <section className="rounded-xl border border-surface/50 bg-background/40 p-5">
                   <h4 className="text-xs font-black text-white uppercase tracking-widest border-b border-surface/50 pb-3">
-                    Ações rápidas da cobrança
+                    Ações rápidas
                   </h4>
                   <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <button
-                      onClick={() => sendWhatsApp(selectedTransaction)}
-                      className="flex items-center justify-center gap-2 bg-cs-green/10 text-cs-green border border-cs-green/20 py-3 rounded-md font-black text-xs uppercase hover:bg-cs-green/20 transition-all"
-                    >
-                      <MessageCircle size={16} /> WhatsApp
-                    </button>
-                    <button
-                      onClick={() => sendInvoiceEmail(selectedTransaction)}
-                      disabled={isSendingMail}
-                      className="flex items-center justify-center gap-2 bg-blue-500/10 text-blue-400 border border-blue-500/20 py-3 rounded-md font-black text-xs uppercase hover:bg-blue-500/20 transition-all disabled:opacity-50"
-                    >
-                      {isSendingMail ? <Loader2 className="animate-spin" size={16} /> : <Mail size={16} />} E-mail
-                    </button>
-                    <button
-                      onClick={() => router.push(`/financeiro/fatura/${selectedTransaction.id}`)}
-                      className="flex items-center justify-center gap-2 bg-surface border border-surface/50 py-3 rounded-md font-black text-xs uppercase text-white hover:bg-background transition-all"
-                    >
-                      <Receipt size={16} /> Gerar Fatura PDF
-                    </button>
+                    {selectedTransaction.type === "income" ? (
+                      <>
+                        <button
+                          onClick={() => sendWhatsApp(selectedTransaction)}
+                          className="flex items-center justify-center gap-2 bg-cs-green/10 text-cs-green border border-cs-green/20 py-3 rounded-md font-black text-xs uppercase hover:bg-cs-green/20 transition-all"
+                        >
+                          <MessageCircle size={16} /> WhatsApp
+                        </button>
+                        <button
+                          onClick={() => sendInvoiceEmail(selectedTransaction)}
+                          disabled={isSendingMail}
+                          className="flex items-center justify-center gap-2 bg-blue-500/10 text-blue-400 border border-blue-500/20 py-3 rounded-md font-black text-xs uppercase hover:bg-blue-500/20 transition-all disabled:opacity-50"
+                        >
+                          {isSendingMail ? <Loader2 className="animate-spin" size={16} /> : <Mail size={16} />} E-mail
+                        </button>
+                        <button
+                          onClick={() => router.push(`/financeiro/fatura/${selectedTransaction.id}`)}
+                          className="flex items-center justify-center gap-2 bg-surface border border-surface/50 py-3 rounded-md font-black text-xs uppercase text-white hover:bg-background transition-all"
+                        >
+                          <Receipt size={16} /> Gerar Fatura PDF
+                        </button>
+                      </>
+                    ) : (
+                      <div className="md:col-span-3 text-sm text-text-secondary">
+                        Esta ação rápida está focada em cobranças a receber.
+                      </div>
+                    )}
                   </div>
                 </section>
               </div>
 
-              <aside className="border-l border-surface/50 bg-background/30 p-6 overflow-y-auto max-h-[calc(92vh-110px)] space-y-5">
+              <aside className="border-l border-surface/50 bg-background/30 p-6 overflow-y-auto max-h-[calc(94vh-110px)] space-y-5">
                 <section className="rounded-xl border border-cs-gold/20 bg-cs-gold/5 p-5">
                   <h4 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-white">
                     <ShieldAlert size={16} className="text-cs-gold" />
                     Atendimento financeiro
                   </h4>
                   <p className="mt-2 text-xs uppercase tracking-wide text-text-secondary">
-                    Registre comentários, confirme pagamento, rejeite retorno ou resolva contestações.
+                    Registre comentário, confirme, rejeite ou resolva a cobrança selecionada.
                   </p>
 
                   <div className="mt-4 space-y-4">
@@ -2473,43 +2650,81 @@ export default function FinanceiroPage() {
                   </div>
                 </section>
 
-                <section className="rounded-xl border border-surface/50 bg-surface p-4 space-y-3">
-                  <button
-                    type="button"
-                    onClick={handleAddFinanceComment}
-                    disabled={actionSubmitting}
-                    className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white hover:bg-white/10 disabled:opacity-50"
-                  >
-                    {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <FileText size={18} />}
-                    Registrar comentário
-                  </button>
+                {selectedTransaction.type === "income" && selectedPaymentInfo ? (
+                  <section className="rounded-xl border border-white/10 bg-surface p-4 space-y-3">
+                    <h5 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
+                      <Scale size={15} className="text-cs-gold" />
+                      Decisão de conciliação
+                    </h5>
+                    <div className="rounded-lg border border-white/10 bg-background/40 p-3 text-sm text-zinc-200">
+                      {selectedPaymentInfo.label}: {selectedPaymentInfo.helper}
+                    </div>
 
-                  {(selectedTransaction.workflow_status === "awaiting_finance" ||
-                    selectedTransaction.workflow_status === "under_review") && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={handleConfirmPayment}
-                        disabled={actionSubmitting}
-                        className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-cs-green px-4 py-3 text-sm font-bold text-white shadow-lg hover:opacity-90 disabled:opacity-50"
-                      >
-                        {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <CheckCheck size={18} />}
-                        Confirmar pagamento e dar baixa
-                      </button>
+                    <button
+                      type="button"
+                      onClick={handleAddFinanceComment}
+                      disabled={actionSubmitting}
+                      className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white hover:bg-white/10 disabled:opacity-50"
+                    >
+                      {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <FileText size={18} />}
+                      Registrar comentário
+                    </button>
 
-                      <button
-                        type="button"
-                        onClick={handleRejectPayment}
-                        disabled={actionSubmitting}
-                        className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-3 text-sm font-bold text-white shadow-lg hover:bg-red-500 disabled:opacity-50"
-                      >
-                        {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <X size={18} />}
-                        Rejeitar pagamento informado
-                      </button>
-                    </>
-                  )}
+                    {(selectedTransaction.workflow_status === "awaiting_finance" ||
+                      selectedTransaction.workflow_status === "under_review") && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleConfirmPayment}
+                          disabled={actionSubmitting}
+                          className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-cs-green px-4 py-3 text-sm font-bold text-white shadow-lg hover:opacity-90 disabled:opacity-50"
+                        >
+                          {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <CheckCheck size={18} />}
+                          {selectedPaymentInfo.scenario === "partial"
+                            ? "Registrar parcial e manter saldo"
+                            : "Confirmar pagamento e dar baixa"}
+                        </button>
 
-                  {selectedTransaction.dispute_status && selectedTransaction.dispute_status !== "resolved" && (
+                        <button
+                          type="button"
+                          onClick={handleRejectPayment}
+                          disabled={actionSubmitting}
+                          className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-3 text-sm font-bold text-white shadow-lg hover:bg-red-500 disabled:opacity-50"
+                        >
+                          {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <X size={18} />}
+                          Rejeitar pagamento informado
+                        </button>
+                      </>
+                    )}
+
+                    {selectedPaymentInfo.scenario === "over" && receivableForGroup.length > 1 ? (
+                      <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 text-xs text-blue-300">
+                        Valor acima da parcela. O ideal é evoluir para conciliação por grupo e rateio entre parcelas abertas.
+                      </div>
+                    ) : null}
+                  </section>
+                ) : (
+                  <section className="rounded-xl border border-white/10 bg-surface p-4">
+                    <button
+                      type="button"
+                      onClick={handleAddFinanceComment}
+                      disabled={actionSubmitting}
+                      className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white hover:bg-white/10 disabled:opacity-50"
+                    >
+                      {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <FileText size={18} />}
+                      Registrar comentário
+                    </button>
+                  </section>
+                )}
+
+                {selectedTransaction.type === "income" &&
+                selectedTransaction.dispute_status &&
+                selectedTransaction.dispute_status !== "resolved" ? (
+                  <section className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-4 space-y-3">
+                    <h5 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
+                      <AlertTriangle size={15} className="text-orange-400" />
+                      Contestação
+                    </h5>
                     <button
                       type="button"
                       onClick={handleResolveDispute}
@@ -2519,11 +2734,11 @@ export default function FinanceiroPage() {
                       {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <ShieldAlert size={18} />}
                       Resolver contestação
                     </button>
-                  )}
-                </section>
+                  </section>
+                ) : null}
 
                 <section className="rounded-xl border border-surface/50 bg-surface p-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3">
                     <button
                       onClick={() => setConfirmDeleteId(selectedTransaction.id)}
                       className="flex items-center gap-2 text-xs font-black uppercase text-red-500 hover:text-red-400 transition-colors"
@@ -2537,7 +2752,7 @@ export default function FinanceiroPage() {
                       >
                         Editar
                       </button>
-                      {selectedTransaction.status === "pending" && (
+                      {selectedTransaction.status === "pending" && selectedTransaction.type === "expense" && (
                         <button
                           onClick={() => updateStatus(selectedTransaction.id, "paid")}
                           className="bg-cs-green text-white px-5 py-2.5 rounded-md text-xs font-black uppercase tracking-widest shadow-lg hover:bg-opacity-90 transition-all"
