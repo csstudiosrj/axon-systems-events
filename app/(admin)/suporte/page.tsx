@@ -4,14 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { useSettings } from "../../providers/SettingsProvider";
-import {
-  Ticket,
-  Loader2,
-  ArrowLeft,
-  Clock,
-  MessageSquare,
-  Send,
-} from "lucide-react";
+import { Ticket, Loader2, ArrowLeft, Clock, MessageSquare, Send } from "lucide-react";
 
 type TicketStatus = "open" | "in_progress" | "resolved";
 type TicketPriority = "low" | "medium" | "high" | "critical";
@@ -52,8 +45,7 @@ export default function SuportePage() {
   const router = useRouter();
   const { systemPreferences, companyProfile } = useSettings();
 
-  const supportEnabled =
-    systemPreferences?.feature_toggles?.enable_support ?? true;
+  const supportEnabled = systemPreferences?.feature_toggles?.enable_support ?? true;
 
   const labels = systemPreferences?.custom_labels;
 
@@ -64,7 +56,6 @@ export default function SuportePage() {
   const supportMenuLabel = labels?.menu_support || "Suporte";
 
   const companyName = companyProfile?.company_name || "Empresa";
-  const voiceTone = systemPreferences?.tone_of_voice || "profissional";
 
   const [view, setView] = useState<"list" | "details">("list");
   const [tickets, setTickets] = useState<TicketRow[]>([]);
@@ -173,27 +164,17 @@ export default function SuportePage() {
     [fetchMessages]
   );
 
-  const updateTicketStatus = useCallback(
-    async (id: string, newStatus: TicketStatus) => {
-      const { error } = await supabase
-        .from("tickets")
-        .update({ status: newStatus })
-        .eq("id", id);
+  const updateTicketStatus = useCallback(async (id: string, newStatus: TicketStatus) => {
+    const { error } = await supabase.from("tickets").update({ status: newStatus }).eq("id", id);
 
-      if (error) return;
+    if (error) return;
 
-      setActiveTicket((prev) =>
-        prev && prev.id === id ? { ...prev, status: newStatus } : prev
-      );
+    setActiveTicket((prev) => (prev && prev.id === id ? { ...prev, status: newStatus } : prev));
 
-      setTickets((prev) =>
-        prev.map((ticket) =>
-          ticket.id === id ? { ...ticket, status: newStatus } : ticket
-        )
-      );
-    },
-    []
-  );
+    setTickets((prev) =>
+      prev.map((ticket) => (ticket.id === id ? { ...ticket, status: newStatus } : ticket))
+    );
+  }, []);
 
   const handleSendMessage = useCallback(
     async (e: React.FormEvent) => {
@@ -236,25 +217,15 @@ export default function SuportePage() {
     };
 
     return (
-      <span
-        className={`px-2 py-1 rounded text-[10px] font-bold uppercase border ${
-          config[priority] || config.medium
-        }`}
-      >
+      <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase border ${config[priority] || config.medium}`}>
         {priorityLabels[priority] || priorityLabels.medium}
       </span>
     );
   };
 
   const getStatusBadgeClass = (status: TicketStatus) => {
-    if (status === "open") {
-      return "bg-red-500/10 text-red-400 border-red-500/20";
-    }
-
-    if (status === "in_progress") {
-      return "bg-cs-gold/10 text-cs-gold border-cs-gold/20";
-    }
-
+    if (status === "open") return "bg-red-500/10 text-red-400 border-red-500/20";
+    if (status === "in_progress") return "bg-cs-gold/10 text-cs-gold border-cs-gold/20";
     return "bg-cs-green/10 text-cs-green border-cs-green/20";
   };
 
@@ -323,18 +294,11 @@ export default function SuportePage() {
           </button>
 
           <div className="flex items-center gap-4">
-            <span className="text-sm text-text-secondary">
-              Status do Chamado:
-            </span>
+            <span className="text-sm text-text-secondary">Status do Chamado:</span>
 
             <select
               value={activeTicket.status}
-              onChange={(e) =>
-                updateTicketStatus(
-                  activeTicket.id,
-                  e.target.value as TicketStatus
-                )
-              }
+              onChange={(e) => updateTicketStatus(activeTicket.id, e.target.value as TicketStatus)}
               className="bg-surface border border-surface/50 text-white text-sm rounded-md px-4 py-2 focus:border-cs-green focus:outline-none font-bold cursor-pointer"
             >
               {statusOptions.map((option) => (
@@ -356,9 +320,7 @@ export default function SuportePage() {
                 {getPriorityBadge(activeTicket.priority)}
               </div>
 
-              <h2 className="text-xl font-bold text-white mb-2">
-                {activeTicket.title}
-              </h2>
+              <h2 className="text-xl font-bold text-white mb-2">{activeTicket.title}</h2>
 
               <p className="text-sm text-text-secondary mb-6">
                 {activeTicket.description || "Sem descrição informada."}
@@ -391,20 +353,13 @@ export default function SuportePage() {
                     Prazo de Resolução (SLA)
                   </p>
 
-                  <div
-                    className={`flex items-center gap-1.5 text-sm font-medium ${
-                      isOverdue ? "text-red-400" : "text-cs-green"
-                    }`}
-                  >
+                  <div className={`flex items-center gap-1.5 text-sm font-medium ${isOverdue ? "text-red-400" : "text-cs-green"}`}>
                     <Clock size={14} />
                     {activeTicket.sla_deadline
-                      ? new Date(activeTicket.sla_deadline).toLocaleString(
-                          "pt-BR",
-                          {
-                            dateStyle: "short",
-                            timeStyle: "short",
-                          }
-                        )
+                      ? new Date(activeTicket.sla_deadline).toLocaleString("pt-BR", {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })
                       : "Não definido"}
 
                     {isOverdue && (
@@ -423,9 +378,6 @@ export default function SuportePage() {
               </p>
               <p className="text-sm text-text-secondary">
                 Empresa: <span className="text-white">{companyName}</span>
-              </p>
-              <p className="text-sm text-text-secondary mt-2">
-                Tom configurado: <span className="text-white">{voiceTone}</span>
               </p>
               <p className="text-sm text-text-secondary mt-2">
                 Entidades ativas:{" "}
@@ -453,29 +405,22 @@ export default function SuportePage() {
                 <div className="h-full flex flex-col items-center justify-center text-text-secondary">
                   <MessageSquare size={48} className="mb-4 opacity-20" />
                   <p>Nenhuma resposta ainda.</p>
-                  <p className="text-xs mt-1">
-                    Envie a primeira mensagem para iniciar o atendimento.
-                  </p>
+                  <p className="text-xs mt-1">Envie a primeira mensagem para iniciar o atendimento.</p>
                 </div>
               ) : (
                 messages.map((msg) => {
                   const isMe = msg.sender_id === currentUserId;
                   const isClient =
-                    msg.sender?.role === "client" ||
-                    msg.sender?.role === "student";
+                    msg.sender?.role === "client" || msg.sender?.role === "student";
 
                   return (
                     <div
                       key={msg.id}
-                      className={`flex flex-col ${
-                        isMe ? "items-end" : "items-start"
-                      }`}
+                      className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}
                     >
                       <div className="flex items-center gap-2 mb-1 px-1">
                         <span className="text-[10px] font-medium text-text-secondary">
-                          {msg.sender?.full_name ||
-                            msg.sender?.email?.split("@")[0] ||
-                            "Usuário"}
+                          {msg.sender?.full_name || msg.sender?.email?.split("@")[0] || "Usuário"}
                         </span>
 
                         {!isClient && (
@@ -574,10 +519,7 @@ export default function SuportePage() {
               {loadingList ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-8 text-center">
-                    <Loader2
-                      className="animate-spin mx-auto mb-2 text-cs-green"
-                      size={24}
-                    />
+                    <Loader2 className="animate-spin mx-auto mb-2 text-cs-green" size={24} />
                   </td>
                 </tr>
               ) : pageError ? (
@@ -621,9 +563,7 @@ export default function SuportePage() {
                         </p>
                       </td>
 
-                      <td className="px-6 py-4">
-                        {getPriorityBadge(ticket.priority)}
-                      </td>
+                      <td className="px-6 py-4">{getPriorityBadge(ticket.priority)}</td>
 
                       <td className="px-6 py-4">
                         <div
@@ -633,15 +573,12 @@ export default function SuportePage() {
                         >
                           <Clock size={14} />
                           {ticket.sla_deadline
-                            ? new Date(ticket.sla_deadline).toLocaleString(
-                                "pt-BR",
-                                {
-                                  day: "2-digit",
-                                  month: "2-digit",
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                }
-                              )
+                            ? new Date(ticket.sla_deadline).toLocaleString("pt-BR", {
+                                day: "2-digit",
+                                month: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
                             : "Não definido"}
                         </div>
                       </td>
