@@ -798,35 +798,61 @@ function EmployeeFormModal({ initial, onClose, onSaved }: {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    const payload = {
-      full_name:          form.full_name.trim(),
-      document_cpf:       form.document_cpf,
-      document_rg:        form.document_rg,
-      birth_date:         form.birth_date || null,
-      hiring_date:        form.hiring_date || null,
-      email:              form.email || null,
-      phone:              form.phone || null,
-      role_label:         form.role_label || null,
-      contract_type:      form.contract_type,
-      base_salary:        parseFloat(form.base_salary) || 0,
-      commission_rate:    parseFloat(form.commission_rate) || 0,
-      vt_value:           parseFloat(form.vt_value) || 0,
-      va_value:           parseFloat(form.va_value) || 0,
-      vr_value:           parseFloat(form.vr_value) || 0,
-      health_plan_value:  parseFloat(form.health_plan_value) || 0,
-      dental_plan_value:  parseFloat(form.dental_plan_value) || 0,
-      insurance_value:    parseFloat(form.insurance_value) || 0,
-      pix_key:            form.pix_key || null,
-      bank_info:          { name: form.bank_name, agency: form.bank_agency, account: form.bank_account },
-      status:             form.status,
+
+    // Payload base — somente colunas que existiam no schema original
+    const basePayload = {
+      full_name:     form.full_name.trim(),
+      document_cpf:  form.document_cpf || null,
+      document_rg:   form.document_rg || null,
+      birth_date:    form.birth_date || null,
+      hiring_date:   form.hiring_date || null,
+      contract_type: form.contract_type,
+      base_salary:   parseFloat(form.base_salary) || 0,
+      vt_value:      parseFloat(form.vt_value) || 0,
+      va_value:      parseFloat(form.va_value) || 0,
+      pix_key:       form.pix_key || null,
+      status:        form.status,
+      // bank_info é JSONB e sempre existiu — guarda tudo como fallback
+      bank_info: {
+        name:              form.bank_name,
+        agency:            form.bank_agency,
+        account:           form.bank_account,
+        email:             form.email,
+        phone:             form.phone,
+        role_label:        form.role_label,
+        commission_rate:   parseFloat(form.commission_rate) || 0,
+        vr_value:          parseFloat(form.vr_value) || 0,
+        health_plan_value: parseFloat(form.health_plan_value) || 0,
+        dental_plan_value: parseFloat(form.dental_plan_value) || 0,
+        insurance_value:   parseFloat(form.insurance_value) || 0,
+      },
     };
 
-    const { error } = initial
-      ? await supabase.from("hr_employee_details").update(payload).eq("id", initial.id)
-      : await supabase.from("hr_employee_details").insert([payload]);
+    // Payload estendido — inclui colunas adicionadas pela migration
+    const extendedPayload = {
+      ...basePayload,
+      email:             form.email || null,
+      phone:             form.phone || null,
+      role_label:        form.role_label || null,
+      commission_rate:   parseFloat(form.commission_rate) || 0,
+      vr_value:          parseFloat(form.vr_value) || 0,
+      health_plan_value: parseFloat(form.health_plan_value) || 0,
+      dental_plan_value: parseFloat(form.dental_plan_value) || 0,
+      insurance_value:   parseFloat(form.insurance_value) || 0,
+    };
+
+    let error;
+    if (initial) {
+      ({ error } = await supabase.from("hr_employee_details").update(extendedPayload).eq("id", initial.id));
+      if (error) ({ error } = await supabase.from("hr_employee_details").update(basePayload).eq("id", initial.id));
+    } else {
+      ({ error } = await supabase.from("hr_employee_details").insert([extendedPayload]));
+      if (error) ({ error } = await supabase.from("hr_employee_details").insert([basePayload]));
+    }
 
     setSaving(false);
     if (!error) onSaved();
+    else console.error("Erro ao salvar colaborador:", error);
   }
 
   return (
