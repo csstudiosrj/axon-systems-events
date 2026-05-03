@@ -1,124 +1,64 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { supabase } from "../../lib/supabase";
-import { useRouter } from "next/navigation";
-import { useSettings } from "@/app/providers/SettingsProvider";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { supabase } from "../../../lib/supabase";
+import { useSettings } from "../../../providers/SettingsProvider";
 import {
-  Wallet,
-  Plus,
-  Loader2,
-  ArrowLeft,
-  ArrowUpRight,
-  CheckCircle,
-  XCircle,
-  Save,
-  Trash2,
-  Search,
-  Building,
-  Eye,
   AlertTriangle,
-  Upload,
-  Receipt,
-  Mail,
-  MessageCircle,
-  Users,
-  TrendingUp,
-  UserCheck,
-  Percent,
-  BarChart3,
-  PieChart,
-  DollarSign,
-  Zap,
-  CheckCheck,
-  ShieldAlert,
+  Bell,
+  CheckCircle2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  CircleDollarSign,
+  CreditCard,
   FileText,
+  Loader2,
+  MessageSquare,
   Paperclip,
-  RefreshCw,
+  ShieldAlert,
+  Upload,
   X,
-  Scale,
-  Clock3,
 } from "lucide-react";
 
-interface Client {
-  id: string;
-  company_name: string;
-  email?: string;
-  phone?: string;
-}
-
-interface Profile {
-  id: string;
-  full_name: string;
-  email?: string;
-  commission_percentage?: number;
-  role?: string;
-}
-
-interface Quote {
-  id: string;
-  title: string;
-  salesperson_id?: string;
-}
-
-interface ServiceOrder {
-  id: string;
-  quote_id?: string;
-  quotes?: Quote;
-}
-
-interface ApprovedQuote {
-  id: string;
-  title: string;
-  salesperson_id?: string;
-  final_amount?: number;
-  client_id?: string;
-}
-
-interface Transaction {
+type FinancialTransaction = {
   id: string;
   description: string;
-  type: "income" | "expense";
-  expense_type?: "administrative" | "personnel" | "operational";
-  category: string;
+  type: string | null;
+  category: string | null;
   amount: number;
-  status: "pending" | "paid" | "cancelled" | "received";
+  status: string | null;
   due_date: string;
-  payment_date?: string | null;
-  service_order_id?: string | null;
-  client_id?: string | null;
-  member_id?: string | null;
-  attachment_url?: string | null;
-  payment_method?: string | null;
-  last_notified_at?: string | null;
-  invoice_hash?: string | null;
-  quote_id?: string | null;
-  installment_number?: number | null;
-  total_installments?: number | null;
-  source?: string | null;
-  invoice_notes?: string | null;
-  document_number?: string | null;
-  workflow_status?: string | null;
-  dispute_status?: string | null;
-  dispute_reason?: string | null;
-  dispute_category?: string | null;
-  customer_last_action_at?: string | null;
-  finance_last_action_at?: string | null;
-  last_interaction_at?: string | null;
-  payment_reported_amount?: number | null;
-  payment_reported_method?: string | null;
-  payment_reported_reference?: string | null;
-  payment_reported_at?: string | null;
-  payment_confirmed_at?: string | null;
-  resolution_type?: string | null;
-  resolution_notes?: string | null;
-  clients?: Client;
-  service_orders?: ServiceOrder;
-  member?: Profile;
-  quote?: Quote;
-}
+  payment_date: string | null;
+  created_at: string;
+  notes: string | null;
+  client_id: string | null;
+  quote_id: string | null;
+  service_order_id: string | null;
+  installment_number: number | null;
+  total_installments: number | null;
+  payment_method: string | null;
+  attachment_url: string | null;
+  source: string | null;
+  invoice_notes: string | null;
+  document_number: string | null;
+  workflow_status: string | null;
+  dispute_status: string | null;
+  dispute_reason: string | null;
+  dispute_category: string | null;
+  customer_last_action_at: string | null;
+  finance_last_action_at: string | null;
+  last_interaction_at: string | null;
+  payment_reported_amount: number | null;
+  payment_reported_method: string | null;
+  payment_reported_reference: string | null;
+  payment_reported_at: string | null;
+  payment_confirmed_at: string | null;
+  resolution_type: string | null;
+  resolution_notes: string | null;
+};
 
-interface FinancialEvent {
+type FinancialEvent = {
   id: string;
   financial_transaction_id: string;
   author_id: string | null;
@@ -129,9 +69,9 @@ interface FinancialEvent {
   message: string | null;
   metadata: Record<string, unknown> | null;
   created_at: string;
-}
+};
 
-interface FinancialAttachment {
+type FinancialAttachment = {
   id: string;
   financial_transaction_id: string;
   event_id: string | null;
@@ -145,430 +85,411 @@ interface FinancialAttachment {
   mime_type: string | null;
   file_size: number | null;
   created_at: string;
-}
+};
 
-interface Toast {
-  message: string;
-  type: "success" | "error" | "warning";
-}
+type ToastState = {
+  type: "success" | "error";
+  text: string;
+};
 
-type TabId =
-  | "dashboard"
-  | "receber"
-  | "pagar_admin"
-  | "pagar_operacional"
-  | "pessoal"
-  | "clientes";
+type ActionPanelKey = "payment" | "dispute" | null;
+
+type InvoiceGroup = {
+  id: string;
+  title: string;
+  documentNumber: string | null;
+  totalAmount: number;
+  paidAmount: number;
+  openAmount: number;
+  earliestDueDate: string;
+  latestDueDate: string;
+  totalInstallments: number;
+  sourceLabel: string | null;
+  items: FinancialTransaction[];
+};
 
 const STORAGE_BUCKET = "files-main";
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
-const DEFAULT_INCOME_CATEGORIES = [
-  "Prestação de Serviços",
-  "Locação de Equipamentos",
-  "Treinamentos",
-  "Consultoria",
-  "Outras Receitas",
-];
+function normalizeText(value: string | null | undefined) {
+  return (value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
 
-const DEFAULT_EXPENSE_ADMIN_CATEGORIES = [
-  "Energia Elétrica",
-  "Água e Saneamento",
-  "Internet / Telefonia",
-  "Aluguel / Coworking",
-  "Material de Escritório",
-  "Seguros",
-  "Contabilidade / Jurídico",
-  "Software / Assinaturas",
-  "Impostos / Taxas",
-  "Outras Despesas Administrativas",
-];
+function removeInstallmentSuffix(value: string | null | undefined) {
+  return (value || "")
+    .replace(/[-–—]?\s*parcela\s*\d+\s*\/\s*\d+/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-const DEFAULT_EXPENSE_OPERATIONAL_CATEGORIES = [
-  "Logística / Frete",
-  "Equipamentos / Manutenção",
-  "Fornecedores de Produção",
-  "Alimentação / Hospedagem",
-  "Outras Despesas Operacionais",
-];
+function extractBaseTitle(item: FinancialTransaction, fallbackLabel: string) {
+  const cleaned = removeInstallmentSuffix(item.description);
+  if (cleaned) return cleaned;
+  return fallbackLabel;
+}
 
-const DEFAULT_EXPENSE_PERSONNEL_CATEGORIES = [
-  "Salário",
-  "Comissão de Vendas",
-  "Benefícios (VT, VR, PS)",
-  "Pró-labore",
-  "Freelancer / PJ",
-  "Encargos Trabalhistas",
-];
+function buildStrongGroupKey(item: FinancialTransaction) {
+  const totalInstallments = item.total_installments || 1;
+  const cleanedDescription = normalizeText(removeInstallmentSuffix(item.description));
+  const documentNumber = normalizeText(item.document_number);
+  const source = normalizeText(item.source);
+  const category = normalizeText(item.category);
+  const amount = Number(item.amount || 0).toFixed(2);
 
-const isOverdue = (date: string, status: string) =>
-  new Date(`${date}T00:00:00`) < new Date(new Date().setHours(0, 0, 0, 0)) &&
-  status === "pending";
-
-const translateWorkflowStatus = (value?: string | null) => {
-  const map: Record<string, string> = {
-    open: "Em aberto",
-    awaiting_client: "Aguardando cliente",
-    awaiting_finance: "Aguardando financeiro",
-    under_review: "Em análise",
-    confirmed: "Confirmado",
-    disputed: "Contestado",
-    resolved: "Resolvido",
-    cancelled: "Cancelado",
-  };
-  return map[value || ""] || value || "Em aberto";
-};
-
-const translateDisputeCategory = (value?: string | null) => {
-  const map: Record<string, string> = {
-    amount_divergence: "Valor divergente",
-    duplicate_charge: "Cobrança duplicada",
-    service_not_delivered: "Serviço não entregue",
-    wrong_due_date: "Data incorreta",
-    wrong_document: "Documento incorreto",
-    unknown_charge: "Cobrança desconhecida",
-    other: "Outro",
-  };
-  return map[value || ""] || value || "-";
-};
-
-const translateEventType = (value?: string | null) => {
-  const map: Record<string, string> = {
-    charge_created: "Cobrança criada",
-    payment_reported: "Pagamento informado",
-    payment_receipt_attached: "Comprovante anexado",
-    dispute_opened: "Contestação aberta",
-    dispute_comment: "Comentário da contestação",
-    finance_comment: "Comentário do financeiro",
-    payment_confirmed: "Pagamento confirmado",
-    payment_rejected: "Pagamento rejeitado",
-    charge_adjusted: "Cobrança ajustada",
-    charge_cancelled: "Cobrança cancelada",
-    status_changed: "Status alterado",
-    resolution_added: "Resolução registrada",
-    attachment_added: "Anexo incluído",
-  };
-  return map[value || ""] || value || "-";
-};
-
-const statusLabel = (t: Transaction) => {
-  if (t.workflow_status === "confirmed") return "Confirmado";
-  if (t.status === "paid" || t.status === "received") return "Pago";
-  if (t.status === "cancelled") return "Cancelado";
-  if (t.dispute_status && t.dispute_status !== "resolved") return "Contestação";
-  if (t.workflow_status === "awaiting_finance") return "Aguardando financeiro";
-  if (t.workflow_status === "under_review") return "Em análise";
-  if (isOverdue(t.due_date, t.status || "pending")) return "Vencido";
-  return "Pendente";
-};
-
-const statusClass = (t: Transaction) => {
-  if (t.workflow_status === "confirmed" || t.status === "paid" || t.status === "received") {
-    return "bg-cs-green/10 text-cs-green border-cs-green/20";
-  }
-  if (t.dispute_status && t.dispute_status !== "resolved") {
-    return "bg-orange-500/10 text-orange-400 border-orange-500/20";
-  }
-  if (t.workflow_status === "awaiting_finance" || t.workflow_status === "under_review") {
-    return "bg-cs-gold/10 text-cs-gold border-cs-gold/20";
-  }
-  if (t.status === "cancelled") return "bg-zinc-500/10 text-zinc-400 border-zinc-500/20";
-  if (isOverdue(t.due_date, t.status || "pending")) return "bg-red-500/10 text-red-500 border-red-500/20";
-  return "bg-white/5 text-zinc-300 border-white/10";
-};
-
-const getPaymentDifference = (transaction: Transaction) => {
-  const expected = Number(transaction.amount || 0);
-  const reported = Number(transaction.payment_reported_amount || 0);
-  const difference = reported - expected;
-
-  if (!transaction.payment_reported_at || reported <= 0) {
-    return {
-      expected,
-      reported,
-      difference: 0,
-      scenario: "none" as const,
-      label: "Sem pagamento informado",
-      helper: "Ainda não houve informação de pagamento pelo cliente.",
-    };
+  if (item.service_order_id && totalInstallments > 1) {
+    return `service_order_installments:${item.service_order_id}:${documentNumber || cleanedDescription || amount}:${totalInstallments}`;
   }
 
-  if (difference === 0) {
-    return {
-      expected,
-      reported,
-      difference,
-      scenario: "exact" as const,
-      label: "Valor exato",
-      helper: "O valor informado bate com a parcela atual.",
-    };
+  if (item.quote_id && totalInstallments > 1) {
+    return `quote_installments:${item.quote_id}:${documentNumber || cleanedDescription || amount}:${totalInstallments}`;
   }
 
-  if (difference < 0) {
-    return {
-      expected,
-      reported,
-      difference,
-      scenario: "partial" as const,
-      label: "Pagamento parcial",
-      helper: "O cliente informou valor menor que a parcela. Exige decisão do financeiro.",
-    };
+  if (documentNumber && totalInstallments > 1) {
+    return `document_installments:${documentNumber}:${totalInstallments}`;
   }
 
-  return {
-    expected,
-    reported,
-    difference,
-    scenario: "over" as const,
-    label: "Valor acima da parcela",
-    helper: "O valor informado é maior que a parcela. Pode indicar quitação de mais de uma parcela ou erro de referência.",
-  };
-};
+  if (cleanedDescription && totalInstallments > 1) {
+    return `description_installments:${cleanedDescription}:${amount}:${totalInstallments}`;
+  }
 
-export default function FinanceiroPage() {
-  const router = useRouter();
-  const settingsCtx = useSettings() as unknown as {
-    systemPreferences?: {
-      custom_labels?: Record<string, string>;
-      currency_code?: string;
-      financial_categories?: { income?: string[]; expense?: string[] };
-    };
-    companyProfile?: { company_name?: string; [k: string]: unknown };
-  };
+  if (item.service_order_id) {
+    return `service_order_single:${item.service_order_id}:${documentNumber || cleanedDescription || amount}`;
+  }
 
-  const sys = settingsCtx?.systemPreferences;
-  const companyProfile = settingsCtx?.companyProfile;
+  if (item.quote_id) {
+    return `quote_single:${item.quote_id}:${documentNumber || cleanedDescription || amount}`;
+  }
 
-  const L = useMemo(() => {
-    const l = sys?.custom_labels || {};
-    return {
-      hub: l.menu_financial || "Hub Financeiro",
-      receber: l.entity_receivable_plural || "Contas a Receber",
-      pagar: l.entity_payable_plural || "Contas a Pagar",
-      pagarAdmin: l.entity_expense_admin || "Despesas Administrativas",
-      pagarOp: l.entity_expense_operational || "Despesas Operacionais",
-      pessoal: l.entity_personnel || "Gestão de Pessoal",
-      clientes: l.entity_client_plural || "Análise por Cliente",
-      cliente: l.entity_client_singular || "Cliente",
-      transacao: l.entity_transaction_singular || "Lançamento",
-      receita: l.entity_income_singular || "Receita",
-      despesa: l.entity_expense_singular || "Despesa",
-      os: l.entity_service_order_singular || "OS",
-      orcamento: l.entity_quote_singular || "Orçamento",
-      salario: l.entity_salary || "Salário",
-      comissao: l.entity_commission || "Comissão",
-      colaborador: l.entity_member_singular || "Colaborador",
-    };
-  }, [sys]);
+  if (documentNumber) {
+    return `document_single:${documentNumber}:${amount}`;
+  }
 
-  const currencyCode = sys?.currency_code || "BRL";
+  if (cleanedDescription) {
+    return `description_single:${cleanedDescription}:${amount}:${source}:${category}`;
+  }
 
-  const incomeCategories = useMemo(() => {
-    const raw = sys?.financial_categories?.income;
-    return raw?.length ? raw : DEFAULT_INCOME_CATEGORIES;
-  }, [sys]);
+  return `single:${item.id}`;
+}
 
-  const [activeTab, setActiveTab] = useState<TabId>("dashboard");
-  const [view, setView] = useState<"list" | "create">("list");
+function sortTransactionsInGroup(items: FinancialTransaction[]) {
+  return [...items].sort((a, b) => {
+    const installmentA = a.installment_number ?? 9999;
+    const installmentB = b.installment_number ?? 9999;
+    if (installmentA !== installmentB) return installmentA - installmentB;
+
+    const dueA = new Date(a.due_date || 0).getTime();
+    const dueB = new Date(b.due_date || 0).getTime();
+    if (dueA !== dueB) return dueA - dueB;
+
+    const createdA = new Date(a.created_at || 0).getTime();
+    const createdB = new Date(b.created_at || 0).getTime();
+    if (createdA !== createdB) return createdA - createdB;
+
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function dedupeTransactions(items: FinancialTransaction[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
+export default function PortalFaturasPage() {
+  const { resolvedClientId, systemPreferences, companyProfile } = useSettings();
+
   const [loading, setLoading] = useState(true);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [isSendingMail, setIsSendingMail] = useState(false);
-  const [actionSubmitting, setActionSubmitting] = useState(false);
-
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [team, setTeam] = useState<Profile[]>([]);
-  const [approvedQuotes, setApprovedQuotes] = useState<ApprovedQuote[]>([]);
-
+  const [transactions, setTransactions] = useState<FinancialTransaction[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [events, setEvents] = useState<FinancialEvent[]>([]);
   const [attachments, setAttachments] = useState<FinancialAttachment[]>([]);
-  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [toast, setToast] = useState<ToastState>({ type: "success", text: "" });
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [paymentFile, setPaymentFile] = useState<File | null>(null);
+  const [disputeFile, setDisputeFile] = useState<File | null>(null);
+  // FIX 1: signedUrls removido das dependências do useCallback — gerenciado via setState funcional
+  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [openActionPanel, setOpenActionPanel] = useState<ActionPanelKey>(null);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
-  const [toast, setToast] = useState<Toast | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [clientSearch, setClientSearch] = useState("");
-  const [memberSearch, setMemberSearch] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const financeAttachmentInputRef = useRef<HTMLInputElement>(null);
+  const [paymentForm, setPaymentForm] = useState({
+    amount: "",
+    method: "pix",
+    reference: "",
+    message: "",
+  });
+
+  const [disputeForm, setDisputeForm] = useState({
+    category: "amount_divergence",
+    reason: "",
+    message: "",
+  });
+
   const toastTimer = useRef<number | null>(null);
 
-  const [formType, setFormType] = useState<"income" | "expense">("income");
-  const [expenseType, setExpenseType] = useState<"administrative" | "personnel" | "operational">("administrative");
-  const [editId, setEditId] = useState<string | null>(null);
-  const [formData, setForm] = useState({
-    description: "",
-    category: "",
-    amount: "",
-    status: "pending" as "pending" | "paid" | "cancelled",
-    dueDate: "",
-    paymentDate: "",
-    serviceOrderId: "",
-    clientId: "",
-    memberId: "",
-    commissionAmount: "",
-    paymentMethod: "pix",
-    attachmentUrl: "",
-  });
+  const labels = systemPreferences?.custom_labels;
+  const invoiceSingular = labels?.entity_invoice_singular || "Fatura";
+  const invoicePlural = labels?.entity_invoice_plural || "Faturas";
+  const clientSingular = labels?.entity_client_singular || "Cliente";
+  const quoteSingular = labels?.entity_quote_singular || "Orçamento";
+  const serviceOrderSingular = labels?.entity_service_order_singular || "Ordem de Serviço";
+  const brandName = companyProfile?.company_name || "ARXUM Systems";
+  const brandColor = companyProfile?.primary_color || "#138946";
+  const currencyCode = systemPreferences?.currency_code || "BRL";
 
-  const [financeActionForm, setFinanceActionForm] = useState({
-    comment: "",
-    resolutionType: "payment_confirmed",
-    resolutionNotes: "",
-  });
-  const [financeAttachmentFile, setFinanceAttachmentFile] = useState<File | null>(null);
-
-  const showToast = useCallback((message: string, type: Toast["type"]) => {
-    setToast({ message, type });
+  const showToast = useCallback((text: string, type: "success" | "error") => {
+    setToast({ text, type });
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 5000);
+    toastTimer.current = window.setTimeout(() => setToast({ type: "success", text: "" }), 4000);
   }, []);
 
-  const formatCurrency = useCallback(
-    (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: currencyCode }).format(v),
+  const currency = useCallback(
+    (value: number | null | undefined) =>
+      new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: currencyCode,
+      }).format(Number(value || 0)),
     [currencyCode]
   );
 
-  const formatDate = useCallback((value?: string | null) => {
+  const handleCurrencyInput = (value: string) => {
+    const digits = value.replace(/\D/g, "");
+    const floatValue = (Number(digits) / 100).toFixed(2);
+    if (digits === "") return "";
+    return new Intl.NumberFormat("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(parseFloat(floatValue));
+  };
+
+  const parseCurrencyToNumber = (value: string) => {
+    return Number(value.replace(/\./g, "").replace(",", "."));
+  };
+
+  const formatDate = useCallback((value: string | null) => {
     if (!value) return "-";
     return new Date(value).toLocaleDateString("pt-BR");
   }, []);
 
-  const formatDateTime = useCallback((value?: string | null) => {
+  const formatDateTime = useCallback((value: string | null) => {
     if (!value) return "-";
     return new Date(value).toLocaleString("pt-BR");
   }, []);
 
-  const fetchCurrentUser = useCallback(async () => {
+  const translateFinancialStatus = useCallback((status: string | null) => {
+    const map: Record<string, string> = {
+      pending: "Pendente",
+      paid: "Pago",
+      received: "Recebido",
+      overdue: "Vencido",
+      cancelled: "Cancelado",
+    };
+    return map[status || ""] || status || "-";
+  }, []);
+
+  const translateWorkflowStatus = useCallback((status: string | null) => {
+    const map: Record<string, string> = {
+      open: "Em aberto",
+      awaiting_client: "Aguardando cliente",
+      awaiting_finance: "Aguardando financeiro",
+      under_review: "Em análise",
+      confirmed: "Confirmado",
+      disputed: "Contestado",
+      resolved: "Resolvido",
+      cancelled: "Cancelado",
+    };
+    return map[status || ""] || status || "Em aberto";
+  }, []);
+
+  const translateDisputeCategory = useCallback((value: string | null) => {
+    const map: Record<string, string> = {
+      amount_divergence: "Valor divergente",
+      duplicate_charge: "Cobrança duplicada",
+      service_not_delivered: "Serviço não entregue",
+      wrong_due_date: "Data incorreta",
+      wrong_document: "Documento incorreto",
+      unknown_charge: "Cobrança desconhecida",
+      other: "Outro",
+    };
+    return map[value || ""] || value || "-";
+  }, []);
+
+  const translateEventType = useCallback((value: string) => {
+    const map: Record<string, string> = {
+      charge_created: "Cobrança criada",
+      payment_reported: "Pagamento informado",
+      payment_receipt_attached: "Comprovante anexado",
+      dispute_opened: "Contestação aberta",
+      dispute_comment: "Comentário da contestação",
+      finance_comment: "Comentário do financeiro",
+      payment_confirmed: "Pagamento confirmado",
+      payment_rejected: "Pagamento rejeitado",
+      charge_adjusted: "Cobrança ajustada",
+      charge_cancelled: "Cobrança cancelada",
+      status_changed: "Status alterado",
+      resolution_added: "Resolução registrada",
+      attachment_added: "Anexo incluído",
+    };
+    return map[value] || value;
+  }, []);
+
+  const translatePaymentMethod = useCallback((value: string | null) => {
+    const map: Record<string, string> = {
+      pix: "PIX",
+      boleto: "Boleto",
+      transferencia: "Transferência",
+      cartao: "Cartão",
+      outro: "Outro",
+    };
+    return map[value || ""] || value || "-";
+  }, []);
+
+  const formatMetadataLabel = useCallback((key: string) => {
+    const map: Record<string, string> = {
+      valor: "Valor",
+      forma_pagamento: "Forma de pagamento",
+      referencia: "Referência",
+      categoria: "Categoria",
+      motivo: "Motivo",
+    };
+    return map[key] || key.replaceAll("_", " ");
+  }, []);
+
+  const formatMetadataValue = useCallback(
+    (key: string, value: unknown) => {
+      if (value === null || value === undefined || value === "") return "-";
+      if (key === "valor" && typeof value === "number") return currency(value);
+      if (key === "forma_pagamento" && typeof value === "string") return translatePaymentMethod(value);
+      if (key === "categoria" && typeof value === "string") return translateDisputeCategory(value);
+      return String(value);
+    },
+    [currency, translateDisputeCategory, translatePaymentMethod]
+  );
+
+  const getSourceLabel = useCallback(
+    (item: FinancialTransaction) => {
+      if (item.service_order_id) return serviceOrderSingular;
+      if (item.quote_id) return quoteSingular;
+      return item.source || null;
+    },
+    [quoteSingular, serviceOrderSingular]
+  );
+
+  const fetchTransactions = useCallback(async () => {
+    if (!resolvedClientId) {
+      setTransactions([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
     const {
       data: { session },
     } = await supabase.auth.getSession();
     setCurrentUserId(session?.user?.id || null);
-  }, []);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      await fetchCurrentUser();
+    const { data, error } = await supabase
+      .from("financial_transactions")
+      .select("*")
+      .eq("client_id", resolvedClientId)
+      .order("due_date", { ascending: true })
+      .order("created_at", { ascending: true });
 
-      const [tRes, cRes, qRes, pRes] = await Promise.all([
-        supabase
-          .from("financial_transactions")
-          .select(
-            `
-              id,
-              description,
-              type,
-              expense_type,
-              category,
-              amount,
-              status,
-              due_date,
-              payment_date,
-              service_order_id,
-              client_id,
-              member_id,
-              attachment_url,
-              payment_method,
-              last_notified_at,
-              invoice_hash,
-              quote_id,
-              installment_number,
-              total_installments,
-              source,
-              invoice_notes,
-              document_number,
-              workflow_status,
-              dispute_status,
-              dispute_reason,
-              dispute_category,
-              customer_last_action_at,
-              finance_last_action_at,
-              last_interaction_at,
-              payment_reported_amount,
-              payment_reported_method,
-              payment_reported_reference,
-              payment_reported_at,
-              payment_confirmed_at,
-              resolution_type,
-              resolution_notes,
-              created_at,
-              clients(*),
-              member:profiles!member_id(id, full_name, email, role, commission_percentage)
-            `
-          )
-          .order("due_date", { ascending: true }),
-        supabase.from("clients").select("id, company_name, email, phone").order("company_name"),
-        supabase
-          .from("quotes")
-          .select("id, title, salesperson_id, final_amount, client_id")
-          .eq("status", "approved")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("profiles")
-          .select("id, full_name, email, role, commission_percentage")
-          .order("full_name"),
-      ]);
-
-      if (qRes.data) setApprovedQuotes(qRes.data as unknown as ApprovedQuote[]);
-      if (cRes.data) setClients(cRes.data as Client[]);
-      if (pRes.data) setTeam(pRes.data as unknown as Profile[]);
-
-      if (tRes.error) throw tRes.error;
-      setTransactions((tRes.data || []) as unknown as Transaction[]);
-    } catch (error) {
-      console.error(error);
-      showToast("Erro ao sincronizar com a nuvem.", "error");
-    } finally {
+    if (error) {
+      console.error("Erro ao carregar cobranças:", error);
+      setTransactions([]);
       setLoading(false);
-    }
-  }, [fetchCurrentUser, showToast]);
-
-  const fetchInteractionDetails = useCallback(async (transactionId: string) => {
-    if (!transactionId) {
-      setEvents([]);
-      setAttachments([]);
+      showToast("Não foi possível carregar as cobranças.", "error");
       return;
     }
 
+    const rows = dedupeTransactions((data || []) as FinancialTransaction[]);
+    setTransactions(rows);
+
+    const unread = rows.filter(
+      (t) =>
+        t.finance_last_action_at &&
+        (!t.customer_last_action_at ||
+          new Date(t.finance_last_action_at) > new Date(t.customer_last_action_at))
+    ).length;
+    setUnreadNotifications(unread);
+
+    setLoading(false);
+  }, [resolvedClientId, showToast]);
+
+  const fetchDetails = useCallback(async (transactionId: string) => {
     setDetailLoading(true);
+    const [eventsResult, attachmentsResult] = await Promise.all([
+      supabase
+        .from("financial_transaction_events")
+        .select("*")
+        .eq("financial_transaction_id", transactionId)
+        .eq("visibility", "shared")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("financial_transaction_attachments")
+        .select("*")
+        .eq("financial_transaction_id", transactionId)
+        .eq("visibility", "shared")
+        .order("created_at", { ascending: false }),
+    ]);
 
-    try {
-      const [eventsResult, attachmentsResult] = await Promise.all([
-        supabase
-          .from("financial_transaction_events")
-          .select("id, financial_transaction_id, author_id, author_type, visibility, event_type, title, message, metadata, created_at")
-          .eq("financial_transaction_id", transactionId)
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("financial_transaction_attachments")
-          .select("id, financial_transaction_id, event_id, uploaded_by, uploaded_by_type, visibility, attachment_type, file_name, file_path, file_url, mime_type, file_size, created_at")
-          .eq("financial_transaction_id", transactionId)
-          .order("created_at", { ascending: false }),
-      ]);
-
-      if (eventsResult.error) throw eventsResult.error;
-      if (attachmentsResult.error) throw attachmentsResult.error;
-
-      setEvents((eventsResult.data || []) as FinancialEvent[]);
-      setAttachments((attachmentsResult.data || []) as FinancialAttachment[]);
-    } catch (error) {
-      console.error(error);
+    if (eventsResult.error) {
       setEvents([]);
-      setAttachments([]);
-      showToast("Erro ao carregar histórico financeiro.", "error");
-    } finally {
-      setDetailLoading(false);
+    } else {
+      setEvents((eventsResult.data || []) as FinancialEvent[]);
     }
-  }, [showToast]);
+
+    if (attachmentsResult.error) {
+      setAttachments([]);
+    } else {
+      setAttachments((attachmentsResult.data || []) as FinancialAttachment[]);
+    }
+    setDetailLoading(false);
+  }, []);
+
+  // FIX 5: Marca a fatura como lida ao selecionar, zerando o contador de notificações
+  const markTransactionAsRead = useCallback(
+    async (transactionId: string) => {
+      const now = new Date().toISOString();
+      await supabase
+        .from("financial_transactions")
+        .update({ customer_last_action_at: now })
+        .eq("id", transactionId);
+
+      setTransactions((prev) =>
+        prev.map((t) =>
+          t.id === transactionId ? { ...t, customer_last_action_at: now } : t
+        )
+      );
+
+      setUnreadNotifications((prev) => {
+        const stillUnread = transactions.filter(
+          (t) =>
+            t.id !== transactionId &&
+            t.finance_last_action_at &&
+            (!t.customer_last_action_at ||
+              new Date(t.finance_last_action_at) > new Date(t.customer_last_action_at))
+        ).length;
+        return stillUnread;
+      });
+    },
+    [transactions]
+  );
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    void fetchTransactions();
+  }, [fetchTransactions]);
 
   useEffect(() => {
     return () => {
@@ -577,2225 +498,1101 @@ export default function FinanceiroPage() {
   }, []);
 
   useEffect(() => {
-    if (!selectedTransaction?.id || !isDetailModalOpen) return;
-    fetchInteractionDetails(selectedTransaction.id);
-  }, [selectedTransaction?.id, isDetailModalOpen, fetchInteractionDetails]);
+    if (unreadNotifications > 0) {
+      document.title = `(${unreadNotifications}) Atualizações em ${invoicePlural} | ${brandName}`;
+    } else {
+      document.title = `${invoicePlural} | ${brandName}`;
+    }
+  }, [unreadNotifications, invoicePlural, brandName]);
 
+  // FIX 2: Limpa formulários ao trocar de fatura selecionada
   useEffect(() => {
-    const channel = supabase
-      .channel("financeiro-realtime-v2")
-      .on("postgres_changes", { event: "*", schema: "public", table: "financial_transactions" }, async () => {
-        await fetchData();
-        if (selectedTransaction?.id) {
-          const latest = await supabase
-            .from("financial_transactions")
-            .select(
-              `
-                id,
-                description,
-                type,
-                expense_type,
-                category,
-                amount,
-                status,
-                due_date,
-                payment_date,
-                service_order_id,
-                client_id,
-                member_id,
-                attachment_url,
-                payment_method,
-                last_notified_at,
-                invoice_hash,
-                quote_id,
-                installment_number,
-                total_installments,
-                source,
-                invoice_notes,
-                document_number,
-                workflow_status,
-                dispute_status,
-                dispute_reason,
-                dispute_category,
-                customer_last_action_at,
-                finance_last_action_at,
-                last_interaction_at,
-                payment_reported_amount,
-                payment_reported_method,
-                payment_reported_reference,
-                payment_reported_at,
-                payment_confirmed_at,
-                resolution_type,
-                resolution_notes,
-                created_at,
-                clients(*),
-                member:profiles!member_id(id, full_name, email, role, commission_percentage)
-              `
-            )
-            .eq("id", selectedTransaction.id)
-            .single();
+    if (!selectedId) return;
 
-          if (latest.data) setSelectedTransaction(latest.data as unknown as Transaction);
-        }
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "financial_transaction_events" }, async () => {
-        if (selectedTransaction?.id && isDetailModalOpen) {
-          await fetchInteractionDetails(selectedTransaction.id);
-        }
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "financial_transaction_attachments" }, async () => {
-        if (selectedTransaction?.id && isDetailModalOpen) {
-          await fetchInteractionDetails(selectedTransaction.id);
-        }
-      })
-      .subscribe();
+    setOpenActionPanel(null);
+    setPaymentForm({ amount: "", method: "pix", reference: "", message: "" });
+    setDisputeForm({ category: "amount_divergence", reason: "", message: "" });
+    setPaymentFile(null);
+    setDisputeFile(null);
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [fetchData, fetchInteractionDetails, isDetailModalOpen, selectedTransaction?.id]);
+    void fetchDetails(selectedId);
+    void markTransactionAsRead(selectedId);
+  }, [selectedId, fetchDetails, markTransactionAsRead]);
 
-  const filteredClientsList = useMemo(
-    () =>
-      clients
-        .filter((c) => c.company_name.toLowerCase().includes(clientSearch.toLowerCase()))
-        .slice(0, 8),
-    [clients, clientSearch]
-  );
+  const groupedInvoices = useMemo<InvoiceGroup[]>(() => {
+    const map = new Map<string, InvoiceGroup>();
+    for (const item of transactions) {
+      const key = buildStrongGroupKey(item);
+      const title = extractBaseTitle(item, invoiceSingular);
+      const sourceLabel = getSourceLabel(item);
 
-  const filteredTeamList = useMemo(
-    () =>
-      team
-        .filter((t) => t.full_name?.toLowerCase().includes(memberSearch.toLowerCase()))
-        .slice(0, 8),
-    [team, memberSearch]
-  );
-
-  const filteredTransactions = useMemo(
-    () =>
-      transactions.filter(
-        (t) =>
-          t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (t.clients?.company_name?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false) ||
-          (t.category?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false) ||
-          (t.document_number?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false)
-      ),
-    [transactions, searchTerm]
-  );
-
-  const stats = useMemo(() => {
-    const paidIn = transactions
-      .filter((t) => t.type === "income" && (t.status === "paid" || t.status === "received"))
-      .reduce((a, b) => a + Number(b.amount), 0);
-
-    const paidOut = transactions
-      .filter((t) => t.type === "expense" && (t.status === "paid" || t.status === "received"))
-      .reduce((a, b) => a + Number(b.amount), 0);
-
-    const pendingIn = transactions
-      .filter((t) => t.type === "income" && t.status === "pending")
-      .reduce((a, b) => a + Number(b.amount), 0);
-
-    const overdueIn = transactions
-      .filter((t) => t.type === "income" && isOverdue(t.due_date, t.status || "pending"))
-      .reduce((a, b) => a + Number(b.amount), 0);
-
-    const waitingFinance = transactions
-      .filter((t) => t.type === "income" && t.workflow_status === "awaiting_finance")
-      .reduce((a, b) => a + Number(b.amount), 0);
-
-    const disputedOpen = transactions
-      .filter((t) => t.type === "income" && t.dispute_status && t.dispute_status !== "resolved")
-      .reduce((a, b) => a + Number(b.amount), 0);
-
-    const paidThisMonth = transactions
-      .filter((t) => {
-        if (t.type !== "income") return false;
-        if (!(t.status === "paid" || t.status === "received")) return false;
-        const date = t.payment_date || t.payment_confirmed_at || t.last_interaction_at;
-        if (!date) return false;
-        const d = new Date(date);
-        const now = new Date();
-        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-      })
-      .reduce((a, b) => a + Number(b.amount), 0);
-
-    const expensePaid = transactions
-      .filter((t) => t.type === "expense" && (t.status === "paid" || t.status === "received"))
-      .reduce((a, b) => a + Number(b.amount), 0);
-
-    const peopleCost = transactions
-      .filter((t) => t.expense_type === "personnel" && (t.status === "paid" || t.status === "received"))
-      .reduce((a, b) => a + Number(b.amount), 0);
-
-    return {
-      balance: paidIn - paidOut,
-      pendingIn,
-      overdueIn,
-      paidIn,
-      paidOut,
-      waitingFinance,
-      disputedOpen,
-      paidThisMonth,
-      expensePaid,
-      peopleCost,
-    };
-  }, [transactions]);
-
-  const personnelStats = useMemo(() => {
-    const pt = transactions.filter((t) => t.expense_type === "personnel");
-    const totalSalaries = pt
-      .filter((t) =>
-        [L.salario.toLowerCase(), "salário", "salario", "folha"].some((k) =>
-          t.category.toLowerCase().includes(k)
-        )
-      )
-      .reduce((a, b) => a + Number(b.amount), 0);
-
-    const totalCommissions = pt
-      .filter((t) =>
-        [L.comissao.toLowerCase(), "comissão", "comissao"].some((k) =>
-          t.category.toLowerCase().includes(k)
-        )
-      )
-      .reduce((a, b) => a + Number(b.amount), 0);
-
-    const byMember: Record<string, { name: string; total: number }> = {};
-    pt
-      .filter((t) =>
-        [L.comissao.toLowerCase(), "comissão", "comissao"].some((k) =>
-          t.category.toLowerCase().includes(k)
-        )
-      )
-      .forEach((t) => {
-        if (t.member_id && t.member) {
-          if (!byMember[t.member_id]) byMember[t.member_id] = { name: t.member.full_name, total: 0 };
-          byMember[t.member_id].total += Number(t.amount);
-        }
-      });
-
-    return {
-      totalSalaries,
-      totalCommissions,
-      commissionByMember: Object.values(byMember).sort((a, b) => b.total - a.total),
-    };
-  }, [transactions, L]);
-
-  const expenseByCategory = useMemo(() => {
-    const map: Record<string, number> = {};
-    transactions
-      .filter((t) => t.type === "expense" && (t.status === "paid" || t.status === "received"))
-      .forEach((t) => {
-        map[t.category] = (map[t.category] || 0) + Number(t.amount);
-      });
-    return Object.entries(map)
-      .map(([cat, val]) => ({ cat, val }))
-      .sort((a, b) => b.val - a.val)
-      .slice(0, 8);
-  }, [transactions]);
-
-  const totalExpenses = expenseByCategory.reduce((a, b) => a + b.val, 0);
-
-  const clientSummary = useMemo(
-    () =>
-      clients
-        .map((c) => {
-          const ct = transactions.filter((t) => t.client_id === c.id && t.type === "income");
-          const ltv = ct.filter((t) => t.status === "paid" || t.status === "received").reduce((a, b) => a + Number(b.amount), 0);
-          const debt = ct.filter((t) => t.status === "pending").reduce((a, b) => a + Number(b.amount), 0);
-          return { ...c, ltv, debt };
-        })
-        .filter((c) => c.ltv > 0 || c.debt > 0)
-        .sort((a, b) => b.ltv - a.ltv),
-    [clients, transactions]
-  );
-
-  const receivableRows = useMemo(
-    () => filteredTransactions.filter((t) => t.type === "income"),
-    [filteredTransactions]
-  );
-
-  const clientActionQueue = useMemo(
-    () =>
-      receivableRows
-        .filter(
-          (t) =>
-            t.workflow_status === "awaiting_finance" ||
-            t.workflow_status === "under_review" ||
-            (t.dispute_status && t.dispute_status !== "resolved")
-        )
-        .sort((a, b) => {
-          const dateA = new Date(a.last_interaction_at || a.payment_reported_at || a.due_date).getTime();
-          const dateB = new Date(b.last_interaction_at || b.payment_reported_at || b.due_date).getTime();
-          return dateB - dateA;
-        }),
-    [receivableRows]
-  );
-
-  const currentCategories = useMemo(() => {
-    if (formType === "income") return incomeCategories;
-    if (expenseType === "administrative") return DEFAULT_EXPENSE_ADMIN_CATEGORIES;
-    if (expenseType === "operational") return DEFAULT_EXPENSE_OPERATIONAL_CATEGORIES;
-    return DEFAULT_EXPENSE_PERSONNEL_CATEGORIES;
-  }, [formType, expenseType, incomeCategories]);
-
-  const tabs = [
-    { id: "dashboard" as TabId, label: "Visão Geral", icon: TrendingUp },
-    { id: "receber" as TabId, label: L.receber, icon: ArrowUpRight },
-    { id: "pagar_admin" as TabId, label: L.pagarAdmin, icon: DollarSign },
-    { id: "pagar_operacional" as TabId, label: L.pagarOp, icon: Zap },
-    { id: "pessoal" as TabId, label: L.pessoal, icon: Users },
-    { id: "clientes" as TabId, label: L.clientes, icon: Building },
-  ];
-
-  const CHART_COLORS = [
-    "bg-cs-green",
-    "bg-cs-gold",
-    "bg-blue-500",
-    "bg-purple-500",
-    "bg-red-500",
-    "bg-orange-500",
-    "bg-cyan-500",
-    "bg-pink-500",
-  ];
-
-  const resetForm = () => {
-    setEditId(null);
-    setFormType("income");
-    setExpenseType("administrative");
-    setForm({
-      description: "",
-      category: "",
-      amount: "",
-      status: "pending",
-      dueDate: "",
-      paymentDate: "",
-      serviceOrderId: "",
-      clientId: "",
-      memberId: "",
-      commissionAmount: "",
-      paymentMethod: "pix",
-      attachmentUrl: "",
-    });
-    setClientSearch("");
-    setMemberSearch("");
-  };
-
-  const openEditForm = (t: Transaction) => {
-    setIsDetailModalOpen(false);
-    setEditId(t.id);
-    setFormType(t.type);
-    setExpenseType(t.expense_type || "administrative");
-    setForm({
-      description: t.description,
-      category: t.category,
-      amount: t.amount.toString(),
-      status: (t.status as "pending" | "paid" | "cancelled") || "pending",
-      dueDate: t.due_date,
-      paymentDate: t.payment_date || "",
-      serviceOrderId: t.quote_id || t.service_order_id || "",
-      clientId: t.client_id || "",
-      memberId: t.member_id || "",
-      commissionAmount: "",
-      paymentMethod: t.payment_method || "pix",
-      attachmentUrl: t.attachment_url || "",
-    });
-    setClientSearch(t.clients?.company_name || "");
-    setMemberSearch(t.member?.full_name || "");
-    setView("create");
-  };
-
-  const openCreateForTab = (tab: TabId) => {
-    resetForm();
-    if (tab === "receber") setFormType("income");
-    else if (tab === "pagar_admin") {
-      setFormType("expense");
-      setExpenseType("administrative");
-    } else if (tab === "pagar_operacional") {
-      setFormType("expense");
-      setExpenseType("operational");
-    } else if (tab === "pessoal") {
-      setFormType("expense");
-      setExpenseType("personnel");
-    } else setFormType("income");
-    setView("create");
-  };
-
-  const buildFinanceStoragePath = useCallback((file: File, transactionId: string) => {
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const clientId = selectedTransaction?.client_id || formData.clientId || "internal";
-    return `financial/${clientId}/${transactionId}/finance/${Date.now()}-${safeName}`;
-  }, [formData.clientId, selectedTransaction?.client_id]);
-
-  const uploadPrivateFile = useCallback(async (file: File, transactionId: string) => {
-    const path = buildFinanceStoragePath(file, transactionId);
-    const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, {
-      upsert: false,
-      contentType: file.type || undefined,
-    });
-
-    if (error) {
-      throw new Error(error.message || "Erro no upload do arquivo.");
-    }
-
-    return {
-      file_path: path,
-      file_name: file.name,
-      mime_type: file.type || null,
-      file_size: file.size || null,
-    };
-  }, [buildFinanceStoragePath]);
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-
-    try {
-      const tempTransactionId = editId || crypto.randomUUID();
-      const uploaded = await uploadPrivateFile(file, tempTransactionId);
-
-      const { data } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(uploaded.file_path, 3600);
-      setForm((prev) => ({ ...prev, attachmentUrl: data?.signedUrl || uploaded.file_path }));
-      showToast("Documento processado com sucesso.", "success");
-    } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : "Erro no upload.", "error");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.description || !formData.amount || !formData.dueDate) {
-      showToast("Preencha os campos obrigatórios.", "warning");
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    const getCategoryForType = () => {
-      if (formType === "income") return formData.category || incomeCategories[0] || "";
-      if (expenseType === "administrative") return formData.category || DEFAULT_EXPENSE_ADMIN_CATEGORIES[0] || "";
-      if (expenseType === "operational") return formData.category || DEFAULT_EXPENSE_OPERATIONAL_CATEGORIES[0] || "";
-      return formData.category || DEFAULT_EXPENSE_PERSONNEL_CATEGORIES[0] || "";
-    };
-
-    const payload: Record<string, unknown> = {
-      description: formData.description,
-      type: formType,
-      expense_type: formType === "expense" ? expenseType : null,
-      category: getCategoryForType(),
-      amount: Number(formData.amount),
-      status: formData.status,
-      due_date: formData.dueDate,
-      payment_date: formData.status === "paid" ? formData.paymentDate || new Date().toISOString().split("T")[0] : null,
-      service_order_id: null,
-      quote_id: formData.serviceOrderId || null,
-      client_id: formType === "income" ? formData.clientId || null : null,
-      member_id: expenseType === "personnel" && formType === "expense" ? formData.memberId || null : null,
-      payment_method: formData.paymentMethod,
-      attachment_url: formData.attachmentUrl || null,
-    };
-
-    const { error, data } = editId
-      ? await supabase.from("financial_transactions").update(payload).eq("id", editId).select("id").single()
-      : await supabase.from("financial_transactions").insert([payload]).select("id").single();
-
-    if (!error) {
-      showToast("Lançamento gravado com sucesso.", "success");
-      setView("list");
-      await fetchData();
-      resetForm();
-
-      if (data?.id && fileInputRef.current?.files?.[0]) {
-        const file = fileInputRef.current.files[0];
-        try {
-          const uploaded = await uploadPrivateFile(file, data.id);
-
-          await supabase.from("financial_transaction_attachments").insert({
-            financial_transaction_id: data.id,
-            uploaded_by: currentUserId,
-            uploaded_by_type: "finance",
-            visibility: "internal",
-            attachment_type: "admin_attachment",
-            file_name: uploaded.file_name,
-            file_path: uploaded.file_path,
-            mime_type: uploaded.mime_type,
-            file_size: uploaded.file_size,
-          });
-        } catch (attachmentError) {
-          console.error(attachmentError);
-        }
+      if (!map.has(key)) {
+        map.set(key, {
+          id: key,
+          title,
+          documentNumber: item.document_number,
+          totalAmount: 0,
+          paidAmount: 0,
+          openAmount: 0,
+          earliestDueDate: item.due_date,
+          latestDueDate: item.due_date,
+          totalInstallments: item.total_installments || 1,
+          sourceLabel,
+          items: [],
+        });
       }
-    } else {
-      showToast(error.message, "error");
+
+      const group = map.get(key)!;
+      if (!group.items.some((existing) => existing.id === item.id)) {
+        group.items.push(item);
+      }
+
+      group.totalAmount += Number(item.amount || 0);
+      const isPaid =
+        item.status === "paid" ||
+        item.status === "received" ||
+        item.workflow_status === "confirmed";
+      if (isPaid) group.paidAmount += Number(item.amount || 0);
+      else group.openAmount += Number(item.amount || 0);
+
+      if (new Date(item.due_date) < new Date(group.earliestDueDate))
+        group.earliestDueDate = item.due_date;
+      if (new Date(item.due_date) > new Date(group.latestDueDate))
+        group.latestDueDate = item.due_date;
     }
 
-    setIsSubmitting(false);
-  };
-
-  const updateStatus = async (id: string, newStatus: string) => {
-    const payload: Record<string, unknown> = { status: newStatus };
-    payload.payment_date = newStatus === "paid" ? new Date().toISOString().split("T")[0] : null;
-
-    const { error } = await supabase.from("financial_transactions").update(payload).eq("id", id);
-
-    if (!error) {
-      showToast("Status atualizado.", "success");
-      await fetchData();
-      setSelectedTransaction((prev) =>
-        prev?.id === id ? { ...prev, status: newStatus as Transaction["status"] } : prev
+    return Array.from(map.values())
+      .map((group) => ({ ...group, items: sortTransactionsInGroup(group.items) }))
+      .sort(
+        (a, b) =>
+          new Date(a.earliestDueDate).getTime() - new Date(b.earliestDueDate).getTime()
       );
-    } else {
-      showToast(error.message, "error");
-    }
-  };
-
-  const handleDeleteTransaction = async (id: string) => {
-    const { error } = await supabase.from("financial_transactions").delete().eq("id", id);
-    if (!error) {
-      setConfirmDeleteId(null);
-      setIsDetailModalOpen(false);
-      await fetchData();
-      showToast("Registro removido.", "success");
-    } else {
-      showToast("Erro ao excluir.", "error");
-    }
-  };
-
-  const sendWhatsApp = (t: Transaction) => {
-    const phone = t.clients?.phone?.replace(/\D/g, "");
-    if (!phone) {
-      showToast(`${L.cliente} sem telefone cadastrado.`, "warning");
-      return;
-    }
-    const msg = `Olá, ${t.clients?.company_name}. Há um lançamento pendente: ${t.description} no valor de ${formatCurrency(t.amount)}, com vencimento em ${new Date(`${t.due_date}T00:00:00`).toLocaleDateString("pt-BR")}.`;
-    window.open(`https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`, "_blank");
-  };
-
-  const sendInvoiceEmail = async (t: Transaction) => {
-    if (!t.clients?.email) {
-      showToast(`${L.cliente} sem e-mail cadastrado.`, "warning");
-      return;
-    }
-    setIsSendingMail(true);
-    try {
-      const res = await fetch("/api/finance/send-invoice", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transactionId: t.id, companyName: companyProfile?.company_name || "ARXUM" }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erro ao enviar e-mail.");
-      showToast("Cobrança disparada via e-mail.", "success");
-      await fetchData();
-    } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : "Erro ao enviar e-mail.", "error");
-    } finally {
-      setIsSendingMail(false);
-    }
-  };
-
-  const resolveAttachmentUrls = useCallback(async () => {
-    const pending = attachments.filter((file) => file.file_path && !signedUrls[file.id]);
-    if (pending.length === 0) return;
-
-    const nextMap: Record<string, string> = {};
-
-    await Promise.all(
-      pending.map(async (file) => {
-        const { data } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(file.file_path, 3600);
-        if (data?.signedUrl) nextMap[file.id] = data.signedUrl;
-      })
-    );
-
-    if (Object.keys(nextMap).length > 0) {
-      setSignedUrls((prev) => ({ ...prev, ...nextMap }));
-    }
-  }, [attachments, signedUrls]);
+  }, [transactions, invoiceSingular, getSourceLabel]);
 
   useEffect(() => {
-    resolveAttachmentUrls();
-  }, [resolveAttachmentUrls]);
+    if (groupedInvoices.length > 0 && !selectedId) {
+      setSelectedId(groupedInvoices[0].items[0].id);
+    }
+  }, [groupedInvoices, selectedId]);
 
-  const registerFinanceEvent = useCallback(
-    async (
-      transactionId: string,
-      eventType: string,
-      title: string,
-      message: string,
-      metadata?: Record<string, unknown>,
-      visibility: "shared" | "internal" = "shared"
-    ) => {
-      const { data, error } = await supabase
+  const selectedTransaction = useMemo(
+    () => transactions.find((item) => item.id === selectedId) || null,
+    [transactions, selectedId]
+  );
+  const selectedGroup = useMemo(
+    () =>
+      groupedInvoices.find((group) => group.items.some((item) => item.id === selectedId)) ||
+      null,
+    [groupedInvoices, selectedId]
+  );
+  const selectedGroupItems = useMemo(() => selectedGroup?.items || [], [selectedGroup]);
+  const selectedIndexInGroup = useMemo(() => {
+    if (!selectedTransaction || !selectedGroup) return -1;
+    return selectedGroup.items.findIndex((item) => item.id === selectedTransaction.id);
+  }, [selectedGroup, selectedTransaction]);
+
+  const summary = useMemo(() => {
+    const today = new Date();
+    const open = transactions.filter(
+      (item) =>
+        item.status !== "paid" &&
+        item.status !== "received" &&
+        item.workflow_status !== "confirmed"
+    );
+    const paid = transactions.filter(
+      (item) =>
+        item.status === "paid" ||
+        item.status === "received" ||
+        item.workflow_status === "confirmed"
+    );
+    const overdue = open.filter((item) => new Date(item.due_date) < today);
+
+    return {
+      totalOpen: open.reduce((acc, item) => acc + Number(item.amount || 0), 0),
+      totalPaid: paid.reduce((acc, item) => acc + Number(item.amount || 0), 0),
+      totalOverdue: overdue.reduce((acc, item) => acc + Number(item.amount || 0), 0),
+      totalCount: transactions.length,
+      totalGroups: groupedInvoices.length,
+    };
+  }, [groupedInvoices.length, transactions]);
+
+  const getStatusBadge = useCallback((item: FinancialTransaction) => {
+    const isPaid =
+      item.status === "paid" ||
+      item.status === "received" ||
+      item.workflow_status === "confirmed";
+    const isDisputed =
+      !!item.dispute_status &&
+      item.dispute_status !== "none" &&
+      item.dispute_status !== "resolved";
+    const isAwaiting =
+      item.workflow_status === "awaiting_finance" ||
+      item.workflow_status === "under_review";
+    const isOverdue = !isPaid && new Date(item.due_date) < new Date();
+
+    if (isPaid)
+      return (
+        <span className="inline-flex rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+          Pago
+        </span>
+      );
+    if (isDisputed)
+      return (
+        <span className="inline-flex rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-semibold text-orange-300">
+          Contestação
+        </span>
+      );
+    if (isAwaiting)
+      return (
+        <span className="inline-flex rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300">
+          Em análise
+        </span>
+      );
+    if (isOverdue)
+      return (
+        <span className="inline-flex rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-300">
+          Vencido
+        </span>
+      );
+    return (
+      <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-zinc-300">
+        Em aberto
+      </span>
+    );
+  }, []);
+
+  // FIX 3: Validação de tamanho de arquivo aplicada antes do upload
+  const validateFile = (file: File): string | null => {
+    if (file.size > MAX_FILE_SIZE) {
+      return `O arquivo "${file.name}" excede o limite de 5MB.`;
+    }
+    return null;
+  };
+
+  const handleReportPayment = async () => {
+    if (!selectedTransaction || submitting) return;
+    const amountNum = parseCurrencyToNumber(paymentForm.amount);
+    if (amountNum <= 0 || !paymentForm.message.trim()) {
+      showToast("Preencha o valor e a descrição do pagamento.", "error");
+      return;
+    }
+
+    // FIX 3: Valida tamanho do comprovante antes de iniciar o submit
+    if (paymentFile) {
+      const fileError = validateFile(paymentFile);
+      if (fileError) {
+        showToast(fileError, "error");
+        return;
+      }
+    }
+
+    setSubmitting(true);
+    try {
+      const { data: eventData, error: eventError } = await supabase
         .from("financial_transaction_events")
         .insert({
-          financial_transaction_id: transactionId,
+          financial_transaction_id: selectedTransaction.id,
           author_id: currentUserId,
-          author_type: "finance",
-          visibility,
-          event_type: eventType,
-          title,
-          message,
-          metadata: metadata || null,
+          author_type: "client",
+          visibility: "shared",
+          event_type: "payment_reported",
+          title: "Notificação de Pagamento Realizado",
+          message: paymentForm.message.trim(),
+          metadata: {
+            valor: amountNum,
+            forma_pagamento: paymentForm.method,
+            referencia: paymentForm.reference || null,
+          },
         })
         .select("id")
         .single();
 
-      if (error) throw new Error(error.message || "Erro ao registrar evento.");
-      return data?.id as string;
-    },
-    [currentUserId]
-  );
+      if (eventError) throw eventError;
 
-  const attachFinanceFileIfAny = useCallback(
-    async (transactionId: string, eventId?: string | null, attachmentType = "finance_attachment") => {
-      if (!financeAttachmentFile) return;
+      if (paymentFile) {
+        const path = `financial/${resolvedClientId}/${selectedTransaction.id}/${Date.now()}-${paymentFile.name}`;
+        const { error: uploadError } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .upload(path, paymentFile);
+        if (uploadError) throw uploadError;
+        await supabase.from("financial_transaction_attachments").insert({
+          financial_transaction_id: selectedTransaction.id,
+          event_id: eventData.id,
+          uploaded_by: currentUserId,
+          uploaded_by_type: "client",
+          visibility: "shared",
+          attachment_type: "receipt",
+          file_name: paymentFile.name,
+          file_path: path,
+          mime_type: paymentFile.type,
+          file_size: paymentFile.size,
+        });
+      }
 
-      const uploaded = await uploadPrivateFile(financeAttachmentFile, transactionId);
-      const { error } = await supabase.from("financial_transaction_attachments").insert({
-        financial_transaction_id: transactionId,
-        event_id: eventId || null,
-        uploaded_by: currentUserId,
-        uploaded_by_type: "finance",
-        visibility: "shared",
-        attachment_type: attachmentType,
-        file_name: uploaded.file_name,
-        file_path: uploaded.file_path,
-        mime_type: uploaded.mime_type,
-        file_size: uploaded.file_size,
-      });
-
-      if (error) throw new Error(error.message || "Erro ao salvar anexo do financeiro.");
-    },
-    [currentUserId, financeAttachmentFile, uploadPrivateFile]
-  );
-
-  const refreshSelectedTransaction = useCallback(async (transactionId: string) => {
-    const { data } = await supabase
-      .from("financial_transactions")
-      .select(
-        `
-          id,
-          description,
-          type,
-          expense_type,
-          category,
-          amount,
-          status,
-          due_date,
-          payment_date,
-          service_order_id,
-          client_id,
-          member_id,
-          attachment_url,
-          payment_method,
-          last_notified_at,
-          invoice_hash,
-          quote_id,
-          installment_number,
-          total_installments,
-          source,
-          invoice_notes,
-          document_number,
-          workflow_status,
-          dispute_status,
-          dispute_reason,
-          dispute_category,
-          customer_last_action_at,
-          finance_last_action_at,
-          last_interaction_at,
-          payment_reported_amount,
-          payment_reported_method,
-          payment_reported_reference,
-          payment_reported_at,
-          payment_confirmed_at,
-          resolution_type,
-          resolution_notes,
-          created_at,
-          clients(*),
-          member:profiles!member_id(id, full_name, email, role, commission_percentage)
-        `
-      )
-      .eq("id", transactionId)
-      .single();
-
-    if (data) setSelectedTransaction(data as unknown as Transaction);
-    await fetchInteractionDetails(transactionId);
-  }, [fetchInteractionDetails]);
-
-  const handleConfirmPayment = async () => {
-    if (!selectedTransaction) return;
-    setActionSubmitting(true);
-
-    try {
       const now = new Date().toISOString();
-      const paymentInfo = getPaymentDifference(selectedTransaction);
-
-      const eventId = await registerFinanceEvent(
-        selectedTransaction.id,
-        "payment_confirmed",
-        "Pagamento confirmado pelo financeiro",
-        financeActionForm.comment.trim() || "Pagamento conferido e confirmado pelo financeiro.",
-        {
-          valor_previsto: paymentInfo.expected,
-          valor_informado: paymentInfo.reported,
-          diferenca: paymentInfo.difference,
-          forma_pagamento: selectedTransaction.payment_reported_method || selectedTransaction.payment_method || null,
-          referencia: selectedTransaction.payment_reported_reference || null,
-        }
-      );
-
-      await attachFinanceFileIfAny(selectedTransaction.id, eventId, "finance_confirmation");
-
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from("financial_transactions")
         .update({
-          status: paymentInfo.scenario === "partial" ? "pending" : "paid",
-          workflow_status: paymentInfo.scenario === "partial" ? "under_review" : "confirmed",
-          payment_date: paymentInfo.scenario === "partial" ? null : new Date().toISOString().split("T")[0],
-          payment_confirmed_at: paymentInfo.scenario === "partial" ? null : now,
-          finance_last_action_at: now,
+          workflow_status: "awaiting_finance",
+          payment_reported_amount: amountNum,
+          payment_reported_method: paymentForm.method,
+          payment_reported_reference: paymentForm.reference || null,
+          payment_reported_at: now,
+          customer_last_action_at: now,
           last_interaction_at: now,
-          resolution_type: paymentInfo.scenario === "partial" ? "partial_payment_registered" : "payment_confirmed",
-          resolution_notes:
-            financeActionForm.resolutionNotes.trim() ||
-            (paymentInfo.scenario === "partial"
-              ? "Pagamento parcial confirmado. Mantida pendência de saldo."
-              : financeActionForm.comment.trim() || "Pagamento confirmado pelo financeiro."),
-          dispute_status: selectedTransaction.dispute_status === "open" ? "resolved" : selectedTransaction.dispute_status || null,
         })
         .eq("id", selectedTransaction.id);
 
-      if (error) throw new Error(error.message || "Erro ao confirmar pagamento.");
+      if (updateError) throw updateError;
 
-      showToast(
-        paymentInfo.scenario === "partial"
-          ? "Pagamento parcial registrado. A cobrança segue em análise."
-          : "Pagamento confirmado e baixa realizada.",
-        "success"
-      );
-      setFinanceActionForm({ comment: "", resolutionType: "payment_confirmed", resolutionNotes: "" });
-      setFinanceAttachmentFile(null);
-      await fetchData();
-      await refreshSelectedTransaction(selectedTransaction.id);
+      showToast("Notificação de pagamento enviada com sucesso.", "success");
+      setOpenActionPanel(null);
+      setPaymentForm({ amount: "", method: "pix", reference: "", message: "" });
+      setPaymentFile(null);
+      await fetchTransactions();
+      await fetchDetails(selectedTransaction.id);
     } catch (error: any) {
-      showToast(error?.message || "Erro ao confirmar pagamento.", "error");
+      showToast(error.message || "Erro ao enviar notificação.", "error");
     } finally {
-      setActionSubmitting(false);
+      setSubmitting(false);
     }
   };
 
-  const handleRejectPayment = async () => {
-    if (!selectedTransaction) return;
-    if (!financeActionForm.comment.trim()) {
-      showToast("Informe o motivo da rejeição.", "warning");
+  const handleOpenDispute = async () => {
+    if (!selectedTransaction || submitting) return;
+    if (!disputeForm.reason.trim() || !disputeForm.message.trim()) {
+      showToast("Preencha o motivo e a descrição da contestação.", "error");
       return;
     }
 
-    setActionSubmitting(true);
+    // FIX 3: Valida tamanho da evidência antes de iniciar o submit
+    if (disputeFile) {
+      const fileError = validateFile(disputeFile);
+      if (fileError) {
+        showToast(fileError, "error");
+        return;
+      }
+    }
 
+    setSubmitting(true);
     try {
-      const now = new Date().toISOString();
-      const eventId = await registerFinanceEvent(
-        selectedTransaction.id,
-        "payment_rejected",
-        "Pagamento rejeitado pelo financeiro",
-        financeActionForm.comment.trim(),
-        {
-          referencia: selectedTransaction.payment_reported_reference || null,
-          pagamento_informado_em: selectedTransaction.payment_reported_at || null,
-        }
-      );
-
-      await attachFinanceFileIfAny(selectedTransaction.id, eventId, "finance_rejection");
-
-      const { error } = await supabase
-        .from("financial_transactions")
-        .update({
-          status: "pending",
-          workflow_status: "open",
-          finance_last_action_at: now,
-          last_interaction_at: now,
-          resolution_type: "payment_rejected",
-          resolution_notes: financeActionForm.resolutionNotes.trim() || financeActionForm.comment.trim(),
+      const { data: eventData, error: eventError } = await supabase
+        .from("financial_transaction_events")
+        .insert({
+          financial_transaction_id: selectedTransaction.id,
+          author_id: currentUserId,
+          author_type: "client",
+          visibility: "shared",
+          event_type: "dispute_opened",
+          title: "Abertura de Contestação Formal",
+          message: disputeForm.message.trim(),
+          metadata: {
+            categoria: disputeForm.category,
+            motivo: disputeForm.reason.trim(),
+          },
         })
-        .eq("id", selectedTransaction.id);
+        .select("id")
+        .single();
 
-      if (error) throw new Error(error.message || "Erro ao rejeitar pagamento.");
+      if (eventError) throw eventError;
 
-      showToast("Pagamento rejeitado com retorno ao cliente.", "success");
-      setFinanceActionForm({ comment: "", resolutionType: "payment_confirmed", resolutionNotes: "" });
-      setFinanceAttachmentFile(null);
-      await fetchData();
-      await refreshSelectedTransaction(selectedTransaction.id);
-    } catch (error: any) {
-      showToast(error?.message || "Erro ao rejeitar pagamento.", "error");
-    } finally {
-      setActionSubmitting(false);
-    }
-  };
-
-  const handleResolveDispute = async () => {
-    if (!selectedTransaction) return;
-    if (!financeActionForm.resolutionNotes.trim()) {
-      showToast("Informe a resolução da contestação.", "warning");
-      return;
-    }
-
-    setActionSubmitting(true);
-
-    try {
-      const now = new Date().toISOString();
-
-      const eventId = await registerFinanceEvent(
-        selectedTransaction.id,
-        "resolution_added",
-        "Contestação analisada pelo financeiro",
-        financeActionForm.comment.trim() || "Contestação analisada e concluída pelo financeiro.",
-        {
-          tipo_resolucao: financeActionForm.resolutionType,
-          observacoes: financeActionForm.resolutionNotes.trim(),
-        }
-      );
-
-      await attachFinanceFileIfAny(selectedTransaction.id, eventId, "finance_resolution");
-
-      const nextStatus =
-        financeActionForm.resolutionType === "charge_cancelled"
-          ? "cancelled"
-          : financeActionForm.resolutionType === "payment_confirmed"
-          ? "paid"
-          : selectedTransaction.status || "pending";
-
-      const nextWorkflow =
-        financeActionForm.resolutionType === "charge_cancelled"
-          ? "cancelled"
-          : financeActionForm.resolutionType === "payment_confirmed"
-          ? "confirmed"
-          : "resolved";
-
-      const { error } = await supabase
-        .from("financial_transactions")
-        .update({
-          status: nextStatus,
-          workflow_status: nextWorkflow,
-          dispute_status: "resolved",
-          finance_last_action_at: now,
-          last_interaction_at: now,
-          resolution_type: financeActionForm.resolutionType,
-          resolution_notes: financeActionForm.resolutionNotes.trim(),
-          payment_confirmed_at:
-            financeActionForm.resolutionType === "payment_confirmed" ? now : selectedTransaction.payment_confirmed_at || null,
-        })
-        .eq("id", selectedTransaction.id);
-
-      if (error) throw new Error(error.message || "Erro ao resolver contestação.");
-
-      showToast("Contestação resolvida.", "success");
-      setFinanceActionForm({ comment: "", resolutionType: "payment_confirmed", resolutionNotes: "" });
-      setFinanceAttachmentFile(null);
-      await fetchData();
-      await refreshSelectedTransaction(selectedTransaction.id);
-    } catch (error: any) {
-      showToast(error?.message || "Erro ao resolver contestação.", "error");
-    } finally {
-      setActionSubmitting(false);
-    }
-  };
-
-  const handleAddFinanceComment = async () => {
-    if (!selectedTransaction) return;
-    if (!financeActionForm.comment.trim()) {
-      showToast("Digite um comentário para registrar.", "warning");
-      return;
-    }
-
-    setActionSubmitting(true);
-
-    try {
-      const eventId = await registerFinanceEvent(
-        selectedTransaction.id,
-        "finance_comment",
-        "Comentário do financeiro",
-        financeActionForm.comment.trim()
-      );
-
-      await attachFinanceFileIfAny(selectedTransaction.id, eventId, "finance_comment_attachment");
+      if (disputeFile) {
+        const path = `financial/${resolvedClientId}/${selectedTransaction.id}/${Date.now()}-${disputeFile.name}`;
+        const { error: uploadError } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .upload(path, disputeFile);
+        if (uploadError) throw uploadError;
+        await supabase.from("financial_transaction_attachments").insert({
+          financial_transaction_id: selectedTransaction.id,
+          event_id: eventData.id,
+          uploaded_by: currentUserId,
+          uploaded_by_type: "client",
+          visibility: "shared",
+          attachment_type: "dispute_evidence",
+          file_name: disputeFile.name,
+          file_path: path,
+          mime_type: disputeFile.type,
+          file_size: disputeFile.size,
+        });
+      }
 
       const now = new Date().toISOString();
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from("financial_transactions")
         .update({
-          workflow_status:
-            selectedTransaction.workflow_status === "awaiting_finance"
-              ? "under_review"
-              : selectedTransaction.workflow_status || "open",
-          finance_last_action_at: now,
+          workflow_status: "disputed",
+          dispute_status: "open",
+          dispute_category: disputeForm.category,
+          dispute_reason: disputeForm.reason.trim(),
+          customer_last_action_at: now,
           last_interaction_at: now,
         })
         .eq("id", selectedTransaction.id);
 
-      if (error) throw new Error(error.message || "Erro ao registrar comentário.");
+      if (updateError) throw updateError;
 
-      showToast("Comentário registrado.", "success");
-      setFinanceActionForm((prev) => ({ ...prev, comment: "" }));
-      setFinanceAttachmentFile(null);
-      await fetchData();
-      await refreshSelectedTransaction(selectedTransaction.id);
+      showToast("Contestação formal registrada com sucesso.", "success");
+      setOpenActionPanel(null);
+      setDisputeForm({ category: "amount_divergence", reason: "", message: "" });
+      setDisputeFile(null);
+      await fetchTransactions();
+      await fetchDetails(selectedTransaction.id);
     } catch (error: any) {
-      showToast(error?.message || "Erro ao registrar comentário.", "error");
+      showToast(error.message || "Erro ao registrar contestação.", "error");
     } finally {
-      setActionSubmitting(false);
+      setSubmitting(false);
     }
   };
 
-  const receivableForGroup = useMemo(() => {
-    if (!selectedTransaction || selectedTransaction.type !== "income") return [];
-    return transactions
-      .filter((t) => t.type === "income")
-      .filter((t) => {
-        if (selectedTransaction.document_number && t.document_number) {
-          return t.document_number === selectedTransaction.document_number;
-        }
-        if (selectedTransaction.quote_id && t.quote_id) {
-          return t.quote_id === selectedTransaction.quote_id;
-        }
-        if (selectedTransaction.client_id && t.client_id && selectedTransaction.description) {
-          const baseA = selectedTransaction.description.replace(/-\s*parcela\s*\d+\/\d+/i, "").trim();
-          const baseB = t.description.replace(/-\s*parcela\s*\d+\/\d+/i, "").trim();
-          return selectedTransaction.client_id === t.client_id && baseA === baseB;
-        }
-        return t.id === selectedTransaction.id;
-      })
-      .sort((a, b) => {
-        const aN = a.installment_number || 999;
-        const bN = b.installment_number || 999;
-        if (aN !== bN) return aN - bN;
-        return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
-      });
-  }, [selectedTransaction, transactions]);
+  // FIX 1: resolveAttachmentUrls sem signedUrls nas dependências — usa setState funcional
+  useEffect(() => {
+    if (attachments.length === 0) return;
 
-  const selectedPaymentInfo = useMemo(
-    () => (selectedTransaction ? getPaymentDifference(selectedTransaction) : null),
-    [selectedTransaction]
-  );
+    const loadUrls = async () => {
+      const nextMap: Record<string, string> = {};
+      const pending = attachments.filter((file) => file.file_path);
 
-  const renderMetricCard = (label: string, value: string, tone?: "default" | "green" | "gold" | "red" | "orange") => {
-    const valueColor =
-      tone === "green"
-        ? "text-cs-green"
-        : tone === "gold"
-        ? "text-cs-gold"
-        : tone === "red"
-        ? "text-red-500"
-        : tone === "orange"
-        ? "text-orange-400"
-        : "text-white";
+      await Promise.all(
+        pending.map(async (file) => {
+          const { data } = await supabase.storage
+            .from(STORAGE_BUCKET)
+            .createSignedUrl(file.file_path, 3600);
+          if (data?.signedUrl) nextMap[file.id] = data.signedUrl;
+        })
+      );
 
-    const borderTone =
-      tone === "green"
-        ? "border-cs-green/20"
-        : tone === "gold"
-        ? "border-cs-gold/20"
-        : tone === "red"
-        ? "border-red-500/20"
-        : tone === "orange"
-        ? "border-orange-500/20"
-        : "border-surface/50";
+      if (Object.keys(nextMap).length > 0) {
+        setSignedUrls((prev) => ({ ...prev, ...nextMap }));
+      }
+    };
 
-    return (
-      <div className={`rounded-xl border ${borderTone} bg-surface p-5 shadow-lg`}>
-        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-text-secondary">{label}</p>
-        <p className={`mt-3 break-words text-2xl font-black leading-tight ${valueColor}`}>{value}</p>
-      </div>
-    );
+    void loadUrls();
+  }, [attachments]);
+
+  const toggleGroup = (id: string) =>
+    setExpandedGroups((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  const selectPreviousItem = () => {
+    if (selectedGroup && selectedIndexInGroup > 0)
+      setSelectedId(selectedGroup.items[selectedIndexInGroup - 1].id);
   };
 
-  const renderTable = (
-    typeFilter: "income" | "expense",
-    expFilter?: "administrative" | "operational" | "personnel"
-  ) => {
-    const rows = filteredTransactions.filter(
-      (t) => t.type === typeFilter && (!expFilter || t.expense_type === expFilter)
-    );
+  const selectNextItem = () => {
+    if (selectedGroup && selectedIndexInGroup < selectedGroup.items.length - 1)
+      setSelectedId(selectedGroup.items[selectedIndexInGroup + 1].id);
+  };
 
-    return (
-      <div className="space-y-5">
-        {typeFilter === "income" && (
-          <section className="rounded-xl border border-cs-gold/20 bg-cs-gold/5 p-5 shadow-xl">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <h4 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-white">
-                  <ShieldAlert size={16} className="text-cs-gold" />
-                  Fila de ações do cliente
-                </h4>
-                <p className="mt-1 text-xs uppercase tracking-wide text-text-secondary">
-                  Apenas cobranças a receber com pagamento informado, divergência ou contestação.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <span className="rounded-full border border-cs-gold/20 bg-cs-gold/10 px-3 py-1 text-xs font-black uppercase text-cs-gold">
-                  Aguardando financeiro: {clientActionQueue.filter((t) => t.workflow_status === "awaiting_finance").length}
-                </span>
-                <span className="rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-black uppercase text-orange-400">
-                  Contestações: {clientActionQueue.filter((t) => t.dispute_status && t.dispute_status !== "resolved").length}
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
-              {clientActionQueue.length === 0 ? (
-                <div className="rounded-lg border border-white/10 bg-background/40 p-4 text-xs font-bold uppercase tracking-wide text-text-secondary">
-                  Nenhuma ação pendente do cliente no momento.
-                </div>
-              ) : (
-                clientActionQueue.slice(0, 8).map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={async () => {
-                      setSelectedTransaction(t);
-                      setIsDetailModalOpen(true);
-                      await fetchInteractionDetails(t.id);
-                    }}
-                    className="rounded-lg border border-white/10 bg-background/40 p-4 text-left transition-all hover:border-cs-gold/40 hover:bg-background/60"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-bold text-white">{t.description}</p>
-                        <p className="mt-1 text-[11px] font-black uppercase tracking-wide text-text-secondary">
-                          {t.clients?.company_name || "Sem cliente"} · {t.document_number || "Sem documento"}
-                        </p>
-                      </div>
-                      <span className={`shrink-0 rounded-full border px-3 py-1 text-[10px] font-black uppercase ${statusClass(t)}`}>
-                        {statusLabel(t)}
-                      </span>
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-text-secondary">
-                      <span>{formatCurrency(Number(t.amount))}</span>
-                      <span>Vence em {formatDate(t.due_date)}</span>
-                      {t.payment_reported_amount ? (
-                        <span>Informado: {formatCurrency(Number(t.payment_reported_amount))}</span>
-                      ) : null}
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-          </section>
-        )}
-
-        <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden shadow-xl">
-          <div className="p-4 border-b border-surface/50 bg-surface/50 flex flex-col sm:flex-row justify-between items-center gap-4">
-            <div className="relative w-full sm:w-80">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={16} />
-              <input
-                type="text"
-                placeholder="Filtrar lançamentos..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-background border border-surface rounded-md text-xs text-white focus:border-cs-green outline-none transition-all"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={fetchData}
-              className="inline-flex items-center gap-2 rounded-md border border-surface px-4 py-2 text-xs font-black uppercase tracking-wide text-white hover:bg-background"
-            >
-              <RefreshCw size={14} />
-              Atualizar
-            </button>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-background/50 text-xs uppercase tracking-wide text-text-secondary font-black">
-                <tr>
-                  <th className="px-6 py-4">Descrição / Favorecido</th>
-                  <th className="px-6 py-4">Categoria</th>
-                  <th className="px-6 py-4">Vencimento</th>
-                  <th className="px-6 py-4">Valor</th>
-                  <th className="px-6 py-4">Status</th>
-                  <th className="px-6 py-4 text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface/50">
-                {loading ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-10 text-center">
-                      <Loader2 className="animate-spin mx-auto text-cs-green" size={24} />
-                    </td>
-                  </tr>
-                ) : rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-10 text-center text-text-secondary text-sm uppercase font-semibold tracking-wide">
-                      Nenhum lançamento encontrado.
-                    </td>
-                  </tr>
-                ) : (
-                  rows.map((t) => (
-                    <tr key={t.id} className="hover:bg-background/50 transition-colors group">
-                      <td className="px-6 py-4">
-                        <p className="font-bold text-white group-hover:text-cs-green transition-colors">{t.description}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-2">
-                          <p className="text-xs font-black uppercase text-text-secondary">
-                            {t.clients?.company_name || t.member?.full_name || "—"}
-                          </p>
-                          {typeFilter === "income" && t.payment_reported_amount ? (
-                            <span className="rounded-full border border-cs-gold/20 bg-cs-gold/10 px-2 py-0.5 text-[10px] font-black uppercase text-cs-gold">
-                              Informado: {formatCurrency(Number(t.payment_reported_amount))}
-                            </span>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-text-secondary">{t.category}</td>
-                      <td className="px-6 py-4">
-                        <span className={`text-xs font-bold ${isOverdue(t.due_date, t.status || "pending") ? "text-red-500" : "text-white"}`}>
-                          {new Date(`${t.due_date}T00:00:00`).toLocaleDateString("pt-BR")}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 font-black text-white">{formatCurrency(Number(t.amount))}</td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-black uppercase border ${statusClass(t)}`}>
-                          {statusLabel(t)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button
-                          onClick={async () => {
-                            setSelectedTransaction(t);
-                            setIsDetailModalOpen(true);
-                            await fetchInteractionDetails(t.id);
-                          }}
-                          className="text-text-secondary hover:text-white transition-all"
-                          aria-label="Ver detalhes"
-                        >
-                          <Eye size={18} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    );
+  // FIX 7: Exibição segura de parcela — nunca exibe "/"
+  const formatInstallmentLabel = (item: FinancialTransaction, groupLength: number) => {
+    const num = item.installment_number;
+    const total = item.total_installments ?? groupLength;
+    if (!num && total <= 1) return null;
+    return `Parcela: ${num ?? 1}/${total}`;
   };
 
   return (
-    <div className="space-y-6 relative pb-12">
-      {toast && (
-        <div
-          className={`fixed bottom-6 right-6 z-[200] max-w-[92vw] px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border bg-[#1a1413] ${
-            toast.type === "success"
-              ? "border-cs-green text-cs-green"
-              : toast.type === "warning"
-              ? "border-cs-gold text-cs-gold"
-              : "border-red-500 text-red-500"
-          }`}
-        >
-          {toast.type === "success" ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
-          <span className="text-sm font-semibold">{toast.message}</span>
-        </div>
-      )}
-
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-surface p-6 border border-surface/50 rounded-xl shadow-lg">
-        <div>
-          <h3 className="text-2xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
-            <Wallet className="text-cs-green" size={28} /> {L.hub}
-          </h3>
-          <p className="text-xs text-text-secondary mt-1 uppercase font-semibold tracking-wide">
-            {(companyProfile?.company_name as string) || "ARXUM"} · Gestão Financeira
-          </p>
-        </div>
-        {view === "list" && (
-          <button
-            onClick={() => openCreateForTab(activeTab)}
-            className="bg-cs-green text-white px-8 py-3 rounded-md font-black text-xs uppercase tracking-widest hover:bg-opacity-90 transition-all shadow-lg flex items-center gap-2"
+    <main className="min-h-screen bg-[#0b0d12] px-4 py-5 text-white sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-7xl">
+        {toast.text && (
+          <div
+            className={`fixed bottom-6 right-6 z-[100] flex items-center gap-3 rounded-xl border px-5 py-4 font-semibold shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4 ${
+              toast.type === "success"
+                ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-200"
+                : "border-red-500/30 bg-red-500/15 text-red-200"
+            }`}
           >
-            <Plus size={18} /> Novo {L.transacao}
-          </button>
-        )}
-      </div>
-
-      {view === "list" && (
-        <>
-          <div className="flex gap-0 border-b border-surface/50 overflow-x-auto">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-6 py-4 text-xs font-black uppercase tracking-wide border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
-                  activeTab === tab.id ? "border-cs-green text-cs-green" : "border-transparent text-text-secondary hover:text-white"
-                }`}
-              >
-                <tab.icon size={13} /> {tab.label}
-              </button>
-            ))}
+            {toast.type === "success" ? (
+              <CheckCircle2 size={18} />
+            ) : (
+              <ShieldAlert size={18} />
+            )}
+            {toast.text}
           </div>
+        )}
 
-          {activeTab === "dashboard" && (
-            <div className="space-y-6 animate-in fade-in duration-500">
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                {renderMetricCard("Saldo realizado", formatCurrency(stats.balance), stats.balance >= 0 ? "green" : "red")}
-                {renderMetricCard(`${L.receber} pendente`, formatCurrency(stats.pendingIn), "green")}
-                {renderMetricCard("Aguardando financeiro", formatCurrency(stats.waitingFinance), "gold")}
-                {renderMetricCard("Contestação em aberto", formatCurrency(stats.disputedOpen), "orange")}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                {renderMetricCard("Inadimplência real", formatCurrency(stats.overdueIn), "red")}
-                {renderMetricCard("Pago no mês", formatCurrency(stats.paidThisMonth), "green")}
-                {renderMetricCard("Despesas pagas", formatCurrency(stats.expensePaid), "red")}
-                {renderMetricCard("Folha + comissão", formatCurrency(stats.peopleCost), "gold")}
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-surface border border-surface/50 p-6 rounded-xl">
-                  <h4 className="text-xs font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
-                    <TrendingUp size={16} className="text-cs-gold" /> Projeção de {L.receber}
-                  </h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    {[
-                      { label: "Vencidos", val: stats.overdueIn, color: "bg-red-500" },
-                      { label: "Próx. 7 dias", val: stats.pendingIn * 0.4, color: "bg-cs-gold" },
-                      { label: "15–30 dias", val: stats.pendingIn * 0.3, color: "bg-blue-500" },
-                      { label: "30+ dias", val: stats.pendingIn * 0.3, color: "bg-cs-green" },
-                    ].map((b) => (
-                      <div key={b.label} className="space-y-2">
-                        <div className="h-2 w-full bg-background rounded-full overflow-hidden">
-                          <div className={`h-full ${b.color} transition-all`} style={{ width: `${Math.min((b.val / (stats.pendingIn || 1)) * 100, 100)}%` }} />
-                        </div>
-                        <p className="text-[9px] font-black text-text-secondary uppercase">{b.label}</p>
-                        <p className="text-sm font-bold text-white break-words">{formatCurrency(b.val)}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="bg-surface border border-surface/50 p-6 rounded-xl">
-                  <h4 className="text-xs font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
-                    <PieChart size={16} className="text-cs-gold" /> Centro de Custos
-                  </h4>
-                  {expenseByCategory.length === 0 ? (
-                    <p className="text-text-secondary text-xs uppercase font-black text-center py-8">
-                      Sem despesas efetivadas.
-                    </p>
-                  ) : (
-                    <div className="space-y-3">
-                      {expenseByCategory.map((item, i) => (
-                        <div key={item.cat} className="space-y-1">
-                          <div className="flex justify-between items-center gap-3">
-                            <span className="text-xs font-semibold text-text-secondary uppercase truncate max-w-[65%]">{item.cat}</span>
-                            <span className="text-xs font-black text-white">{formatCurrency(item.val)}</span>
-                          </div>
-                          <div className="h-1.5 w-full bg-background rounded-full overflow-hidden">
-                            <div className={`h-full ${CHART_COLORS[i % CHART_COLORS.length]} transition-all`} style={{ width: `${(item.val / (totalExpenses || 1)) * 100}%` }} />
-                          </div>
-                        </div>
-                      ))}
-                      <div className="pt-2 border-t border-surface/50 flex justify-between gap-3">
-                        <span className="text-xs font-bold text-text-secondary uppercase">Total Despesas</span>
-                        <span className="text-xs font-black text-red-400">{formatCurrency(totalExpenses)}</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "receber" && renderTable("income")}
-          {activeTab === "pagar_admin" && renderTable("expense", "administrative")}
-          {activeTab === "pagar_operacional" && renderTable("expense", "operational")}
-
-          {activeTab === "pessoal" && (
-            <div className="space-y-6 animate-in fade-in">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-surface border border-surface/50 p-6 rounded-xl flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-bold text-text-secondary uppercase">{L.salario}s Pagos</p>
-                    <p className="text-2xl font-black text-white break-words">{formatCurrency(personnelStats.totalSalaries)}</p>
-                  </div>
-                  <UserCheck className="text-cs-green opacity-20" size={48} />
-                </div>
-                <div className="bg-surface border border-surface/50 p-6 rounded-xl flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-bold text-text-secondary uppercase">{L.comissao} Pagas</p>
-                    <p className="text-2xl font-black text-cs-gold break-words">{formatCurrency(personnelStats.totalCommissions)}</p>
-                  </div>
-                  <Percent className="text-cs-gold opacity-20" size={48} />
-                </div>
-              </div>
-
-              {personnelStats.commissionByMember.length > 0 && (
-                <div className="bg-surface border border-surface/50 p-6 rounded-xl">
-                  <h4 className="text-xs font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2">
-                    <BarChart3 size={16} className="text-cs-gold" /> Ranking de {L.comissao} por {L.colaborador}
-                  </h4>
-                  <div className="space-y-3">
-                    {personnelStats.commissionByMember.map((m, i) => (
-                      <div key={m.name} className="flex items-center gap-4">
-                        <span className="text-xs font-bold text-text-secondary w-5 text-right">{i + 1}.</span>
-                        <div className="flex-1">
-                          <div className="flex justify-between mb-1 gap-3">
-                            <span className="text-xs font-bold text-white">{m.name}</span>
-                            <span className="text-xs font-black text-cs-gold">{formatCurrency(m.total)}</span>
-                          </div>
-                          <div className="h-1.5 bg-background rounded-full overflow-hidden">
-                            <div className="h-full bg-cs-gold transition-all" style={{ width: `${(m.total / (personnelStats.commissionByMember[0]?.total || 1)) * 100}%` }} />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {renderTable("expense", "personnel")}
-            </div>
-          )}
-
-          {activeTab === "clientes" && (
-            <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden shadow-2xl animate-in fade-in">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-background/50 text-xs uppercase tracking-wide text-text-secondary font-black">
-                  <tr>
-                    <th className="px-8 py-5">{L.cliente}</th>
-                    <th className="px-8 py-5">LTV (Total Pago)</th>
-                    <th className="px-8 py-5">Saldo Devedor</th>
-                    <th className="px-8 py-5 text-right">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface/50">
-                  {clientSummary.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-8 py-10 text-center text-text-secondary text-xs uppercase font-black tracking-widest">
-                        Nenhum {L.cliente} com movimentação financeira.
-                      </td>
-                    </tr>
-                  ) : (
-                    clientSummary.map((c) => (
-                      <tr key={c.id} className="hover:bg-background/40 transition-colors group">
-                        <td className="px-8 py-6 font-black text-white uppercase tracking-tight">{c.company_name}</td>
-                        <td className="px-8 py-6 font-bold text-cs-green">{formatCurrency(c.ltv)}</td>
-                        <td className="px-8 py-6 font-bold text-red-400">{formatCurrency(c.debt)}</td>
-                        <td className="px-8 py-6 text-right">
-                          <button
-                            onClick={() => {
-                              setSearchTerm(c.company_name);
-                              setActiveTab("receber");
-                            }}
-                            className="text-xs font-bold uppercase text-cs-gold hover:underline"
-                          >
-                            Ver Extrato
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
-
-      {view === "create" && (
-        <div className="max-w-5xl mx-auto space-y-6">
-          <button
-            onClick={() => {
-              resetForm();
-              setView("list");
-            }}
-            className="flex items-center gap-2 text-text-secondary hover:text-white transition-all uppercase text-xs font-black tracking-widest"
-          >
-            <ArrowLeft size={16} /> Voltar ao Fluxo
-          </button>
-
-          <div className="bg-surface border border-surface/50 p-8 rounded-xl shadow-2xl">
-            <h2 className="text-2xl font-black text-white mb-8 border-b border-surface/50 pb-4 uppercase tracking-tighter">
-              {editId ? `Ajustar ${L.transacao}` : `Novo ${L.transacao}`}
-            </h2>
-
-            <form onSubmit={handleSave} className="space-y-8">
-              <div className="space-y-4">
-                <div className="flex gap-2 p-1 bg-background rounded-lg border border-surface/50 w-fit">
-                  <button
-                    type="button"
-                    onClick={() => setFormType("income")}
-                    className={`px-8 py-2 rounded text-xs font-black uppercase transition-all ${
-                      formType === "income" ? "bg-cs-green text-white shadow-lg" : "text-text-secondary"
-                    }`}
-                  >
-                    {L.receita}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFormType("expense")}
-                    className={`px-8 py-2 rounded text-xs font-black uppercase transition-all ${
-                      formType === "expense" ? "bg-red-500 text-white shadow-lg" : "text-text-secondary"
-                    }`}
-                  >
-                    {L.despesa}
-                  </button>
-                </div>
-
-                {formType === "expense" && (
-                  <div className="flex gap-2">
-                    {([
-                      { id: "administrative", label: L.pagarAdmin },
-                      { id: "operational", label: L.pagarOp },
-                      { id: "personnel", label: L.pessoal },
-                    ] as const).map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => setExpenseType(opt.id)}
-                        className={`flex-1 py-2 rounded text-xs font-black uppercase border border-surface transition-all ${
-                          expenseType === opt.id ? "bg-white text-black" : "text-text-secondary"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-xs font-bold text-text-secondary uppercase mb-1.5 tracking-wide">
-                      Descrição *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.description}
-                      onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
-                      className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none transition-all"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-text-secondary uppercase mb-1.5 tracking-wide">
-                        Valor ({currencyCode}) *
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        required
-                        value={formData.amount}
-                        onChange={(e) => setForm((p) => ({ ...p, amount: e.target.value }))}
-                        className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none transition-all"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-text-secondary uppercase mb-1.5 tracking-wide">
-                        Vencimento *
-                      </label>
-                      <input
-                        type="date"
-                        required
-                        value={formData.dueDate}
-                        onChange={(e) => setForm((p) => ({ ...p, dueDate: e.target.value }))}
-                        className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none transition-all"
-                        style={{ colorScheme: "dark" }}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-text-secondary uppercase mb-2 tracking-wide">
-                      Categoria
-                    </label>
-                    <select
-                      value={formData.category}
-                      onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}
-                      className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none transition-all"
+        <section className="flex flex-col gap-6">
+          <header className="overflow-hidden rounded-[28px] border border-white/10 bg-gradient-to-br from-white/[0.06] to-white/[0.03] shadow-[0_20px_70px_rgba(0,0,0,0.35)] backdrop-blur">
+            <div className="flex flex-col gap-5 p-6 sm:p-8">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <div className="mb-4 flex items-center gap-3">
+                    <div
+                      className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em]"
+                      style={{
+                        borderColor: `${brandColor}40`,
+                        backgroundColor: `${brandColor}14`,
+                        color: brandColor,
+                      }}
                     >
-                      <option value="">Selecionar...</option>
-                      {currentCategories.map((cat) => (
-                        <option key={cat} value={cat}>
-                          {cat}
-                        </option>
-                      ))}
-                    </select>
+                      <CreditCard size={14} />
+                      {brandName}
+                    </div>
+                    {unreadNotifications > 0 && (
+                      <div className="flex items-center gap-2 rounded-full bg-orange-500/20 px-3 py-1 text-xs font-bold text-orange-400 animate-pulse">
+                        <Bell size={14} />
+                        {unreadNotifications} Atualizações
+                      </div>
+                    )}
                   </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-text-secondary uppercase mb-2 tracking-wide">
-                        Status
-                      </label>
-                      <select
-                        value={formData.status}
-                        onChange={(e) =>
-                          setForm((p) => ({
-                            ...p,
-                            status: e.target.value as "pending" | "paid" | "cancelled",
-                          }))
-                        }
-                        className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none transition-all"
-                      >
-                        <option value="pending">Pendente</option>
-                        <option value="paid">Pago / Efetivado</option>
-                        <option value="cancelled">Cancelado</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-text-secondary uppercase mb-2 tracking-wide">
-                        Método
-                      </label>
-                      <select
-                        value={formData.paymentMethod}
-                        onChange={(e) => setForm((p) => ({ ...p, paymentMethod: e.target.value }))}
-                        className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none transition-all"
-                      >
-                        <option value="pix">PIX</option>
-                        <option value="boleto">Boleto</option>
-                        <option value="transfer">TED / DOC</option>
-                        <option value="credit_card">Cartão</option>
-                        <option value="cash">Espécie</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {formData.status === "paid" && (
-                    <div>
-                      <label className="block text-xs font-bold text-text-secondary uppercase mb-1.5 tracking-wide">
-                        Data do Pagamento
-                      </label>
-                      <input
-                        type="date"
-                        value={formData.paymentDate}
-                        onChange={(e) => setForm((p) => ({ ...p, paymentDate: e.target.value }))}
-                        className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none transition-all"
-                        style={{ colorScheme: "dark" }}
-                      />
-                    </div>
-                  )}
+                  <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+                    {invoicePlural}
+                  </h1>
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-300 sm:text-base">
+                    Gestão financeira centralizada. Acompanhe liquidações, anexe comprovantes
+                    oficiais e registre contestações formais pelo portal do{" "}
+                    {clientSingular.toLowerCase()}.
+                  </p>
                 </div>
 
-                <div className="space-y-6">
-                  {formType === "income" && (
-                    <div className="relative">
-                      <label className="block text-xs font-bold text-text-secondary uppercase mb-1.5 tracking-wide">
-                        Vincular {L.cliente}
-                      </label>
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={14} />
-                        <input
-                          type="text"
-                          value={clientSearch}
-                          onChange={(e) => {
-                            setClientSearch(e.target.value);
-                            if (!e.target.value) setForm((p) => ({ ...p, clientId: "" }));
-                          }}
-                          placeholder={`Pesquisar ${L.cliente}...`}
-                          className="w-full bg-background border border-surface rounded-md pl-9 pr-4 py-2.5 text-white text-sm focus:border-cs-green outline-none transition-all"
-                        />
-                      </div>
-                      {clientSearch && filteredClientsList.length > 0 && !formData.clientId && (
-                        <div className="absolute z-50 w-full mt-1 bg-surface border border-surface/50 rounded-md shadow-2xl">
-                          {filteredClientsList.map((c) => (
-                            <button
-                              key={c.id}
-                              type="button"
-                              onClick={() => {
-                                setForm((p) => ({ ...p, clientId: c.id }));
-                                setClientSearch(c.company_name);
-                              }}
-                              className="w-full text-left px-4 py-2 text-xs text-white hover:bg-cs-green/20 border-b border-surface/50 last:border-0"
-                            >
-                              {c.company_name}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      {formData.clientId && (
-                        <p className="text-xs text-cs-green mt-1 font-semibold">✓ {L.cliente} vinculado</p>
-                      )}
-                    </div>
-                  )}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:min-w-[420px]">
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-400">
+                      Em aberto
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold text-white">
+                      {currency(summary.totalOpen)}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-400">Pagos</p>
+                    <p className="mt-2 text-2xl font-semibold text-emerald-300">
+                      {currency(summary.totalPaid)}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-400">
+                      Vencidos
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold text-red-300">
+                      {currency(summary.totalOverdue)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </header>
 
-                  {(formType === "income" || (formType === "expense" && expenseType === "operational")) && (
-                    <div>
-                      <label className="block text-xs font-bold text-text-secondary uppercase mb-2 tracking-wide">
-                        Centro de Custos ({L.os})
-                      </label>
-                      <select
-                        value={formData.serviceOrderId}
-                        onChange={(e) => setForm((p) => ({ ...p, serviceOrderId: e.target.value }))}
-                        className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none transition-all"
-                      >
-                        <option value="">Geral / Sem {L.os}</option>
-                        {approvedQuotes.map((q) => (
-                          <option key={q.id} value={q.id}>
-                            {L.orcamento}: {q.title}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  {formType === "expense" && expenseType === "personnel" && (
-                    <>
-                      <div className="relative">
-                        <label className="block text-xs font-bold text-text-secondary uppercase mb-1.5 tracking-wide">
-                          {L.colaborador}
-                        </label>
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={14} />
-                          <input
-                            type="text"
-                            value={memberSearch}
-                            onChange={(e) => {
-                              setMemberSearch(e.target.value);
-                              if (!e.target.value) setForm((p) => ({ ...p, memberId: "" }));
-                            }}
-                            placeholder={`Pesquisar ${L.colaborador}...`}
-                            className="w-full bg-background border border-surface rounded-md pl-9 pr-4 py-2.5 text-white text-sm focus:border-cs-green outline-none transition-all"
-                          />
-                        </div>
-                        {memberSearch && filteredTeamList.length > 0 && !formData.memberId && (
-                          <div className="absolute z-50 w-full mt-1 bg-surface border border-surface/50 rounded-md shadow-2xl">
-                            {filteredTeamList.map((m) => (
+          {loading ? (
+            <section className="rounded-[28px] border border-white/10 bg-white/[0.04] p-12 shadow-[0_20px_70px_rgba(0,0,0,0.35)]">
+              <div className="flex items-center justify-center gap-3 text-zinc-300">
+                <Loader2 className="animate-spin" size={22} />
+                Sincronizando {invoicePlural.toLowerCase()}...
+              </div>
+            </section>
+          ) : groupedInvoices.length === 0 ? (
+            <section className="rounded-[28px] border border-white/10 bg-white/[0.04] p-10 text-center shadow-[0_20px_70px_rgba(0,0,0,0.35)]">
+              <FileText className="mx-auto mb-4 text-zinc-500" size={44} />
+              <h2 className="text-xl font-semibold text-white">Nenhuma cobrança encontrada</h2>
+              <p className="mt-2 text-sm text-zinc-400">
+                Não há registros financeiros vinculados ao seu cadastro.
+              </p>
+            </section>
+          ) : (
+            <section className="grid grid-cols-1 gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+              {/* Sidebar */}
+              <aside className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.04] shadow-[0_20px_70px_rgba(0,0,0,0.35)]">
+                <div className="border-b border-white/10 px-5 py-4">
+                  <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-zinc-200">
+                    Cobranças
+                  </h2>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {summary.totalGroups} Grupos · {summary.totalCount} Itens
+                  </p>
+                </div>
+                <div className="max-h-[78vh] overflow-y-auto">
+                  {groupedInvoices.map((group) => {
+                    const isExpanded = expandedGroups[group.id];
+                    const hasSelected = group.items.some((i) => i.id === selectedId);
+                    return (
+                      <div key={group.id} className="border-b border-white/8 last:border-b-0">
+                        <button
+                          onClick={() =>
+                            group.items.length > 1
+                              ? toggleGroup(group.id)
+                              : setSelectedId(group.items[0].id)
+                          }
+                          className={`w-full px-5 py-4 text-left transition ${
+                            hasSelected ? "bg-white/[0.07]" : "hover:bg-white/[0.035]"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="line-clamp-2 text-sm font-semibold text-white">
+                                  {group.title}
+                                </p>
+                                {group.sourceLabel && (
+                                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium uppercase tracking-widest text-zinc-400">
+                                    {group.sourceLabel}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="mt-2 text-xs text-zinc-400">
+                                Doc: {group.documentNumber || "-"}
+                              </p>
+                              <p className="mt-1 text-xs text-zinc-400">
+                                {group.items.length > 1
+                                  ? `${group.items.length} parcelas`
+                                  : `Venc: ${formatDate(group.items[0].due_date)}`}
+                              </p>
+                            </div>
+                            {group.items.length > 1 &&
+                              (isExpanded ? (
+                                <ChevronDown size={18} className="text-zinc-500" />
+                              ) : (
+                                <ChevronRight size={18} className="text-zinc-500" />
+                              ))}
+                          </div>
+                          <div className="mt-4 flex items-center justify-between">
+                            <p className="text-base font-semibold text-white">
+                              {currency(group.totalAmount)}
+                            </p>
+                            {group.items.length === 1 ? (
+                              getStatusBadge(group.items[0])
+                            ) : (
+                              <span className="text-xs font-bold text-zinc-500">
+                                {group.items.length} parcelas
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                        {isExpanded && group.items.length > 1 && (
+                          <div className="border-t border-white/8 bg-black/10">
+                            {group.items.map((item) => (
                               <button
-                                key={m.id}
-                                type="button"
-                                onClick={() => {
-                                  setForm((p) => ({ ...p, memberId: m.id }));
-                                  setMemberSearch(m.full_name);
-                                }}
-                                className="w-full text-left px-4 py-2 text-xs text-white hover:bg-cs-gold/20 border-b border-surface/50 last:border-0"
+                                key={item.id}
+                                onClick={() => setSelectedId(item.id)}
+                                className={`flex w-full items-center justify-between border-b border-white/6 px-5 py-3 text-left transition last:border-b-0 ${
+                                  selectedId === item.id
+                                    ? "bg-white/[0.08]"
+                                    : "hover:bg-white/[0.035]"
+                                }`}
                               >
-                                <span className="font-bold">{m.full_name}</span>
-                                {m.commission_percentage ? (
-                                  <span className="ml-2 text-cs-gold">· {m.commission_percentage}% {L.comissao}</span>
-                                ) : null}
+                                <div className="min-w-0">
+                                  {/* FIX 7: label segura de parcela */}
+                                  <p className="text-sm font-semibold text-white">
+                                    {item.installment_number != null && item.total_installments != null
+                                      ? `Parcela ${item.installment_number}/${item.total_installments}`
+                                      : item.description}
+                                  </p>
+                                  <p className="text-xs text-zinc-400">
+                                    {formatDate(item.due_date)}
+                                  </p>
+                                </div>
+                                <div className="flex flex-col items-end gap-1">
+                                  <span className="text-sm font-semibold text-white">
+                                    {currency(item.amount)}
+                                  </span>
+                                  {getStatusBadge(item)}
+                                </div>
                               </button>
                             ))}
                           </div>
                         )}
-                        {formData.memberId && (
-                          <p className="text-xs text-cs-gold mt-1 font-semibold">✓ {L.colaborador} vinculado</p>
-                        )}
                       </div>
-
-                      {formData.category.toLowerCase().includes("comiss") && (
-                        <div className="bg-cs-gold/5 border border-cs-gold/20 rounded-lg p-4 space-y-3">
-                          <p className="text-xs font-black text-cs-gold uppercase tracking-widest">{L.comissao} de Venda</p>
-                          {formData.memberId &&
-                            (() => {
-                              const member = team.find((m) => m.id === formData.memberId);
-                              return member?.commission_percentage ? (
-                                <p className="text-xs text-text-secondary">
-                                  Taxa cadastrada: <strong className="text-white">{member.commission_percentage}%</strong>
-                                  {formData.amount ? (
-                                    <>
-                                      {" "}
-                                      · Calculado:{" "}
-                                      <strong className="text-cs-gold">
-                                        {formatCurrency((Number(formData.amount) * member.commission_percentage) / 100)}
-                                      </strong>
-                                    </>
-                                  ) : null}
-                                </p>
-                              ) : null;
-                            })()}
-                          <div>
-                            <label className="block text-xs font-bold text-text-secondary uppercase mb-1.5 tracking-wide">
-                              Valor da {L.comissao} ({currencyCode})
-                            </label>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="Valor final a pagar..."
-                              value={formData.commissionAmount}
-                              onChange={(e) =>
-                                setForm((p) => ({ ...p, commissionAmount: e.target.value, amount: e.target.value }))
-                              }
-                              className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-gold outline-none transition-all"
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  <div>
-                    <label className="block text-xs font-bold text-text-secondary uppercase mb-2 tracking-wide">
-                      Comprovante / Anexo
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full bg-surface border border-surface/50 py-3 rounded-md text-xs font-black uppercase text-white hover:bg-background transition-all flex items-center justify-center gap-2"
-                    >
-                      {uploading ? <Loader2 className="animate-spin" size={14} /> : <Upload size={14} />}
-                      {formData.attachmentUrl ? "Trocar Arquivo" : "Fazer Upload"}
-                    </button>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={handleFileUpload}
-                      className="hidden"
-                      accept=".pdf,.jpg,.jpeg,.png,.webp"
-                    />
-                    {formData.attachmentUrl && (
-                      <p className="text-xs text-cs-green mt-1 font-semibold">✓ Arquivo anexado</p>
-                    )}
-                  </div>
+                    );
+                  })}
                 </div>
-              </div>
+              </aside>
 
-              <div className="pt-8 border-t border-surface/50 flex justify-end">
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="bg-cs-green text-white px-12 py-4 rounded-md font-black text-sm uppercase tracking-[0.2em] shadow-2xl hover:bg-opacity-90 disabled:opacity-50 transition-all flex items-center gap-3"
-                >
-                  {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-                  Finalizar Registro
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {isDetailModalOpen && selectedTransaction && (
-        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[150] backdrop-blur-md p-4">
-          <div className="bg-[#1a1413] border border-surface/50 rounded-xl w-full max-w-7xl overflow-hidden shadow-2xl flex flex-col max-h-[94vh]">
-            <div className="p-6 bg-background/50 border-b border-surface/50 flex justify-between items-start gap-4">
-              <div className="min-w-0">
-                <h2 className="text-2xl font-black text-white uppercase tracking-tighter mb-2">
-                  {selectedTransaction.description}
-                </h2>
-                <div className="flex gap-2 flex-wrap">
-                  <span
-                    className={`text-xs font-black px-3 py-1 rounded-full uppercase border ${
-                      selectedTransaction.type === "income"
-                        ? "bg-cs-green/10 text-cs-green border-cs-green/20"
-                        : "bg-red-500/10 text-red-500 border-red-500/20"
-                    }`}
-                  >
-                    {selectedTransaction.type === "income" ? L.receita : L.despesa}
-                  </span>
-                  <span className="text-xs font-black px-3 py-1 rounded-full uppercase bg-surface border border-surface/50 text-text-secondary">
-                    {selectedTransaction.category}
-                  </span>
-                  {selectedTransaction.document_number && (
-                    <span className="text-xs font-black px-3 py-1 rounded-full uppercase bg-white/5 border border-white/10 text-zinc-300">
-                      Documento: {selectedTransaction.document_number}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <button
-                onClick={() => setIsDetailModalOpen(false)}
-                className="text-text-secondary hover:text-white transition-colors bg-surface p-2 rounded-full border border-surface/50"
-                aria-label="Fechar"
-              >
-                <XCircle size={24} />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_430px] gap-0 overflow-hidden">
-              <div className="p-6 overflow-y-auto space-y-6 max-h-[calc(94vh-110px)]">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div className="bg-background p-4 rounded-lg border border-surface/50">
-                    <p className="text-[9px] font-black text-text-secondary uppercase mb-1">Montante</p>
-                    <p className="text-xl font-black text-white break-words">{formatCurrency(Number(selectedTransaction.amount))}</p>
+              {/* Área de Detalhes */}
+              <section className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.04] shadow-[0_20px_70px_rgba(0,0,0,0.35)]">
+                {!selectedTransaction ? (
+                  <div className="p-8 text-sm text-zinc-400 italic">
+                    Selecione uma cobrança para visualizar os detalhes.
                   </div>
-                  <div className="bg-background p-4 rounded-lg border border-surface/50">
-                    <p className="text-[9px] font-black text-text-secondary uppercase mb-1">Vencimento</p>
-                    <p className="text-sm font-bold text-white">{formatDate(selectedTransaction.due_date)}</p>
-                  </div>
-                  <div className="bg-background p-4 rounded-lg border border-surface/50">
-                    <p className="text-[9px] font-black text-text-secondary uppercase mb-1">Status</p>
-                    <p className={`text-sm font-bold uppercase ${statusClass(selectedTransaction).split(" ")[1]}`}>
-                      {statusLabel(selectedTransaction)}
-                    </p>
-                  </div>
-                  <div className="bg-background p-4 rounded-lg border border-surface/50">
-                    <p className="text-[9px] font-black text-text-secondary uppercase mb-1">Workflow</p>
-                    <p className="text-sm font-bold text-white">{translateWorkflowStatus(selectedTransaction.workflow_status)}</p>
-                  </div>
-                </div>
-
-                {selectedTransaction.type === "income" && selectedPaymentInfo ? (
-                  <section className="rounded-xl border border-cs-gold/20 bg-cs-gold/5 p-5">
-                    <div className="flex items-center gap-2">
-                      <Scale size={18} className="text-cs-gold" />
-                      <h4 className="text-sm font-black uppercase tracking-widest text-white">Conciliação do pagamento</h4>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
-                      <div className="rounded-lg border border-white/10 bg-background/40 p-4">
-                        <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Valor da parcela</p>
-                        <p className="mt-2 text-lg font-black text-white">{formatCurrency(selectedPaymentInfo.expected)}</p>
-                      </div>
-                      <div className="rounded-lg border border-white/10 bg-background/40 p-4">
-                        <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Valor informado</p>
-                        <p className="mt-2 text-lg font-black text-cs-gold">{formatCurrency(selectedPaymentInfo.reported)}</p>
-                      </div>
-                      <div className="rounded-lg border border-white/10 bg-background/40 p-4">
-                        <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Diferença</p>
-                        <p
-                          className={`mt-2 text-lg font-black ${
-                            selectedPaymentInfo.difference === 0
-                              ? "text-cs-green"
-                              : selectedPaymentInfo.difference < 0
-                              ? "text-orange-400"
-                              : "text-blue-400"
-                          }`}
-                        >
-                          {selectedPaymentInfo.difference >= 0 ? "+" : ""}
-                          {formatCurrency(selectedPaymentInfo.difference)}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border border-white/10 bg-background/40 p-4">
-                        <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Classificação</p>
-                        <p className="mt-2 text-sm font-black text-white uppercase">{selectedPaymentInfo.label}</p>
-                      </div>
-                    </div>
-
-                    <p className="mt-4 text-sm text-zinc-200">{selectedPaymentInfo.helper}</p>
-
-                    {receivableForGroup.length > 1 ? (
-                      <div className="mt-4 rounded-lg border border-white/10 bg-background/30 p-4">
-                        <div className="flex items-center gap-2">
-                          <Clock3 size={16} className="text-cs-gold" />
-                          <p className="text-xs font-black uppercase tracking-widest text-text-secondary">
-                            Grupo relacionado da cobrança
-                          </p>
-                        </div>
-                        <div className="mt-3 space-y-2">
-                          {receivableForGroup.map((row) => (
-                            <div key={row.id} className="flex flex-col gap-2 rounded-lg border border-white/10 bg-background/40 px-3 py-3 md:flex-row md:items-center md:justify-between">
-                              <div>
-                                <p className="text-sm font-semibold text-white">
-                                  Parcela {row.installment_number || 1}/{row.total_installments || receivableForGroup.length}
-                                </p>
-                                <p className="text-xs uppercase tracking-wide text-text-secondary">
-                                  Vencimento {formatDate(row.due_date)} · {statusLabel(row)}
-                                </p>
-                              </div>
-                              <div className="text-sm font-black text-white">{formatCurrency(Number(row.amount))}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                  </section>
-                ) : null}
-
-                <section className="rounded-xl border border-surface/50 bg-background/40 p-5">
-                  <h4 className="text-xs font-black text-white uppercase tracking-widest border-b border-surface/50 pb-3">
-                    Resumo financeiro
-                  </h4>
-                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Cliente</p>
-                      <p className="mt-1 text-sm text-white">{selectedTransaction.clients?.company_name || "-"}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Pagamento informado</p>
-                      <p className="mt-1 text-sm text-white">
-                        {selectedTransaction.payment_reported_at ? formatDateTime(selectedTransaction.payment_reported_at) : "-"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Valor informado pelo cliente</p>
-                      <p className="mt-1 text-sm text-white">
-                        {selectedTransaction.payment_reported_amount != null
-                          ? formatCurrency(Number(selectedTransaction.payment_reported_amount))
-                          : "-"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Forma informada</p>
-                      <p className="mt-1 text-sm text-white">{selectedTransaction.payment_reported_method || selectedTransaction.payment_method || "-"}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Referência</p>
-                      <p className="mt-1 text-sm text-white">{selectedTransaction.payment_reported_reference || "-"}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Pagamento confirmado</p>
-                      <p className="mt-1 text-sm text-white">
-                        {selectedTransaction.payment_confirmed_at ? formatDateTime(selectedTransaction.payment_confirmed_at) : "-"}
-                      </p>
-                    </div>
-                    {selectedTransaction.type === "income" ? (
-                      <>
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Categoria da contestação</p>
-                          <p className="mt-1 text-sm text-white">{translateDisputeCategory(selectedTransaction.dispute_category)}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Motivo da contestação</p>
-                          <p className="mt-1 text-sm text-white">{selectedTransaction.dispute_reason || "-"}</p>
-                        </div>
-                      </>
-                    ) : null}
-                    <div className="md:col-span-2">
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Observações</p>
-                      <p className="mt-1 text-sm text-white">{selectedTransaction.invoice_notes || selectedTransaction.attachment_url || "-"}</p>
-                    </div>
-                    <div className="md:col-span-2">
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Retorno / resolução do financeiro</p>
-                      <p className="mt-1 text-sm text-white">{selectedTransaction.resolution_notes || "-"}</p>
-                    </div>
-                  </div>
-                </section>
-
-                <section className="rounded-xl border border-surface/50 bg-background/40 p-5">
-                  <div className="flex items-center justify-between gap-3">
-                    <h4 className="text-xs font-black text-white uppercase tracking-widest">Histórico da cobrança</h4>
-                    {detailLoading ? <Loader2 className="animate-spin text-cs-gold" size={18} /> : null}
-                  </div>
-                  <div className="mt-4 space-y-3">
-                    {events.length === 0 ? (
-                      <p className="text-sm text-text-secondary">Nenhuma interação registrada.</p>
-                    ) : (
-                      events.map((event) => (
-                        <div key={event.id} className="rounded-xl border border-surface/50 bg-surface p-4">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="font-semibold text-white">{event.title || translateEventType(event.event_type)}</p>
-                            <span className="text-xs text-text-secondary">{formatDateTime(event.created_at)}</span>
-                          </div>
-                          <p className="mt-1 text-xs uppercase tracking-wider text-text-secondary">
-                            {event.author_type === "client"
-                              ? "Cliente"
-                              : event.author_type === "finance"
-                              ? "Financeiro"
-                              : "Sistema"}
-                            {" · "}
-                            {event.visibility === "shared" ? "Compartilhado" : "Interno"}
-                          </p>
-                          <p className="mt-3 text-sm text-zinc-200">{event.message || "-"}</p>
-                          {event.metadata && Object.keys(event.metadata).length > 0 && (
-                            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
-                              {Object.entries(event.metadata).map(([key, value]) => (
-                                <div key={key} className="rounded-lg border border-surface/40 bg-background/30 px-3 py-2 text-xs text-text-secondary">
-                                  <span className="block uppercase tracking-wider">{key.replaceAll("_", " ")}</span>
-                                  <span className="mt-1 block text-white">{String(value ?? "-")}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </section>
-
-                <section className="rounded-xl border border-surface/50 bg-background/40 p-5">
-                  <h4 className="text-xs font-black text-white uppercase tracking-widest">Anexos</h4>
-                  <div className="mt-4 space-y-3">
-                    {attachments.length === 0 ? (
-                      <p className="text-sm text-text-secondary">Nenhum anexo disponível.</p>
-                    ) : (
-                      attachments.map((file) => (
-                        <div
-                          key={file.id}
-                          className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 rounded-xl border border-surface/50 bg-surface p-4"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate font-semibold text-white">{file.file_name}</p>
-                            <p className="mt-1 text-xs uppercase tracking-wider text-text-secondary">
-                              {file.attachment_type} · {file.uploaded_by_type === "client" ? "Cliente" : file.uploaded_by_type === "finance" ? "Financeiro" : "Sistema"} · {formatDateTime(file.created_at)}
-                            </p>
-                          </div>
-                          <div className="flex gap-2">
-                            {signedUrls[file.id] ? (
-                              <a
-                                href={signedUrls[file.id]}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-2 rounded-lg border border-surface/50 bg-background px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-background/70"
-                              >
-                                <Paperclip size={16} /> Abrir
-                              </a>
-                            ) : (
-                              <span className="inline-flex items-center gap-2 rounded-lg border border-surface/50 bg-background px-4 py-2 text-sm font-semibold text-text-secondary">
-                                <Loader2 className="animate-spin" size={16} /> Carregando
+                ) : (
+                  <div className="flex h-full flex-col">
+                    <div className="border-b border-white/10 p-6 sm:p-7">
+                      <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                        <div className="min-w-0">
+                          <h2 className="text-2xl font-semibold tracking-tight text-white">
+                            {selectedGroup?.title || selectedTransaction.description}
+                          </h2>
+                          <div className="mt-3 flex flex-wrap gap-4 text-sm text-zinc-400 font-medium">
+                            <span className="flex items-center gap-1.5">
+                              <FileText size={14} /> Doc:{" "}
+                              {selectedTransaction.document_number || "-"}
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <CircleDollarSign size={14} /> Vencimento:{" "}
+                              {formatDate(selectedTransaction.due_date)}
+                            </span>
+                            {/* FIX 7: exibe parcela apenas se os dados existirem */}
+                            {formatInstallmentLabel(
+                              selectedTransaction,
+                              selectedGroupItems.length
+                            ) && (
+                              <span className="flex items-center gap-1.5">
+                                <CreditCard size={14} />
+                                {formatInstallmentLabel(
+                                  selectedTransaction,
+                                  selectedGroupItems.length
+                                )}
                               </span>
                             )}
                           </div>
                         </div>
-                      ))
-                    )}
-                  </div>
-                </section>
-
-                <section className="rounded-xl border border-surface/50 bg-background/40 p-5">
-                  <h4 className="text-xs font-black text-white uppercase tracking-widest border-b border-surface/50 pb-3">
-                    Ações rápidas
-                  </h4>
-                  <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {selectedTransaction.type === "income" ? (
-                      <>
-                        <button
-                          onClick={() => sendWhatsApp(selectedTransaction)}
-                          className="flex items-center justify-center gap-2 bg-cs-green/10 text-cs-green border border-cs-green/20 py-3 rounded-md font-black text-xs uppercase hover:bg-cs-green/20 transition-all"
-                        >
-                          <MessageCircle size={16} /> WhatsApp
-                        </button>
-                        <button
-                          onClick={() => sendInvoiceEmail(selectedTransaction)}
-                          disabled={isSendingMail}
-                          className="flex items-center justify-center gap-2 bg-blue-500/10 text-blue-400 border border-blue-500/20 py-3 rounded-md font-black text-xs uppercase hover:bg-blue-500/20 transition-all disabled:opacity-50"
-                        >
-                          {isSendingMail ? <Loader2 className="animate-spin" size={16} /> : <Mail size={16} />} E-mail
-                        </button>
-                        <button
-                          onClick={() => router.push(`/financeiro/fatura/${selectedTransaction.id}`)}
-                          className="flex items-center justify-center gap-2 bg-surface border border-surface/50 py-3 rounded-md font-black text-xs uppercase text-white hover:bg-background transition-all"
-                        >
-                          <Receipt size={16} /> Gerar Fatura PDF
-                        </button>
-                      </>
-                    ) : (
-                      <div className="md:col-span-3 text-sm text-text-secondary">
-                        Esta ação rápida está focada em cobranças a receber.
+                        <div className="flex flex-col items-start gap-3 xl:items-end">
+                          <p className="text-3xl font-semibold text-white">
+                            {currency(selectedTransaction.amount)}
+                          </p>
+                          <div>{getStatusBadge(selectedTransaction)}</div>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                </section>
-              </div>
-
-              <aside className="border-l border-surface/50 bg-background/30 p-6 overflow-y-auto max-h-[calc(94vh-110px)] space-y-5">
-                <section className="rounded-xl border border-cs-gold/20 bg-cs-gold/5 p-5">
-                  <h4 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-white">
-                    <ShieldAlert size={16} className="text-cs-gold" />
-                    Atendimento financeiro
-                  </h4>
-                  <p className="mt-2 text-xs uppercase tracking-wide text-text-secondary">
-                    Registre comentário, confirme, rejeite ou resolva a cobrança selecionada.
-                  </p>
-
-                  <div className="mt-4 space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wide text-text-secondary mb-1.5">
-                        Comentário do financeiro
-                      </label>
-                      <textarea
-                        value={financeActionForm.comment}
-                        onChange={(e) => setFinanceActionForm((prev) => ({ ...prev, comment: e.target.value }))}
-                        className="min-h-[110px] w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-gold"
-                        placeholder="Escreva um retorno claro para o cliente ou para o histórico interno."
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wide text-text-secondary mb-1.5">
-                        Tipo de resolução
-                      </label>
-                      <select
-                        value={financeActionForm.resolutionType}
-                        onChange={(e) => setFinanceActionForm((prev) => ({ ...prev, resolutionType: e.target.value }))}
-                        className="w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-gold"
-                      >
-                        <option value="payment_confirmed">Pagamento confirmado</option>
-                        <option value="charge_adjusted">Cobrança ajustada</option>
-                        <option value="charge_maintained">Cobrança mantida</option>
-                        <option value="charge_cancelled">Cobrança cancelada</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wide text-text-secondary mb-1.5">
-                        Observação de resolução
-                      </label>
-                      <textarea
-                        value={financeActionForm.resolutionNotes}
-                        onChange={(e) => setFinanceActionForm((prev) => ({ ...prev, resolutionNotes: e.target.value }))}
-                        className="min-h-[110px] w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-gold"
-                        placeholder="Explique a decisão tomada pelo financeiro."
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wide text-text-secondary mb-2">
-                        Anexo do financeiro
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => financeAttachmentInputRef.current?.click()}
-                        className="w-full rounded-lg border border-dashed border-surface bg-background px-4 py-3 text-sm font-semibold text-white hover:border-cs-gold transition-all flex items-center justify-center gap-2"
-                      >
-                        <Upload size={16} />
-                        {financeAttachmentFile ? financeAttachmentFile.name : "Selecionar arquivo"}
-                      </button>
-                      <input
-                        ref={financeAttachmentInputRef}
-                        type="file"
-                        className="hidden"
-                        accept=".pdf,.jpg,.jpeg,.png,.webp"
-                        onChange={(e) => setFinanceAttachmentFile(e.target.files?.[0] || null)}
-                      />
-                    </div>
-                  </div>
-                </section>
-
-                {selectedTransaction.type === "income" && selectedPaymentInfo ? (
-                  <section className="rounded-xl border border-white/10 bg-surface p-4 space-y-3">
-                    <h5 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
-                      <Scale size={15} className="text-cs-gold" />
-                      Decisão de conciliação
-                    </h5>
-                    <div className="rounded-lg border border-white/10 bg-background/40 p-3 text-sm text-zinc-200">
-                      {selectedPaymentInfo.label}: {selectedPaymentInfo.helper}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleAddFinanceComment}
-                      disabled={actionSubmitting}
-                      className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white hover:bg-white/10 disabled:opacity-50"
-                    >
-                      {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <FileText size={18} />}
-                      Registrar comentário
-                    </button>
-
-                    {(selectedTransaction.workflow_status === "awaiting_finance" ||
-                      selectedTransaction.workflow_status === "under_review") && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={handleConfirmPayment}
-                          disabled={actionSubmitting}
-                          className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-cs-green px-4 py-3 text-sm font-bold text-white shadow-lg hover:opacity-90 disabled:opacity-50"
-                        >
-                          {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <CheckCheck size={18} />}
-                          {selectedPaymentInfo.scenario === "partial"
-                            ? "Registrar parcial e manter saldo"
-                            : "Confirmar pagamento e dar baixa"}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={handleRejectPayment}
-                          disabled={actionSubmitting}
-                          className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-3 text-sm font-bold text-white shadow-lg hover:bg-red-500 disabled:opacity-50"
-                        >
-                          {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <X size={18} />}
-                          Rejeitar pagamento informado
-                        </button>
-                      </>
-                    )}
-
-                    {selectedPaymentInfo.scenario === "over" && receivableForGroup.length > 1 ? (
-                      <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 text-xs text-blue-300">
-                        Valor acima da parcela. O ideal é evoluir para conciliação por grupo e rateio entre parcelas abertas.
-                      </div>
-                    ) : null}
-                  </section>
-                ) : (
-                  <section className="rounded-xl border border-white/10 bg-surface p-4">
-                    <button
-                      type="button"
-                      onClick={handleAddFinanceComment}
-                      disabled={actionSubmitting}
-                      className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white hover:bg-white/10 disabled:opacity-50"
-                    >
-                      {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <FileText size={18} />}
-                      Registrar comentário
-                    </button>
-                  </section>
-                )}
-
-                {selectedTransaction.type === "income" &&
-                selectedTransaction.dispute_status &&
-                selectedTransaction.dispute_status !== "resolved" ? (
-                  <section className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-4 space-y-3">
-                    <h5 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
-                      <AlertTriangle size={15} className="text-orange-400" />
-                      Contestação
-                    </h5>
-                    <button
-                      type="button"
-                      onClick={handleResolveDispute}
-                      disabled={actionSubmitting}
-                      className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-3 text-sm font-bold text-white shadow-lg hover:opacity-90 disabled:opacity-50"
-                    >
-                      {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <ShieldAlert size={18} />}
-                      Resolver contestação
-                    </button>
-                  </section>
-                ) : null}
-
-                <section className="rounded-xl border border-surface/50 bg-surface p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <button
-                      onClick={() => setConfirmDeleteId(selectedTransaction.id)}
-                      className="flex items-center gap-2 text-xs font-black uppercase text-red-500 hover:text-red-400 transition-colors"
-                    >
-                      <Trash2 size={16} /> Excluir
-                    </button>
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => openEditForm(selectedTransaction)}
-                        className="bg-background border border-surface/50 text-white px-4 py-2.5 rounded-md text-xs font-black uppercase tracking-widest hover:bg-surface/80 transition-all"
-                      >
-                        Editar
-                      </button>
-                      {selectedTransaction.status === "pending" && selectedTransaction.type === "expense" && (
-                        <button
-                          onClick={() => updateStatus(selectedTransaction.id, "paid")}
-                          className="bg-cs-green text-white px-5 py-2.5 rounded-md text-xs font-black uppercase tracking-widest shadow-lg hover:bg-opacity-90 transition-all"
-                        >
-                          Dar baixa manual
-                        </button>
+                      {selectedGroupItems.length > 1 && (
+                        <div className="mt-5 flex items-center gap-3">
+                          <button
+                            onClick={selectPreviousItem}
+                            disabled={selectedIndexInGroup <= 0}
+                            className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold transition hover:bg-white/10 disabled:opacity-40"
+                          >
+                            <ChevronLeft size={16} /> Anterior
+                          </button>
+                          <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-2 text-sm text-zinc-300">
+                            Parcela {selectedIndexInGroup + 1} de {selectedGroupItems.length}
+                          </div>
+                          <button
+                            onClick={selectNextItem}
+                            disabled={selectedIndexInGroup >= selectedGroupItems.length - 1}
+                            className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold transition hover:bg-white/10 disabled:opacity-40"
+                          >
+                            Próxima <ChevronRight size={16} />
+                          </button>
+                        </div>
                       )}
                     </div>
-                  </div>
-                </section>
-              </aside>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {confirmDeleteId && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[160] backdrop-blur-sm">
-          <div className="bg-[#1a1413] border border-surface/50 rounded-xl w-full max-w-sm p-8 text-center space-y-6 shadow-2xl">
-            <div className="mx-auto w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center border border-red-500/20">
-              <AlertTriangle size={32} className="text-red-500" />
-            </div>
-            <h3 className="text-xl font-black text-white uppercase tracking-tighter">Remover Registro?</h3>
-            <p className="text-sm text-text-secondary font-medium">
-              Esta ação é irreversível e afetará os relatórios financeiros.
-            </p>
-            <div className="flex gap-4">
-              <button
-                onClick={() => setConfirmDeleteId(null)}
-                className="flex-1 py-3 border border-surface rounded-md text-xs font-black uppercase text-text-secondary hover:text-white transition-all"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => handleDeleteTransaction(confirmDeleteId)}
-                className="flex-1 py-3 bg-red-600 text-white rounded-md text-xs font-black uppercase shadow-lg hover:bg-red-500 transition-all"
-              >
-                Excluir
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+                    <div className="grid grid-cols-1 gap-6 p-6 sm:p-7 2xl:grid-cols-[minmax(0,1fr)_360px]">
+                      <div className="space-y-6">
+                        {/* Resumo */}
+                        <section className="rounded-[24px] border border-white/10 bg-black/15 p-5">
+                          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-zinc-200">
+                            Resumo da Cobrança
+                          </h3>
+                          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                            <div>
+                              <p className="text-[11px] uppercase tracking-widest text-zinc-500">
+                                Status Financeiro
+                              </p>
+                              <p className="mt-1 text-sm font-medium text-white">
+                                {translateFinancialStatus(selectedTransaction.status)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[11px] uppercase tracking-widest text-zinc-500">
+                                Fluxo de Trabalho
+                              </p>
+                              <p className="mt-1 text-sm font-medium text-white">
+                                {translateWorkflowStatus(selectedTransaction.workflow_status)}
+                              </p>
+                            </div>
+                            <div className="md:col-span-2">
+                              <p className="text-[11px] uppercase tracking-widest text-zinc-500">
+                                Observações do Financeiro
+                              </p>
+                              <p className="mt-1 text-sm leading-relaxed text-white">
+                                {selectedTransaction.resolution_notes ||
+                                  selectedTransaction.invoice_notes ||
+                                  "-"}
+                              </p>
+                            </div>
+                          </div>
+                        </section>
+
+                        {/* Timeline */}
+                        <section className="rounded-[24px] border border-white/10 bg-black/15 p-5">
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-zinc-200">
+                              Histórico de Interações
+                            </h3>
+                            {detailLoading && (
+                              <Loader2 className="animate-spin text-zinc-500" size={18} />
+                            )}
+                          </div>
+                          <div className="space-y-3">
+                            {events.length === 0 ? (
+                              <p className="text-sm text-zinc-500 italic">
+                                Nenhuma interação registrada.
+                              </p>
+                            ) : (
+                              events.map((ev) => (
+                                <div
+                                  key={ev.id}
+                                  className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"
+                                >
+                                  <div className="flex justify-between items-start gap-2">
+                                    <p className="font-semibold text-sm text-white">
+                                      {ev.title || translateEventType(ev.event_type)}
+                                    </p>
+                                    <span className="text-[10px] text-zinc-500">
+                                      {formatDateTime(ev.created_at)}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1 text-[10px] uppercase font-bold text-zinc-600">
+                                    Autor:{" "}
+                                    {ev.author_type === "client" ? clientSingular : "Financeiro"}
+                                  </p>
+                                  <p className="mt-3 text-sm leading-relaxed text-zinc-300">
+                                    {ev.message}
+                                  </p>
+                                  {ev.metadata && (
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                      {Object.entries(ev.metadata).map(([k, v]) => (
+                                        <div
+                                          key={k}
+                                          className="rounded-lg bg-black/30 px-3 py-1.5 border border-white/5"
+                                        >
+                                          <span className="block text-[9px] font-black uppercase text-zinc-600">
+                                            {formatMetadataLabel(k)}
+                                          </span>
+                                          <span className="text-xs font-bold text-zinc-400">
+                                            {formatMetadataValue(k, v)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </section>
+
+                        {/* Anexos */}
+                        <section className="rounded-[24px] border border-white/10 bg-black/15 p-5">
+                          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-zinc-200">
+                            Anexos e Documentos
+                          </h3>
+                          <div className="mt-4 space-y-3">
+                            {attachments.length === 0 ? (
+                              <p className="text-sm text-zinc-500 italic">
+                                Nenhum anexo disponível.
+                              </p>
+                            ) : (
+                              attachments.map((file) => (
+                                <div
+                                  key={file.id}
+                                  className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4"
+                                >
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-semibold text-white">
+                                      {file.file_name}
+                                    </p>
+                                    <p className="text-[10px] uppercase font-bold text-zinc-600">
+                                      {file.attachment_type} · {formatDateTime(file.created_at)}
+                                    </p>
+                                  </div>
+                                  {signedUrls[file.id] ? (
+                                    <a
+                                      href={signedUrls[file.id]}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex h-10 items-center gap-2 rounded-xl bg-white/5 px-4 text-xs font-bold transition hover:bg-white/10"
+                                    >
+                                      <Paperclip size={14} /> Abrir
+                                    </a>
+                                  ) : (
+                                    <span className="inline-flex h-10 items-center gap-2 rounded-xl bg-white/5 px-4 text-xs font-bold opacity-40">
+                                      <Loader2 className="animate-spin" size={14} /> Carregando
+                                    </span>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </section>
+                      </div>
+
+                      {/* Painéis de Ação */}
+                      <aside className="space-y-4">
+                        {/* Notificar Pagamento */}
+                        <div
+                          className={`rounded-[24px] border transition ${
+                            openActionPanel === "payment"
+                              ? "border-emerald-500/30 bg-emerald-500/10"
+                              : "border-white/10 bg-white/[0.04]"
+                          }`}
+                        >
+                          <button
+                            onClick={() =>
+                              setOpenActionPanel((p) => (p === "payment" ? null : "payment"))
+                            }
+                            className="flex w-full items-center justify-between p-4"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-300">
+                                <CheckCircle2 size={20} />
+                              </div>
+                              <div className="text-left">
+                                <h3 className="text-sm font-semibold uppercase tracking-widest text-white">
+                                  Notificar Pagamento
+                                </h3>
+                                <p className="text-[11px] text-zinc-500">
+                                  Informar liquidação desta parcela
+                                </p>
+                              </div>
+                            </div>
+                            <ChevronDown
+                              size={18}
+                              className={`text-zinc-500 transition ${
+                                openActionPanel === "payment" ? "rotate-180" : ""
+                              }`}
+                            />
+                          </button>
+                          {openActionPanel === "payment" && (
+                            <div className="p-5 pt-0 space-y-4 animate-in fade-in slide-in-from-top-2">
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                                  Valor Pago
+                                </label>
+                                <input
+                                  type="text"
+                                  value={paymentForm.amount}
+                                  onChange={(e) =>
+                                    setPaymentForm((p) => ({
+                                      ...p,
+                                      amount: handleCurrencyInput(e.target.value),
+                                    }))
+                                  }
+                                  placeholder="R$ 0,00"
+                                  className="w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm font-bold outline-none focus:border-emerald-500/50"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                                  Forma de Pagamento
+                                </label>
+                                <select
+                                  value={paymentForm.method}
+                                  onChange={(e) =>
+                                    setPaymentForm((p) => ({ ...p, method: e.target.value }))
+                                  }
+                                  className="w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm font-bold outline-none focus:border-emerald-500/50 appearance-none"
+                                >
+                                  <option value="pix">PIX</option>
+                                  <option value="boleto">Boleto</option>
+                                  <option value="transferencia">Transferência</option>
+                                  <option value="cartao">Cartão</option>
+                                </select>
+                              </div>
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                                  Referência / Comprovante
+                                </label>
+                                <input
+                                  type="text"
+                                  value={paymentForm.reference}
+                                  onChange={(e) =>
+                                    setPaymentForm((p) => ({ ...p, reference: e.target.value }))
+                                  }
+                                  placeholder="Código, ID da transação..."
+                                  className="w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm font-bold outline-none focus:border-emerald-500/50"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                                  Mensagem Adicional
+                                </label>
+                                <textarea
+                                  value={paymentForm.message}
+                                  onChange={(e) =>
+                                    setPaymentForm((p) => ({ ...p, message: e.target.value }))
+                                  }
+                                  className="h-24 w-full resize-none rounded-xl border border-white/10 bg-black/20 p-3 text-sm font-medium outline-none focus:border-emerald-500/50"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                {/* FIX 3: Exibe erro de tamanho antes de aceitar o arquivo */}
+                                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-white/20 bg-black/20 p-4 transition hover:bg-black/40">
+                                  <Upload size={16} className="text-zinc-500" />
+                                  <span className="truncate text-xs font-bold text-zinc-400">
+                                    {paymentFile ? paymentFile.name : "Anexar Comprovante"}
+                                  </span>
+                                  <input
+                                    type="file"
+                                    className="hidden"
+                                    accept=".pdf,.jpg,.jpeg,.png"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0] || null;
+                                      if (file) {
+                                        const err = validateFile(file);
+                                        if (err) {
+                                          showToast(err, "error");
+                                          e.target.value = "";
+                                          return;
+                                        }
+                                      }
+                                      setPaymentFile(file);
+                                    }}
+                                  />
+                                </label>
+                                <p className="text-[10px] text-zinc-600">
+                                  Máx. 5MB · PDF, JPG, PNG
+                                </p>
+                              </div>
+                              <button
+                                onClick={handleReportPayment}
+                                disabled={submitting}
+                                className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 p-4 text-xs font-black uppercase tracking-widest transition hover:bg-emerald-500 disabled:opacity-50 shadow-lg shadow-emerald-900/20"
+                              >
+                                {submitting ? (
+                                  <Loader2 className="animate-spin" size={16} />
+                                ) : (
+                                  "Confirmar Notificação"
+                                )}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* FIX 6: Contestação com todas as 7 categorias sincronizadas */}
+                        <div
+                          className={`rounded-[24px] border transition ${
+                            openActionPanel === "dispute"
+                              ? "border-orange-500/30 bg-orange-500/10"
+                              : "border-white/10 bg-white/[0.04]"
+                          }`}
+                        >
+                          <button
+                            onClick={() =>
+                              setOpenActionPanel((p) => (p === "dispute" ? null : "dispute"))
+                            }
+                            className="flex w-full items-center justify-between p-4"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-300">
+                                <AlertTriangle size={20} />
+                              </div>
+                              <div className="text-left">
+                                <h3 className="text-sm font-semibold uppercase tracking-widest text-white">
+                                  Registrar Contestação
+                                </h3>
+                                <p className="text-[11px] text-zinc-500">
+                                  Divergência de valores ou prazos
+                                </p>
+                              </div>
+                            </div>
+                            <ChevronDown
+                              size={18}
+                              className={`text-zinc-500 transition ${
+                                openActionPanel === "dispute" ? "rotate-180" : ""
+                              }`}
+                            />
+                          </button>
+                          {openActionPanel === "dispute" && (
+                            <div className="p-5 pt-0 space-y-4 animate-in fade-in slide-in-from-top-2">
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                                  Categoria
+                                </label>
+                                <select
+                                  value={disputeForm.category}
+                                  onChange={(e) =>
+                                    setDisputeForm((p) => ({ ...p, category: e.target.value }))
+                                  }
+                                  className="w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm font-bold outline-none focus:border-orange-500/50 appearance-none"
+                                >
+                                  <option value="amount_divergence">Valor divergente</option>
+                                  <option value="duplicate_charge">Cobrança duplicada</option>
+                                  <option value="service_not_delivered">
+                                    Serviço não entregue
+                                  </option>
+                                  <option value="wrong_due_date">Data incorreta</option>
+                                  <option value="wrong_document">Documento incorreto</option>
+                                  <option value="unknown_charge">Cobrança desconhecida</option>
+                                  <option value="other">Outro</option>
+                                </select>
+                              </div>
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                                  Motivo Resumido
+                                </label>
+                                <input
+                                  type="text"
+                                  value={disputeForm.reason}
+                                  onChange={(e) =>
+                                    setDisputeForm((p) => ({ ...p, reason: e.target.value }))
+                                  }
+                                  className="w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm font-bold outline-none focus:border-orange-500/50"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                                  Detalhamento
+                                </label>
+                                <textarea
+                                  value={disputeForm.message}
+                                  onChange={(e) =>
+                                    setDisputeForm((p) => ({ ...p, message: e.target.value }))
+                                  }
+                                  className="h-24 w-full resize-none rounded-xl border border-white/10 bg-black/20 p-3 text-sm font-medium outline-none focus:border-orange-500/50"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                {/* FIX 3: Valida tamanho da evidência no input */}
+                                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-white/20 bg-black/20 p-4 transition hover:bg-black/40">
+                                  <Upload size={16} className="text-zinc-500" />
+                                  <span className="truncate text-xs font-bold text-zinc-400">
+                                    {disputeFile ? disputeFile.name : "Anexar Evidência"}
+                                  </span>
+                                  <input
+                                    type="file"
+                                    className="hidden"
+                                    accept=".pdf,.jpg,.jpeg,.png"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0] || null;
+                                      if (file) {
+                                        const err = validateFile(file);
+                                        if (err) {
+                                          showToast(err, "error");
+                                          e.target.value = "";
+                                          return;
+                                        }
+                                      }
+                                      setDisputeFile(file);
+                                    }}
+                                  />
+                                </label>
+                                <p className="text-[10px] text-zinc-600">
+                                  Máx. 5MB · PDF, JPG, PNG
+                                </p>
+                              </div>
+                              <button
+                                onClick={handleOpenDispute}
+                                disabled={submitting}
+                                className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-600 p-4 text-xs font-black uppercase tracking-widest transition hover:bg-orange-500 disabled:opacity-50 shadow-lg shadow-orange-900/20"
+                              >
+                                {submitting ? (
+                                  <Loader2 className="animate-spin" size={16} />
+                                ) : (
+                                  "Abrir Contestação Formal"
+                                )}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </aside>
+                    </div>
+                  </div>
+                )}
+              </section>
+            </section>
+          )}
+        </section>
+      </div>
+      <style jsx global>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 10px;
+        }
+      `}</style>
+    </main>
   );
 }
