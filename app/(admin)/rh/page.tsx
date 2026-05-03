@@ -152,12 +152,11 @@ function calcIRRF(base: number): number {
 }
 
 const OCCURRENCE_TYPES = [
-  { value: "absence",      label: "Falta"           },
-  { value: "warning",      label: "Advertência"     },
-  { value: "suspension",   label: "Suspensão"       },
-  { value: "medical_cert", label: "Atestado Médico" },
-  { value: "evaluation",   label: "Avaliação"       },
-  { value: "vacation",     label: "Férias"          },
+  { value: "warning",            label: "Advertência"       },
+  { value: "suspension",         label: "Suspensão"         },
+  { value: "medical_certificate",label: "Atestado Médico"   },
+  { value: "performance_review", label: "Avaliação"         },
+  { value: "other",              label: "Outro"             },
 ];
 
 const CONTRACT_TYPES = [
@@ -1021,7 +1020,8 @@ function OccurrenceFormModal({ employees, onClose, onSaved }: {
     else console.error("Erro ao registrar ocorrência:", error);
   }
 
-  const needsWitnesses = form.type === "warning" || form.type === "suspension";
+  const needsWitnesses  = form.type === "warning" || form.type === "suspension";
+  const needsDaysCount  = form.type === "suspension" || form.type === "medical_certificate";
 
   return (
     <Modal title="Registrar ocorrência" onClose={onClose}>
@@ -1041,7 +1041,7 @@ function OccurrenceFormModal({ employees, onClose, onSaved }: {
           <Field label="Data (máx. hoje) *">
             <Input type="date" required value={form.occurrence_date} max={new Date().toISOString().slice(0, 10)} onChange={(e) => set("occurrence_date", e.target.value)} className="[color-scheme:dark]" />
           </Field>
-          {(form.type === "absence" || form.type === "suspension" || form.type === "medical_cert") && (
+          {needsDaysCount && (
             <Field label="Qtd. de dias">
               <Input type="number" min="1" value={form.days_count} onChange={(e) => set("days_count", e.target.value)} />
             </Field>
