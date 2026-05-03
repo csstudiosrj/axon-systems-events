@@ -5,39 +5,12 @@ import { supabase } from "../../lib/supabase";
 import { useRouter } from "next/navigation";
 import { useSettings } from "@/app/providers/SettingsProvider";
 import {
-  Wallet,
-  Plus,
-  Loader2,
-  ArrowLeft,
-  ArrowUpRight,
-  CheckCircle,
-  XCircle,
-  Save,
-  Trash2,
-  Search,
-  Building,
-  Eye,
-  AlertTriangle,
-  Upload,
-  Receipt,
-  Mail,
-  MessageCircle,
-  Users,
-  TrendingUp,
-  UserCheck,
-  Percent,
-  BarChart3,
-  PieChart,
-  DollarSign,
-  Zap,
-  CheckCheck,
-  ShieldAlert,
-  FileText,
-  Paperclip,
-  RefreshCw,
-  X,
-  Scale,
-  Clock3,
+  Wallet, Plus, Loader2, ArrowLeft, ArrowUpRight, CheckCircle, XCircle, Save,
+  Trash2, Search, Building, Eye, AlertTriangle, Upload, Receipt, Mail,
+  MessageCircle, Users, TrendingUp, UserCheck, Percent, BarChart3, PieChart,
+  DollarSign, Zap, CheckCheck, ShieldAlert, FileText, Paperclip, RefreshCw,
+  X, Scale, Clock3, Download, ChevronLeft, ChevronRight, Bell, Layers,
+  CalendarRange, ListFilter, SlidersHorizontal, CreditCard,
 } from "lucide-react";
 
 interface Client {
@@ -152,15 +125,26 @@ interface Toast {
   type: "success" | "error" | "warning";
 }
 
+interface ReguaConfig {
+  enableMinus3: boolean;
+  enableD0: boolean;
+  enablePlus5: boolean;
+  messageMinus3: string;
+  messageD0: string;
+  messagePlus5: string;
+}
+
 type TabId =
   | "dashboard"
   | "receber"
   | "pagar_admin"
   | "pagar_operacional"
   | "pessoal"
-  | "clientes";
+  | "clientes"
+  | "dre";
 
 const STORAGE_BUCKET = "files-main";
+const PAGE_SIZE = 50;
 
 const DEFAULT_INCOME_CATEGORIES = [
   "Prestação de Serviços",
@@ -199,6 +183,18 @@ const DEFAULT_EXPENSE_PERSONNEL_CATEGORIES = [
   "Freelancer / PJ",
   "Encargos Trabalhistas",
 ];
+
+const REGUA_DEFAULT: ReguaConfig = {
+  enableMinus3: true,
+  enableD0: true,
+  enablePlus5: true,
+  messageMinus3:
+    "Olá {cliente}, sua fatura de {valor} vence em 3 dias ({data}). Providencie o pagamento para evitar atrasos.",
+  messageD0:
+    "Olá {cliente}, sua fatura de {valor} vence hoje ({data}). Regularize para evitar encargos.",
+  messagePlus5:
+    "Olá {cliente}, sua fatura de {valor} está vencida desde {data}. Entre em contato para regularização.",
+};
 
 const isOverdue = (date: string, status: string) =>
   new Date(`${date}T00:00:00`) < new Date(new Date().setHours(0, 0, 0, 0)) &&
@@ -262,17 +258,26 @@ const statusLabel = (t: Transaction) => {
 };
 
 const statusClass = (t: Transaction) => {
-  if (t.workflow_status === "confirmed" || t.status === "paid" || t.status === "received") {
+  if (
+    t.workflow_status === "confirmed" ||
+    t.status === "paid" ||
+    t.status === "received"
+  ) {
     return "bg-cs-green/10 text-cs-green border-cs-green/20";
   }
   if (t.dispute_status && t.dispute_status !== "resolved") {
     return "bg-orange-500/10 text-orange-400 border-orange-500/20";
   }
-  if (t.workflow_status === "awaiting_finance" || t.workflow_status === "under_review") {
+  if (
+    t.workflow_status === "awaiting_finance" ||
+    t.workflow_status === "under_review"
+  ) {
     return "bg-cs-gold/10 text-cs-gold border-cs-gold/20";
   }
-  if (t.status === "cancelled") return "bg-zinc-500/10 text-zinc-400 border-zinc-500/20";
-  if (isOverdue(t.due_date, t.status || "pending")) return "bg-red-500/10 text-red-500 border-red-500/20";
+  if (t.status === "cancelled")
+    return "bg-zinc-500/10 text-zinc-400 border-zinc-500/20";
+  if (isOverdue(t.due_date, t.status || "pending"))
+    return "bg-red-500/10 text-red-500 border-red-500/20";
   return "bg-white/5 text-zinc-300 border-white/10";
 };
 
@@ -310,7 +315,8 @@ const getPaymentDifference = (transaction: Transaction) => {
       difference,
       scenario: "partial" as const,
       label: "Pagamento parcial",
-      helper: "O cliente informou valor menor que a parcela. Exige decisão do financeiro.",
+      helper:
+        "O cliente informou valor menor que a parcela. Exige decisão do financeiro.",
     };
   }
 
@@ -320,7 +326,8 @@ const getPaymentDifference = (transaction: Transaction) => {
     difference,
     scenario: "over" as const,
     label: "Valor acima da parcela",
-    helper: "O valor informado é maior que a parcela. Pode indicar quitação de mais de uma parcela ou erro de referência.",
+    helper:
+      "O valor informado é maior que a parcela. Pode indicar quitação de mais de uma parcela.",
   };
 };
 
@@ -367,6 +374,7 @@ export default function FinanceiroPage() {
     return raw?.length ? raw : DEFAULT_INCOME_CATEGORIES;
   }, [sys]);
 
+  // ── Core state ────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [view, setView] = useState<"list" | "create">("list");
   const [loading, setLoading] = useState(true);
@@ -383,12 +391,15 @@ export default function FinanceiroPage() {
 
   const [events, setEvents] = useState<FinancialEvent[]>([]);
   const [attachments, setAttachments] = useState<FinancialAttachment[]>([]);
+  // FIX: signed URLs managed via ref to avoid loop
+  const signedUrlsRef = useRef<Record<string, string>>({});
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const [toast, setToast] = useState<Toast | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [selectedTransaction, setSelectedTransaction] =
+    useState<Transaction | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [clientSearch, setClientSearch] = useState("");
@@ -397,8 +408,31 @@ export default function FinanceiroPage() {
   const financeAttachmentInputRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<number | null>(null);
 
+  // ── Filter & pagination state ─────────────────────────────────────────────
+  const [filterStatus, setFilterStatus] = useState<string>("");
+  const [filterClientId, setFilterClientId] = useState<string>("");
+  const [filterDateFrom, setFilterDateFrom] = useState<string>("");
+  const [filterDateTo, setFilterDateTo] = useState<string>("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [showFilters, setShowFilters] = useState(false);
+
+  // ── Batch operations state ────────────────────────────────────────────────
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // ── Régua de cobrança state ───────────────────────────────────────────────
+  const [isReguaOpen, setIsReguaOpen] = useState(false);
+  const [reguaConfig, setReguaConfig] = useState<ReguaConfig>(REGUA_DEFAULT);
+  const [reguaRunning, setReguaRunning] = useState(false);
+
+  // ── Queue tracking ────────────────────────────────────────────────────────
+  const lastQueueViewedAtRef = useRef<string | null>(null);
+  const [newQueueCount, setNewQueueCount] = useState(0);
+
+  // ── Form state ────────────────────────────────────────────────────────────
   const [formType, setFormType] = useState<"income" | "expense">("income");
-  const [expenseType, setExpenseType] = useState<"administrative" | "personnel" | "operational">("administrative");
+  const [expenseType, setExpenseType] = useState<
+    "administrative" | "personnel" | "operational"
+  >("administrative");
   const [editId, setEditId] = useState<string | null>(null);
   const [formData, setForm] = useState({
     description: "",
@@ -420,8 +454,10 @@ export default function FinanceiroPage() {
     resolutionType: "payment_confirmed",
     resolutionNotes: "",
   });
-  const [financeAttachmentFile, setFinanceAttachmentFile] = useState<File | null>(null);
+  const [financeAttachmentFile, setFinanceAttachmentFile] =
+    useState<File | null>(null);
 
+  // ── Helpers ───────────────────────────────────────────────────────────────
   const showToast = useCallback((message: string, type: Toast["type"]) => {
     setToast({ message, type });
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
@@ -429,7 +465,11 @@ export default function FinanceiroPage() {
   }, []);
 
   const formatCurrency = useCallback(
-    (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: currencyCode }).format(v),
+    (v: number) =>
+      new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: currencyCode,
+      }).format(v),
     [currencyCode]
   );
 
@@ -443,6 +483,26 @@ export default function FinanceiroPage() {
     return new Date(value).toLocaleString("pt-BR");
   }, []);
 
+  // ── ESC key closes modal ──────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (isReguaOpen) setIsReguaOpen(false);
+        else if (confirmDeleteId) setConfirmDeleteId(null);
+        else if (isDetailModalOpen) setIsDetailModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isDetailModalOpen, confirmDeleteId, isReguaOpen]);
+
+  // ── Reset page when filters/tab change ───────────────────────────────────
+  useEffect(() => {
+    setCurrentPage(1);
+    setSelectedIds(new Set());
+  }, [filterStatus, filterClientId, filterDateFrom, filterDateTo, searchTerm, activeTab]);
+
+  // ── Fetch data ────────────────────────────────────────────────────────────
   const fetchCurrentUser = useCallback(async () => {
     const {
       data: { session },
@@ -459,50 +519,23 @@ export default function FinanceiroPage() {
         supabase
           .from("financial_transactions")
           .select(
-            `
-              id,
-              description,
-              type,
-              expense_type,
-              category,
-              amount,
-              status,
-              due_date,
-              payment_date,
-              service_order_id,
-              client_id,
-              member_id,
-              attachment_url,
-              payment_method,
-              last_notified_at,
-              invoice_hash,
-              quote_id,
-              installment_number,
-              total_installments,
-              source,
-              invoice_notes,
-              document_number,
-              workflow_status,
-              dispute_status,
-              dispute_reason,
-              dispute_category,
-              customer_last_action_at,
-              finance_last_action_at,
-              last_interaction_at,
-              payment_reported_amount,
-              payment_reported_method,
-              payment_reported_reference,
-              payment_reported_at,
-              payment_confirmed_at,
-              resolution_type,
-              resolution_notes,
-              created_at,
-              clients(*),
-              member:profiles!member_id(id, full_name, email, role, commission_percentage)
-            `
+            `id, description, type, expense_type, category, amount, status,
+             due_date, payment_date, service_order_id, client_id, member_id,
+             attachment_url, payment_method, last_notified_at, invoice_hash,
+             quote_id, installment_number, total_installments, source,
+             invoice_notes, document_number, workflow_status, dispute_status,
+             dispute_reason, dispute_category, customer_last_action_at,
+             finance_last_action_at, last_interaction_at, payment_reported_amount,
+             payment_reported_method, payment_reported_reference, payment_reported_at,
+             payment_confirmed_at, resolution_type, resolution_notes, created_at,
+             clients(*),
+             member:profiles!member_id(id, full_name, email, role, commission_percentage)`
           )
           .order("due_date", { ascending: true }),
-        supabase.from("clients").select("id, company_name, email, phone").order("company_name"),
+        supabase
+          .from("clients")
+          .select("id, company_name, email, phone")
+          .order("company_name"),
         supabase
           .from("quotes")
           .select("id, title, salesperson_id, final_amount, client_id")
@@ -517,7 +550,6 @@ export default function FinanceiroPage() {
       if (qRes.data) setApprovedQuotes(qRes.data as unknown as ApprovedQuote[]);
       if (cRes.data) setClients(cRes.data as Client[]);
       if (pRes.data) setTeam(pRes.data as unknown as Profile[]);
-
       if (tRes.error) throw tRes.error;
       setTransactions((tRes.data || []) as unknown as Transaction[]);
     } catch (error) {
@@ -528,43 +560,50 @@ export default function FinanceiroPage() {
     }
   }, [fetchCurrentUser, showToast]);
 
-  const fetchInteractionDetails = useCallback(async (transactionId: string) => {
-    if (!transactionId) {
-      setEvents([]);
-      setAttachments([]);
-      return;
-    }
+  const fetchInteractionDetails = useCallback(
+    async (transactionId: string) => {
+      if (!transactionId) {
+        setEvents([]);
+        setAttachments([]);
+        return;
+      }
+      setDetailLoading(true);
+      try {
+        const [eventsResult, attachmentsResult] = await Promise.all([
+          supabase
+            .from("financial_transaction_events")
+            .select(
+              "id, financial_transaction_id, author_id, author_type, visibility, event_type, title, message, metadata, created_at"
+            )
+            .eq("financial_transaction_id", transactionId)
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("financial_transaction_attachments")
+            .select(
+              "id, financial_transaction_id, event_id, uploaded_by, uploaded_by_type, visibility, attachment_type, file_name, file_path, file_url, mime_type, file_size, created_at"
+            )
+            .eq("financial_transaction_id", transactionId)
+            .order("created_at", { ascending: false }),
+        ]);
 
-    setDetailLoading(true);
+        if (eventsResult.error) throw eventsResult.error;
+        if (attachmentsResult.error) throw attachmentsResult.error;
 
-    try {
-      const [eventsResult, attachmentsResult] = await Promise.all([
-        supabase
-          .from("financial_transaction_events")
-          .select("id, financial_transaction_id, author_id, author_type, visibility, event_type, title, message, metadata, created_at")
-          .eq("financial_transaction_id", transactionId)
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("financial_transaction_attachments")
-          .select("id, financial_transaction_id, event_id, uploaded_by, uploaded_by_type, visibility, attachment_type, file_name, file_path, file_url, mime_type, file_size, created_at")
-          .eq("financial_transaction_id", transactionId)
-          .order("created_at", { ascending: false }),
-      ]);
-
-      if (eventsResult.error) throw eventsResult.error;
-      if (attachmentsResult.error) throw attachmentsResult.error;
-
-      setEvents((eventsResult.data || []) as FinancialEvent[]);
-      setAttachments((attachmentsResult.data || []) as FinancialAttachment[]);
-    } catch (error) {
-      console.error(error);
-      setEvents([]);
-      setAttachments([]);
-      showToast("Erro ao carregar histórico financeiro.", "error");
-    } finally {
-      setDetailLoading(false);
-    }
-  }, [showToast]);
+        setEvents((eventsResult.data || []) as FinancialEvent[]);
+        setAttachments(
+          (attachmentsResult.data || []) as FinancialAttachment[]
+        );
+      } catch (error) {
+        console.error(error);
+        setEvents([]);
+        setAttachments([]);
+        showToast("Erro ao carregar histórico financeiro.", "error");
+      } finally {
+        setDetailLoading(false);
+      }
+    },
+    [showToast]
+  );
 
   useEffect(() => {
     fetchData();
@@ -581,115 +620,266 @@ export default function FinanceiroPage() {
     fetchInteractionDetails(selectedTransaction.id);
   }, [selectedTransaction?.id, isDetailModalOpen, fetchInteractionDetails]);
 
+  // ── Realtime subscription ─────────────────────────────────────────────────
   useEffect(() => {
     const channel = supabase
-      .channel("financeiro-realtime-v2")
-      .on("postgres_changes", { event: "*", schema: "public", table: "financial_transactions" }, async () => {
-        await fetchData();
-        if (selectedTransaction?.id) {
-          const latest = await supabase
-            .from("financial_transactions")
-            .select(
-              `
-                id,
-                description,
-                type,
-                expense_type,
-                category,
-                amount,
-                status,
-                due_date,
-                payment_date,
-                service_order_id,
-                client_id,
-                member_id,
-                attachment_url,
-                payment_method,
-                last_notified_at,
-                invoice_hash,
-                quote_id,
-                installment_number,
-                total_installments,
-                source,
-                invoice_notes,
-                document_number,
-                workflow_status,
-                dispute_status,
-                dispute_reason,
-                dispute_category,
-                customer_last_action_at,
-                finance_last_action_at,
-                last_interaction_at,
-                payment_reported_amount,
-                payment_reported_method,
-                payment_reported_reference,
-                payment_reported_at,
-                payment_confirmed_at,
-                resolution_type,
-                resolution_notes,
-                created_at,
-                clients(*),
-                member:profiles!member_id(id, full_name, email, role, commission_percentage)
-              `
-            )
-            .eq("id", selectedTransaction.id)
-            .single();
-
-          if (latest.data) setSelectedTransaction(latest.data as unknown as Transaction);
+      .channel("financeiro-realtime-v3")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "financial_transactions" },
+        async () => {
+          await fetchData();
+          if (selectedTransaction?.id) {
+            const latest = await supabase
+              .from("financial_transactions")
+              .select(
+                `id, description, type, expense_type, category, amount, status,
+                 due_date, payment_date, service_order_id, client_id, member_id,
+                 attachment_url, payment_method, last_notified_at, invoice_hash,
+                 quote_id, installment_number, total_installments, source,
+                 invoice_notes, document_number, workflow_status, dispute_status,
+                 dispute_reason, dispute_category, customer_last_action_at,
+                 finance_last_action_at, last_interaction_at, payment_reported_amount,
+                 payment_reported_method, payment_reported_reference, payment_reported_at,
+                 payment_confirmed_at, resolution_type, resolution_notes, created_at,
+                 clients(*),
+                 member:profiles!member_id(id, full_name, email, role, commission_percentage)`
+              )
+              .eq("id", selectedTransaction.id)
+              .single();
+            if (latest.data)
+              setSelectedTransaction(latest.data as unknown as Transaction);
+          }
         }
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "financial_transaction_events" }, async () => {
-        if (selectedTransaction?.id && isDetailModalOpen) {
-          await fetchInteractionDetails(selectedTransaction.id);
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "financial_transaction_events",
+        },
+        async () => {
+          if (selectedTransaction?.id && isDetailModalOpen) {
+            await fetchInteractionDetails(selectedTransaction.id);
+          }
         }
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "financial_transaction_attachments" }, async () => {
-        if (selectedTransaction?.id && isDetailModalOpen) {
-          await fetchInteractionDetails(selectedTransaction.id);
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "financial_transaction_attachments",
+        },
+        async () => {
+          if (selectedTransaction?.id && isDetailModalOpen) {
+            await fetchInteractionDetails(selectedTransaction.id);
+          }
         }
-      })
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [fetchData, fetchInteractionDetails, isDetailModalOpen, selectedTransaction?.id]);
+  }, [
+    fetchData,
+    fetchInteractionDetails,
+    isDetailModalOpen,
+    selectedTransaction?.id,
+  ]);
 
-  const filteredClientsList = useMemo(
-    () =>
-      clients
-        .filter((c) => c.company_name.toLowerCase().includes(clientSearch.toLowerCase()))
-        .slice(0, 8),
-    [clients, clientSearch]
-  );
+  // ── FIX: Signed URLs via ref — sem loop ───────────────────────────────────
+  useEffect(() => {
+    if (attachments.length === 0) return;
 
-  const filteredTeamList = useMemo(
-    () =>
-      team
-        .filter((t) => t.full_name?.toLowerCase().includes(memberSearch.toLowerCase()))
-        .slice(0, 8),
-    [team, memberSearch]
-  );
+    const loadUrls = async () => {
+      const current = signedUrlsRef.current;
+      const nextMap: Record<string, string> = { ...current };
+      let changed = false;
 
-  const filteredTransactions = useMemo(
-    () =>
-      transactions.filter(
+      for (const file of attachments) {
+        if (file.file_path && !current[file.id]) {
+          const { data } = await supabase.storage
+            .from(STORAGE_BUCKET)
+            .createSignedUrl(file.file_path, 3600);
+          if (data?.signedUrl) {
+            nextMap[file.id] = data.signedUrl;
+            changed = true;
+          }
+        }
+      }
+
+      if (changed) {
+        signedUrlsRef.current = nextMap;
+        setSignedUrls({ ...nextMap });
+      }
+    };
+
+    void loadUrls();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachments]);
+
+  // ── Queue new-items tracking ──────────────────────────────────────────────
+  const clientActionQueue = useMemo(() => {
+    return transactions
+      .filter(
         (t) =>
-          t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (t.clients?.company_name?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false) ||
-          (t.category?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false) ||
-          (t.document_number?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false)
-      ),
-    [transactions, searchTerm]
-  );
+          t.type === "income" &&
+          (t.workflow_status === "awaiting_finance" ||
+            t.workflow_status === "under_review" ||
+            (t.dispute_status && t.dispute_status !== "resolved"))
+      )
+      .sort((a, b) => {
+        const dateA = new Date(
+          a.last_interaction_at || a.payment_reported_at || a.due_date
+        ).getTime();
+        const dateB = new Date(
+          b.last_interaction_at || b.payment_reported_at || b.due_date
+        ).getTime();
+        return dateB - dateA;
+      });
+  }, [transactions]);
 
+  useEffect(() => {
+    const lastSeen = lastQueueViewedAtRef.current;
+    if (!lastSeen) {
+      setNewQueueCount(clientActionQueue.length);
+      return;
+    }
+    const newItems = clientActionQueue.filter((t) => {
+      const actionAt = t.last_interaction_at || t.customer_last_action_at;
+      return actionAt && new Date(actionAt) > new Date(lastSeen);
+    });
+    setNewQueueCount(newItems.length);
+  }, [clientActionQueue]);
+
+  // ── Filtered transactions ─────────────────────────────────────────────────
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter((t) => {
+      const matchText =
+        t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (t.clients?.company_name
+          ?.toLowerCase()
+          .includes(searchTerm.toLowerCase()) ??
+          false) ||
+        (t.category?.toLowerCase().includes(searchTerm.toLowerCase()) ??
+          false) ||
+        (t.document_number
+          ?.toLowerCase()
+          .includes(searchTerm.toLowerCase()) ?? false);
+
+      const matchStatus = (() => {
+        if (!filterStatus) return true;
+        if (filterStatus === "paid")
+          return (
+            t.status === "paid" ||
+            t.status === "received" ||
+            t.workflow_status === "confirmed"
+          );
+        if (filterStatus === "pending")
+          return (
+            t.status === "pending" &&
+            !isOverdue(t.due_date, t.status) &&
+            t.workflow_status !== "awaiting_finance" &&
+            t.workflow_status !== "under_review" &&
+            !(t.dispute_status && t.dispute_status !== "resolved")
+          );
+        if (filterStatus === "overdue")
+          return isOverdue(t.due_date, t.status || "pending");
+        if (filterStatus === "awaiting_finance")
+          return t.workflow_status === "awaiting_finance";
+        if (filterStatus === "disputed")
+          return !!(t.dispute_status && t.dispute_status !== "resolved");
+        if (filterStatus === "cancelled") return t.status === "cancelled";
+        return true;
+      })();
+
+      const matchClient = filterClientId
+        ? t.client_id === filterClientId
+        : true;
+
+      const matchDateFrom = filterDateFrom
+        ? t.due_date >= filterDateFrom
+        : true;
+      const matchDateTo = filterDateTo ? t.due_date <= filterDateTo : true;
+
+      return matchText && matchStatus && matchClient && matchDateFrom && matchDateTo;
+    });
+  }, [
+    transactions,
+    searchTerm,
+    filterStatus,
+    filterClientId,
+    filterDateFrom,
+    filterDateTo,
+  ]);
+
+  // ── DRE by month ──────────────────────────────────────────────────────────
+  const dreByMonth = useMemo(() => {
+    const map: Record<
+      string,
+      { income: number; expense: number; month: string; year: number }
+    > = {};
+
+    transactions.forEach((t) => {
+      if (t.status === "cancelled") return;
+      const isPaid =
+        t.status === "paid" ||
+        t.status === "received" ||
+        t.workflow_status === "confirmed";
+      if (!isPaid) return;
+
+      const ref =
+        t.payment_date ||
+        t.payment_confirmed_at ||
+        t.last_interaction_at ||
+        t.due_date;
+      if (!ref) return;
+
+      const date = new Date(ref);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+
+      if (!map[key]) {
+        map[key] = {
+          income: 0,
+          expense: 0,
+          month: date.toLocaleString("pt-BR", { month: "long" }),
+          year: date.getFullYear(),
+        };
+      }
+
+      if (t.type === "income") map[key].income += Number(t.amount || 0);
+      if (t.type === "expense") map[key].expense += Number(t.amount || 0);
+    });
+
+    let cumulative = 0;
+    return Object.entries(map)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, val]) => {
+        const balance = val.income - val.expense;
+        cumulative += balance;
+        return { key, ...val, balance, cumulative };
+      });
+  }, [transactions]);
+
+  // ── Stats ─────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
     const paidIn = transactions
-      .filter((t) => t.type === "income" && (t.status === "paid" || t.status === "received"))
+      .filter(
+        (t) =>
+          t.type === "income" &&
+          (t.status === "paid" || t.status === "received")
+      )
       .reduce((a, b) => a + Number(b.amount), 0);
 
     const paidOut = transactions
-      .filter((t) => t.type === "expense" && (t.status === "paid" || t.status === "received"))
+      .filter(
+        (t) =>
+          t.type === "expense" &&
+          (t.status === "paid" || t.status === "received")
+      )
       .reduce((a, b) => a + Number(b.amount), 0);
 
     const pendingIn = transactions
@@ -697,35 +887,58 @@ export default function FinanceiroPage() {
       .reduce((a, b) => a + Number(b.amount), 0);
 
     const overdueIn = transactions
-      .filter((t) => t.type === "income" && isOverdue(t.due_date, t.status || "pending"))
+      .filter(
+        (t) =>
+          t.type === "income" &&
+          isOverdue(t.due_date, t.status || "pending")
+      )
       .reduce((a, b) => a + Number(b.amount), 0);
 
     const waitingFinance = transactions
-      .filter((t) => t.type === "income" && t.workflow_status === "awaiting_finance")
+      .filter(
+        (t) =>
+          t.type === "income" && t.workflow_status === "awaiting_finance"
+      )
       .reduce((a, b) => a + Number(b.amount), 0);
 
     const disputedOpen = transactions
-      .filter((t) => t.type === "income" && t.dispute_status && t.dispute_status !== "resolved")
+      .filter(
+        (t) =>
+          t.type === "income" &&
+          t.dispute_status &&
+          t.dispute_status !== "resolved"
+      )
       .reduce((a, b) => a + Number(b.amount), 0);
 
     const paidThisMonth = transactions
       .filter((t) => {
         if (t.type !== "income") return false;
         if (!(t.status === "paid" || t.status === "received")) return false;
-        const date = t.payment_date || t.payment_confirmed_at || t.last_interaction_at;
+        const date = t.payment_date || t.payment_confirmed_at;
         if (!date) return false;
         const d = new Date(date);
         const now = new Date();
-        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        return (
+          d.getMonth() === now.getMonth() &&
+          d.getFullYear() === now.getFullYear()
+        );
       })
       .reduce((a, b) => a + Number(b.amount), 0);
 
     const expensePaid = transactions
-      .filter((t) => t.type === "expense" && (t.status === "paid" || t.status === "received"))
+      .filter(
+        (t) =>
+          t.type === "expense" &&
+          (t.status === "paid" || t.status === "received")
+      )
       .reduce((a, b) => a + Number(b.amount), 0);
 
     const peopleCost = transactions
-      .filter((t) => t.expense_type === "personnel" && (t.status === "paid" || t.status === "received"))
+      .filter(
+        (t) =>
+          t.expense_type === "personnel" &&
+          (t.status === "paid" || t.status === "received")
+      )
       .reduce((a, b) => a + Number(b.amount), 0);
 
     return {
@@ -769,7 +982,8 @@ export default function FinanceiroPage() {
       )
       .forEach((t) => {
         if (t.member_id && t.member) {
-          if (!byMember[t.member_id]) byMember[t.member_id] = { name: t.member.full_name, total: 0 };
+          if (!byMember[t.member_id])
+            byMember[t.member_id] = { name: t.member.full_name, total: 0 };
           byMember[t.member_id].total += Number(t.amount);
         }
       });
@@ -777,14 +991,20 @@ export default function FinanceiroPage() {
     return {
       totalSalaries,
       totalCommissions,
-      commissionByMember: Object.values(byMember).sort((a, b) => b.total - a.total),
+      commissionByMember: Object.values(byMember).sort(
+        (a, b) => b.total - a.total
+      ),
     };
   }, [transactions, L]);
 
   const expenseByCategory = useMemo(() => {
     const map: Record<string, number> = {};
     transactions
-      .filter((t) => t.type === "expense" && (t.status === "paid" || t.status === "received"))
+      .filter(
+        (t) =>
+          t.type === "expense" &&
+          (t.status === "paid" || t.status === "received")
+      )
       .forEach((t) => {
         map[t.category] = (map[t.category] || 0) + Number(t.amount);
       });
@@ -800,9 +1020,17 @@ export default function FinanceiroPage() {
     () =>
       clients
         .map((c) => {
-          const ct = transactions.filter((t) => t.client_id === c.id && t.type === "income");
-          const ltv = ct.filter((t) => t.status === "paid" || t.status === "received").reduce((a, b) => a + Number(b.amount), 0);
-          const debt = ct.filter((t) => t.status === "pending").reduce((a, b) => a + Number(b.amount), 0);
+          const ct = transactions.filter(
+            (t) => t.client_id === c.id && t.type === "income"
+          );
+          const ltv = ct
+            .filter(
+              (t) => t.status === "paid" || t.status === "received"
+            )
+            .reduce((a, b) => a + Number(b.amount), 0);
+          const debt = ct
+            .filter((t) => t.status === "pending")
+            .reduce((a, b) => a + Number(b.amount), 0);
           return { ...c, ltv, debt };
         })
         .filter((c) => c.ltv > 0 || c.debt > 0)
@@ -810,35 +1038,80 @@ export default function FinanceiroPage() {
     [clients, transactions]
   );
 
-  const receivableRows = useMemo(
-    () => filteredTransactions.filter((t) => t.type === "income"),
-    [filteredTransactions]
-  );
-
-  const clientActionQueue = useMemo(
-    () =>
-      receivableRows
-        .filter(
-          (t) =>
-            t.workflow_status === "awaiting_finance" ||
-            t.workflow_status === "under_review" ||
-            (t.dispute_status && t.dispute_status !== "resolved")
+  // ── Receivable group for selected transaction ─────────────────────────────
+  const receivableForGroup = useMemo(() => {
+    if (!selectedTransaction || selectedTransaction.type !== "income") return [];
+    return transactions
+      .filter((t) => t.type === "income")
+      .filter((t) => {
+        if (
+          selectedTransaction.document_number &&
+          t.document_number
         )
-        .sort((a, b) => {
-          const dateA = new Date(a.last_interaction_at || a.payment_reported_at || a.due_date).getTime();
-          const dateB = new Date(b.last_interaction_at || b.payment_reported_at || b.due_date).getTime();
-          return dateB - dateA;
-        }),
-    [receivableRows]
+          return t.document_number === selectedTransaction.document_number;
+        if (selectedTransaction.quote_id && t.quote_id)
+          return t.quote_id === selectedTransaction.quote_id;
+        if (
+          selectedTransaction.client_id &&
+          t.client_id &&
+          selectedTransaction.description
+        ) {
+          const baseA = selectedTransaction.description
+            .replace(/-\s*parcela\s*\d+\/\d+/i, "")
+            .trim();
+          const baseB = t.description
+            .replace(/-\s*parcela\s*\d+\/\d+/i, "")
+            .trim();
+          return (
+            selectedTransaction.client_id === t.client_id && baseA === baseB
+          );
+        }
+        return t.id === selectedTransaction.id;
+      })
+      .sort((a, b) => {
+        const aN = a.installment_number || 999;
+        const bN = b.installment_number || 999;
+        if (aN !== bN) return aN - bN;
+        return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+      });
+  }, [selectedTransaction, transactions]);
+
+  const selectedPaymentInfo = useMemo(
+    () =>
+      selectedTransaction ? getPaymentDifference(selectedTransaction) : null,
+    [selectedTransaction]
   );
 
   const currentCategories = useMemo(() => {
     if (formType === "income") return incomeCategories;
-    if (expenseType === "administrative") return DEFAULT_EXPENSE_ADMIN_CATEGORIES;
-    if (expenseType === "operational") return DEFAULT_EXPENSE_OPERATIONAL_CATEGORIES;
+    if (expenseType === "administrative")
+      return DEFAULT_EXPENSE_ADMIN_CATEGORIES;
+    if (expenseType === "operational")
+      return DEFAULT_EXPENSE_OPERATIONAL_CATEGORIES;
     return DEFAULT_EXPENSE_PERSONNEL_CATEGORIES;
   }, [formType, expenseType, incomeCategories]);
 
+  const filteredClientsList = useMemo(
+    () =>
+      clients
+        .filter((c) =>
+          c.company_name.toLowerCase().includes(clientSearch.toLowerCase())
+        )
+        .slice(0, 8),
+    [clients, clientSearch]
+  );
+
+  const filteredTeamList = useMemo(
+    () =>
+      team
+        .filter((t) =>
+          t.full_name?.toLowerCase().includes(memberSearch.toLowerCase())
+        )
+        .slice(0, 8),
+    [team, memberSearch]
+  );
+
+  // ── Tabs ──────────────────────────────────────────────────────────────────
   const tabs = [
     { id: "dashboard" as TabId, label: "Visão Geral", icon: TrendingUp },
     { id: "receber" as TabId, label: L.receber, icon: ArrowUpRight },
@@ -846,6 +1119,7 @@ export default function FinanceiroPage() {
     { id: "pagar_operacional" as TabId, label: L.pagarOp, icon: Zap },
     { id: "pessoal" as TabId, label: L.pessoal, icon: Users },
     { id: "clientes" as TabId, label: L.clientes, icon: Building },
+    { id: "dre" as TabId, label: "DRE", icon: BarChart3 },
   ];
 
   const CHART_COLORS = [
@@ -859,6 +1133,7 @@ export default function FinanceiroPage() {
     "bg-pink-500",
   ];
 
+  // ── Form helpers ──────────────────────────────────────────────────────────
   const resetForm = () => {
     setEditId(null);
     setFormType("income");
@@ -921,63 +1196,256 @@ export default function FinanceiroPage() {
     setView("create");
   };
 
-  const buildFinanceStoragePath = useCallback((file: File, transactionId: string) => {
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const clientId = selectedTransaction?.client_id || formData.clientId || "internal";
-    return `financial/${clientId}/${transactionId}/finance/${Date.now()}-${safeName}`;
-  }, [formData.clientId, selectedTransaction?.client_id]);
+  // ── Storage helpers ───────────────────────────────────────────────────────
+  const buildFinanceStoragePath = useCallback(
+    (file: File, transactionId: string) => {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const clientId =
+        selectedTransaction?.client_id || formData.clientId || "internal";
+      return `financial/${clientId}/${transactionId}/finance/${Date.now()}-${safeName}`;
+    },
+    [formData.clientId, selectedTransaction?.client_id]
+  );
 
-  const uploadPrivateFile = useCallback(async (file: File, transactionId: string) => {
-    const path = buildFinanceStoragePath(file, transactionId);
-    const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, {
-      upsert: false,
-      contentType: file.type || undefined,
-    });
-
-    if (error) {
-      throw new Error(error.message || "Erro no upload do arquivo.");
-    }
-
-    return {
-      file_path: path,
-      file_name: file.name,
-      mime_type: file.type || null,
-      file_size: file.size || null,
-    };
-  }, [buildFinanceStoragePath]);
+  const uploadPrivateFile = useCallback(
+    async (file: File, transactionId: string) => {
+      const path = buildFinanceStoragePath(file, transactionId);
+      const { error } = await supabase.storage
+        .from(STORAGE_BUCKET)
+        .upload(path, file, {
+          upsert: false,
+          contentType: file.type || undefined,
+        });
+      if (error) throw new Error(error.message || "Erro no upload do arquivo.");
+      return {
+        file_path: path,
+        file_name: file.name,
+        mime_type: file.type || null,
+        file_size: file.size || null,
+      };
+    },
+    [buildFinanceStoragePath]
+  );
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
-
     try {
       const tempTransactionId = editId || crypto.randomUUID();
       const uploaded = await uploadPrivateFile(file, tempTransactionId);
-
-      const { data } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(uploaded.file_path, 3600);
-      setForm((prev) => ({ ...prev, attachmentUrl: data?.signedUrl || uploaded.file_path }));
+      const { data } = await supabase.storage
+        .from(STORAGE_BUCKET)
+        .createSignedUrl(uploaded.file_path, 3600);
+      setForm((prev) => ({
+        ...prev,
+        attachmentUrl: data?.signedUrl || uploaded.file_path,
+      }));
       showToast("Documento processado com sucesso.", "success");
     } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : "Erro no upload.", "error");
+      showToast(
+        err instanceof Error ? err.message : "Erro no upload.",
+        "error"
+      );
     } finally {
       setUploading(false);
     }
   };
 
+  // ── CSV Export ────────────────────────────────────────────────────────────
+  const exportCSV = useCallback(
+    (rows: Transaction[], filename: string) => {
+      const headers = [
+        "Descrição",
+        "Categoria",
+        "Tipo",
+        "Valor",
+        "Vencimento",
+        "Status",
+        "Workflow",
+        "Cliente / Membro",
+        "Documento",
+      ];
+      const csvRows = rows.map((t) =>
+        [
+          `"${t.description.replace(/"/g, '""')}"`,
+          `"${(t.category || "").replace(/"/g, '""')}"`,
+          t.type === "income" ? "Receita" : "Despesa",
+          Number(t.amount).toFixed(2).replace(".", ","),
+          t.due_date,
+          statusLabel(t),
+          translateWorkflowStatus(t.workflow_status),
+          `"${(t.clients?.company_name || t.member?.full_name || "").replace(/"/g, '""')}"`,
+          `"${t.document_number || ""}"`,
+        ].join(";")
+      );
+      const csv = [headers.join(";"), ...csvRows].join("\n");
+      const blob = new Blob(["\uFEFF" + csv], {
+        type: "text/csv;charset=utf-8;",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+    []
+  );
+
+  const exportDRE = useCallback(() => {
+    const headers = ["Mês/Ano", "Receitas", "Despesas", "Resultado", "Acumulado"];
+    const rows = dreByMonth.map((m) =>
+      [
+        `${m.month} ${m.year}`,
+        m.income.toFixed(2).replace(".", ","),
+        m.expense.toFixed(2).replace(".", ","),
+        m.balance.toFixed(2).replace(".", ","),
+        m.cumulative.toFixed(2).replace(".", ","),
+      ].join(";")
+    );
+    const csv = [headers.join(";"), ...rows].join("\n");
+    const blob = new Blob(["\uFEFF" + csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `DRE-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [dreByMonth]);
+
+  // ── Batch operations ──────────────────────────────────────────────────────
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllRows = (rows: Transaction[]) => {
+    setSelectedIds(new Set(rows.map((r) => r.id)));
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const handleBatchWhatsApp = useCallback(() => {
+    const selected = transactions.filter(
+      (t) => selectedIds.has(t.id) && t.clients?.phone
+    );
+    if (selected.length === 0) {
+      showToast("Nenhum dos selecionados possui telefone cadastrado.", "warning");
+      return;
+    }
+    for (const t of selected) {
+      const phone = t.clients!.phone!.replace(/\D/g, "");
+      const msg = `Olá, ${t.clients!.company_name}. Sua cobrança "${t.description}" no valor de ${formatCurrency(Number(t.amount))} vence em ${new Date(`${t.due_date}T00:00:00`).toLocaleDateString("pt-BR")}.`;
+      window.open(
+        `https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`,
+        "_blank"
+      );
+    }
+    clearSelection();
+  }, [transactions, selectedIds, formatCurrency, showToast]);
+
+  const handleBatchEmail = useCallback(async () => {
+    const selected = transactions.filter(
+      (t) => selectedIds.has(t.id) && t.clients?.email
+    );
+    if (selected.length === 0) {
+      showToast("Nenhum dos selecionados possui e-mail cadastrado.", "warning");
+      return;
+    }
+    let sent = 0;
+    for (const t of selected) {
+      try {
+        const res = await fetch("/api/finance/send-invoice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            transactionId: t.id,
+            companyName: companyProfile?.company_name || "ARXUM",
+          }),
+        });
+        if (res.ok) sent++;
+      } catch {}
+    }
+    showToast(`${sent} e-mail(s) enviado(s).`, "success");
+    clearSelection();
+  }, [transactions, selectedIds, companyProfile, showToast]);
+
+  // ── Régua de cobrança ─────────────────────────────────────────────────────
+  const runRegua = useCallback(async () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const eligible = transactions.filter(
+      (t) =>
+        t.type === "income" && t.status === "pending" && t.clients?.phone
+    );
+
+    let sent = 0;
+
+    for (const t of eligible) {
+      const dueDate = new Date(`${t.due_date}T00:00:00`);
+      const diffDays = Math.round(
+        (dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+      );
+
+      let template = "";
+      if (diffDays === 3 && reguaConfig.enableMinus3)
+        template = reguaConfig.messageMinus3;
+      else if (diffDays === 0 && reguaConfig.enableD0)
+        template = reguaConfig.messageD0;
+      else if (diffDays === -5 && reguaConfig.enablePlus5)
+        template = reguaConfig.messagePlus5;
+
+      if (!template) continue;
+
+      const formatted = template
+        .replace("{cliente}", t.clients?.company_name || "")
+        .replace("{valor}", formatCurrency(Number(t.amount)))
+        .replace("{data}", dueDate.toLocaleDateString("pt-BR"));
+
+      const phone = t.clients!.phone!.replace(/\D/g, "");
+      window.open(
+        `https://wa.me/55${phone}?text=${encodeURIComponent(formatted)}`,
+        "_blank"
+      );
+      sent++;
+      await new Promise((r) => setTimeout(r, 600));
+    }
+
+    showToast(
+      sent > 0
+        ? `Régua executada: ${sent} mensagem(ns) preparada(s).`
+        : "Nenhuma cobrança elegível para hoje.",
+      sent > 0 ? "success" : "warning"
+    );
+    setIsReguaOpen(false);
+  }, [transactions, reguaConfig, formatCurrency, showToast]);
+
+  // ── CRUD / actions ────────────────────────────────────────────────────────
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.description || !formData.amount || !formData.dueDate) {
       showToast("Preencha os campos obrigatórios.", "warning");
       return;
     }
-
     setIsSubmitting(true);
 
     const getCategoryForType = () => {
-      if (formType === "income") return formData.category || incomeCategories[0] || "";
-      if (expenseType === "administrative") return formData.category || DEFAULT_EXPENSE_ADMIN_CATEGORIES[0] || "";
-      if (expenseType === "operational") return formData.category || DEFAULT_EXPENSE_OPERATIONAL_CATEGORIES[0] || "";
+      if (formType === "income")
+        return formData.category || incomeCategories[0] || "";
+      if (expenseType === "administrative")
+        return formData.category || DEFAULT_EXPENSE_ADMIN_CATEGORIES[0] || "";
+      if (expenseType === "operational")
+        return (
+          formData.category || DEFAULT_EXPENSE_OPERATIONAL_CATEGORIES[0] || ""
+        );
       return formData.category || DEFAULT_EXPENSE_PERSONNEL_CATEGORIES[0] || "";
     };
 
@@ -989,18 +1457,34 @@ export default function FinanceiroPage() {
       amount: Number(formData.amount),
       status: formData.status,
       due_date: formData.dueDate,
-      payment_date: formData.status === "paid" ? formData.paymentDate || new Date().toISOString().split("T")[0] : null,
+      payment_date:
+        formData.status === "paid"
+          ? formData.paymentDate ||
+            new Date().toISOString().split("T")[0]
+          : null,
       service_order_id: null,
       quote_id: formData.serviceOrderId || null,
       client_id: formType === "income" ? formData.clientId || null : null,
-      member_id: expenseType === "personnel" && formType === "expense" ? formData.memberId || null : null,
+      member_id:
+        expenseType === "personnel" && formType === "expense"
+          ? formData.memberId || null
+          : null,
       payment_method: formData.paymentMethod,
       attachment_url: formData.attachmentUrl || null,
     };
 
     const { error, data } = editId
-      ? await supabase.from("financial_transactions").update(payload).eq("id", editId).select("id").single()
-      : await supabase.from("financial_transactions").insert([payload]).select("id").single();
+      ? await supabase
+          .from("financial_transactions")
+          .update(payload)
+          .eq("id", editId)
+          .select("id")
+          .single()
+      : await supabase
+          .from("financial_transactions")
+          .insert([payload])
+          .select("id")
+          .single();
 
     if (!error) {
       showToast("Lançamento gravado com sucesso.", "success");
@@ -1012,7 +1496,6 @@ export default function FinanceiroPage() {
         const file = fileInputRef.current.files[0];
         try {
           const uploaded = await uploadPrivateFile(file, data.id);
-
           await supabase.from("financial_transaction_attachments").insert({
             financial_transaction_id: data.id,
             uploaded_by: currentUserId,
@@ -1031,21 +1514,34 @@ export default function FinanceiroPage() {
     } else {
       showToast(error.message, "error");
     }
-
     setIsSubmitting(false);
   };
 
+  // FIX: updateStatus now updates finance_last_action_at so client is notified
   const updateStatus = async (id: string, newStatus: string) => {
-    const payload: Record<string, unknown> = { status: newStatus };
-    payload.payment_date = newStatus === "paid" ? new Date().toISOString().split("T")[0] : null;
+    const now = new Date().toISOString();
+    const payload: Record<string, unknown> = {
+      status: newStatus,
+      payment_date:
+        newStatus === "paid"
+          ? new Date().toISOString().split("T")[0]
+          : null,
+      finance_last_action_at: now,
+      last_interaction_at: now,
+    };
 
-    const { error } = await supabase.from("financial_transactions").update(payload).eq("id", id);
+    const { error } = await supabase
+      .from("financial_transactions")
+      .update(payload)
+      .eq("id", id);
 
     if (!error) {
       showToast("Status atualizado.", "success");
       await fetchData();
       setSelectedTransaction((prev) =>
-        prev?.id === id ? { ...prev, status: newStatus as Transaction["status"] } : prev
+        prev?.id === id
+          ? { ...prev, status: newStatus as Transaction["status"] }
+          : prev
       );
     } else {
       showToast(error.message, "error");
@@ -1053,7 +1549,10 @@ export default function FinanceiroPage() {
   };
 
   const handleDeleteTransaction = async (id: string) => {
-    const { error } = await supabase.from("financial_transactions").delete().eq("id", id);
+    const { error } = await supabase
+      .from("financial_transactions")
+      .delete()
+      .eq("id", id);
     if (!error) {
       setConfirmDeleteId(null);
       setIsDetailModalOpen(false);
@@ -1071,7 +1570,10 @@ export default function FinanceiroPage() {
       return;
     }
     const msg = `Olá, ${t.clients?.company_name}. Há um lançamento pendente: ${t.description} no valor de ${formatCurrency(t.amount)}, com vencimento em ${new Date(`${t.due_date}T00:00:00`).toLocaleDateString("pt-BR")}.`;
-    window.open(`https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`, "_blank");
+    window.open(
+      `https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`,
+      "_blank"
+    );
   };
 
   const sendInvoiceEmail = async (t: Transaction) => {
@@ -1084,41 +1586,26 @@ export default function FinanceiroPage() {
       const res = await fetch("/api/finance/send-invoice", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transactionId: t.id, companyName: companyProfile?.company_name || "ARXUM" }),
+        body: JSON.stringify({
+          transactionId: t.id,
+          companyName: companyProfile?.company_name || "ARXUM",
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao enviar e-mail.");
       showToast("Cobrança disparada via e-mail.", "success");
       await fetchData();
     } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : "Erro ao enviar e-mail.", "error");
+      showToast(
+        err instanceof Error ? err.message : "Erro ao enviar e-mail.",
+        "error"
+      );
     } finally {
       setIsSendingMail(false);
     }
   };
 
-  const resolveAttachmentUrls = useCallback(async () => {
-    const pending = attachments.filter((file) => file.file_path && !signedUrls[file.id]);
-    if (pending.length === 0) return;
-
-    const nextMap: Record<string, string> = {};
-
-    await Promise.all(
-      pending.map(async (file) => {
-        const { data } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(file.file_path, 3600);
-        if (data?.signedUrl) nextMap[file.id] = data.signedUrl;
-      })
-    );
-
-    if (Object.keys(nextMap).length > 0) {
-      setSignedUrls((prev) => ({ ...prev, ...nextMap }));
-    }
-  }, [attachments, signedUrls]);
-
-  useEffect(() => {
-    resolveAttachmentUrls();
-  }, [resolveAttachmentUrls]);
-
+  // ── Finance event helpers ─────────────────────────────────────────────────
   const registerFinanceEvent = useCallback(
     async (
       transactionId: string,
@@ -1150,85 +1637,65 @@ export default function FinanceiroPage() {
   );
 
   const attachFinanceFileIfAny = useCallback(
-    async (transactionId: string, eventId?: string | null, attachmentType = "finance_attachment") => {
+    async (
+      transactionId: string,
+      eventId?: string | null,
+      attachmentType = "finance_attachment"
+    ) => {
       if (!financeAttachmentFile) return;
-
-      const uploaded = await uploadPrivateFile(financeAttachmentFile, transactionId);
-      const { error } = await supabase.from("financial_transaction_attachments").insert({
-        financial_transaction_id: transactionId,
-        event_id: eventId || null,
-        uploaded_by: currentUserId,
-        uploaded_by_type: "finance",
-        visibility: "shared",
-        attachment_type: attachmentType,
-        file_name: uploaded.file_name,
-        file_path: uploaded.file_path,
-        mime_type: uploaded.mime_type,
-        file_size: uploaded.file_size,
-      });
-
-      if (error) throw new Error(error.message || "Erro ao salvar anexo do financeiro.");
+      const uploaded = await uploadPrivateFile(
+        financeAttachmentFile,
+        transactionId
+      );
+      const { error } = await supabase
+        .from("financial_transaction_attachments")
+        .insert({
+          financial_transaction_id: transactionId,
+          event_id: eventId || null,
+          uploaded_by: currentUserId,
+          uploaded_by_type: "finance",
+          visibility: "shared",
+          attachment_type: attachmentType,
+          file_name: uploaded.file_name,
+          file_path: uploaded.file_path,
+          mime_type: uploaded.mime_type,
+          file_size: uploaded.file_size,
+        });
+      if (error) throw new Error(error.message || "Erro ao salvar anexo.");
     },
     [currentUserId, financeAttachmentFile, uploadPrivateFile]
   );
 
-  const refreshSelectedTransaction = useCallback(async (transactionId: string) => {
-    const { data } = await supabase
-      .from("financial_transactions")
-      .select(
-        `
-          id,
-          description,
-          type,
-          expense_type,
-          category,
-          amount,
-          status,
-          due_date,
-          payment_date,
-          service_order_id,
-          client_id,
-          member_id,
-          attachment_url,
-          payment_method,
-          last_notified_at,
-          invoice_hash,
-          quote_id,
-          installment_number,
-          total_installments,
-          source,
-          invoice_notes,
-          document_number,
-          workflow_status,
-          dispute_status,
-          dispute_reason,
-          dispute_category,
-          customer_last_action_at,
-          finance_last_action_at,
-          last_interaction_at,
-          payment_reported_amount,
-          payment_reported_method,
-          payment_reported_reference,
-          payment_reported_at,
-          payment_confirmed_at,
-          resolution_type,
-          resolution_notes,
-          created_at,
-          clients(*),
-          member:profiles!member_id(id, full_name, email, role, commission_percentage)
-        `
-      )
-      .eq("id", transactionId)
-      .single();
+  const refreshSelectedTransaction = useCallback(
+    async (transactionId: string) => {
+      const { data } = await supabase
+        .from("financial_transactions")
+        .select(
+          `id, description, type, expense_type, category, amount, status,
+           due_date, payment_date, service_order_id, client_id, member_id,
+           attachment_url, payment_method, last_notified_at, invoice_hash,
+           quote_id, installment_number, total_installments, source,
+           invoice_notes, document_number, workflow_status, dispute_status,
+           dispute_reason, dispute_category, customer_last_action_at,
+           finance_last_action_at, last_interaction_at, payment_reported_amount,
+           payment_reported_method, payment_reported_reference, payment_reported_at,
+           payment_confirmed_at, resolution_type, resolution_notes, created_at,
+           clients(*),
+           member:profiles!member_id(id, full_name, email, role, commission_percentage)`
+        )
+        .eq("id", transactionId)
+        .single();
 
-    if (data) setSelectedTransaction(data as unknown as Transaction);
-    await fetchInteractionDetails(transactionId);
-  }, [fetchInteractionDetails]);
+      if (data) setSelectedTransaction(data as unknown as Transaction);
+      await fetchInteractionDetails(transactionId);
+    },
+    [fetchInteractionDetails]
+  );
 
+  // ── Finance actions ───────────────────────────────────────────────────────
   const handleConfirmPayment = async () => {
     if (!selectedTransaction) return;
     setActionSubmitting(true);
-
     try {
       const now = new Date().toISOString();
       const paymentInfo = getPaymentDifference(selectedTransaction);
@@ -1237,34 +1704,54 @@ export default function FinanceiroPage() {
         selectedTransaction.id,
         "payment_confirmed",
         "Pagamento confirmado pelo financeiro",
-        financeActionForm.comment.trim() || "Pagamento conferido e confirmado pelo financeiro.",
+        financeActionForm.comment.trim() ||
+          "Pagamento conferido e confirmado pelo financeiro.",
         {
           valor_previsto: paymentInfo.expected,
           valor_informado: paymentInfo.reported,
           diferenca: paymentInfo.difference,
-          forma_pagamento: selectedTransaction.payment_reported_method || selectedTransaction.payment_method || null,
+          forma_pagamento:
+            selectedTransaction.payment_reported_method ||
+            selectedTransaction.payment_method ||
+            null,
           referencia: selectedTransaction.payment_reported_reference || null,
         }
       );
 
-      await attachFinanceFileIfAny(selectedTransaction.id, eventId, "finance_confirmation");
+      await attachFinanceFileIfAny(
+        selectedTransaction.id,
+        eventId,
+        "finance_confirmation"
+      );
 
       const { error } = await supabase
         .from("financial_transactions")
         .update({
           status: paymentInfo.scenario === "partial" ? "pending" : "paid",
-          workflow_status: paymentInfo.scenario === "partial" ? "under_review" : "confirmed",
-          payment_date: paymentInfo.scenario === "partial" ? null : new Date().toISOString().split("T")[0],
-          payment_confirmed_at: paymentInfo.scenario === "partial" ? null : now,
+          workflow_status:
+            paymentInfo.scenario === "partial" ? "under_review" : "confirmed",
+          payment_date:
+            paymentInfo.scenario === "partial"
+              ? null
+              : new Date().toISOString().split("T")[0],
+          payment_confirmed_at:
+            paymentInfo.scenario === "partial" ? null : now,
           finance_last_action_at: now,
           last_interaction_at: now,
-          resolution_type: paymentInfo.scenario === "partial" ? "partial_payment_registered" : "payment_confirmed",
+          resolution_type:
+            paymentInfo.scenario === "partial"
+              ? "partial_payment_registered"
+              : "payment_confirmed",
           resolution_notes:
             financeActionForm.resolutionNotes.trim() ||
             (paymentInfo.scenario === "partial"
               ? "Pagamento parcial confirmado. Mantida pendência de saldo."
-              : financeActionForm.comment.trim() || "Pagamento confirmado pelo financeiro."),
-          dispute_status: selectedTransaction.dispute_status === "open" ? "resolved" : selectedTransaction.dispute_status || null,
+              : financeActionForm.comment.trim() ||
+                "Pagamento confirmado pelo financeiro."),
+          dispute_status:
+            selectedTransaction.dispute_status === "open"
+              ? "resolved"
+              : selectedTransaction.dispute_status || null,
         })
         .eq("id", selectedTransaction.id);
 
@@ -1276,12 +1763,110 @@ export default function FinanceiroPage() {
           : "Pagamento confirmado e baixa realizada.",
         "success"
       );
-      setFinanceActionForm({ comment: "", resolutionType: "payment_confirmed", resolutionNotes: "" });
+      setFinanceActionForm({
+        comment: "",
+        resolutionType: "payment_confirmed",
+        resolutionNotes: "",
+      });
       setFinanceAttachmentFile(null);
       await fetchData();
       await refreshSelectedTransaction(selectedTransaction.id);
-    } catch (error: any) {
-      showToast(error?.message || "Erro ao confirmar pagamento.", "error");
+    } catch (error: unknown) {
+      showToast(
+        error instanceof Error ? error.message : "Erro ao confirmar pagamento.",
+        "error"
+      );
+    } finally {
+      setActionSubmitting(false);
+    }
+  };
+
+  // ── Auto-conciliation (distribute excess across open installments) ─────────
+  const handleAutoDistribute = async () => {
+    if (!selectedTransaction || !selectedPaymentInfo) return;
+    if (selectedPaymentInfo.scenario !== "over") return;
+
+    const excess = selectedPaymentInfo.difference;
+    const openInstallments = receivableForGroup
+      .filter(
+        (r) =>
+          r.id !== selectedTransaction.id && r.status === "pending"
+      )
+      .sort(
+        (a, b) =>
+          (a.installment_number || 0) - (b.installment_number || 0)
+      );
+
+    if (openInstallments.length === 0) {
+      showToast(
+        "Não há parcelas abertas no grupo para receber o excedente.",
+        "warning"
+      );
+      return;
+    }
+
+    setActionSubmitting(true);
+    try {
+      const now = new Date().toISOString();
+      let remaining = excess;
+
+      for (const installment of openInstallments) {
+        if (remaining <= 0) break;
+        const installmentAmount = Number(installment.amount);
+
+        if (remaining >= installmentAmount) {
+          await supabase
+            .from("financial_transactions")
+            .update({
+              status: "paid",
+              workflow_status: "confirmed",
+              payment_confirmed_at: now,
+              finance_last_action_at: now,
+              last_interaction_at: now,
+              resolution_type: "payment_confirmed",
+              resolution_notes: `Pago automaticamente por distribuição de excedente da parcela ${selectedTransaction.installment_number || 1}.`,
+            })
+            .eq("id", installment.id);
+
+          await registerFinanceEvent(
+            installment.id,
+            "payment_confirmed",
+            "Pagamento confirmado por conciliação automática",
+            `Excedente de ${formatCurrency(remaining)} aplicado automaticamente a esta parcela.`,
+            {
+              origem: "auto_conciliacao",
+              parcela_origem: selectedTransaction.installment_number,
+              valor_aplicado: installmentAmount,
+            }
+          );
+
+          remaining -= installmentAmount;
+        } else {
+          await registerFinanceEvent(
+            installment.id,
+            "payment_reported",
+            "Pagamento parcial por conciliação automática",
+            `Excedente residual de ${formatCurrency(remaining)} registrado nesta parcela.`,
+            {
+              origem: "auto_conciliacao",
+              valor_aplicado: remaining,
+              valor_restante: installmentAmount - remaining,
+            }
+          );
+          remaining = 0;
+        }
+      }
+
+      showToast("Conciliação automática realizada com sucesso.", "success");
+      await fetchData();
+      await refreshSelectedTransaction(selectedTransaction.id);
+    } catch (error: unknown) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Erro na conciliação automática.",
+        "error"
+      );
     } finally {
       setActionSubmitting(false);
     }
@@ -1293,9 +1878,7 @@ export default function FinanceiroPage() {
       showToast("Informe o motivo da rejeição.", "warning");
       return;
     }
-
     setActionSubmitting(true);
-
     try {
       const now = new Date().toISOString();
       const eventId = await registerFinanceEvent(
@@ -1304,13 +1887,17 @@ export default function FinanceiroPage() {
         "Pagamento rejeitado pelo financeiro",
         financeActionForm.comment.trim(),
         {
-          referencia: selectedTransaction.payment_reported_reference || null,
-          pagamento_informado_em: selectedTransaction.payment_reported_at || null,
+          referencia:
+            selectedTransaction.payment_reported_reference || null,
+          pagamento_informado_em:
+            selectedTransaction.payment_reported_at || null,
         }
       );
-
-      await attachFinanceFileIfAny(selectedTransaction.id, eventId, "finance_rejection");
-
+      await attachFinanceFileIfAny(
+        selectedTransaction.id,
+        eventId,
+        "finance_rejection"
+      );
       const { error } = await supabase
         .from("financial_transactions")
         .update({
@@ -1319,19 +1906,26 @@ export default function FinanceiroPage() {
           finance_last_action_at: now,
           last_interaction_at: now,
           resolution_type: "payment_rejected",
-          resolution_notes: financeActionForm.resolutionNotes.trim() || financeActionForm.comment.trim(),
+          resolution_notes:
+            financeActionForm.resolutionNotes.trim() ||
+            financeActionForm.comment.trim(),
         })
         .eq("id", selectedTransaction.id);
-
-      if (error) throw new Error(error.message || "Erro ao rejeitar pagamento.");
-
+      if (error) throw new Error(error.message);
       showToast("Pagamento rejeitado com retorno ao cliente.", "success");
-      setFinanceActionForm({ comment: "", resolutionType: "payment_confirmed", resolutionNotes: "" });
+      setFinanceActionForm({
+        comment: "",
+        resolutionType: "payment_confirmed",
+        resolutionNotes: "",
+      });
       setFinanceAttachmentFile(null);
       await fetchData();
       await refreshSelectedTransaction(selectedTransaction.id);
-    } catch (error: any) {
-      showToast(error?.message || "Erro ao rejeitar pagamento.", "error");
+    } catch (error: unknown) {
+      showToast(
+        error instanceof Error ? error.message : "Erro ao rejeitar.",
+        "error"
+      );
     } finally {
       setActionSubmitting(false);
     }
@@ -1343,24 +1937,25 @@ export default function FinanceiroPage() {
       showToast("Informe a resolução da contestação.", "warning");
       return;
     }
-
     setActionSubmitting(true);
-
     try {
       const now = new Date().toISOString();
-
       const eventId = await registerFinanceEvent(
         selectedTransaction.id,
         "resolution_added",
         "Contestação analisada pelo financeiro",
-        financeActionForm.comment.trim() || "Contestação analisada e concluída pelo financeiro.",
+        financeActionForm.comment.trim() ||
+          "Contestação analisada e concluída pelo financeiro.",
         {
           tipo_resolucao: financeActionForm.resolutionType,
           observacoes: financeActionForm.resolutionNotes.trim(),
         }
       );
-
-      await attachFinanceFileIfAny(selectedTransaction.id, eventId, "finance_resolution");
+      await attachFinanceFileIfAny(
+        selectedTransaction.id,
+        eventId,
+        "finance_resolution"
+      );
 
       const nextStatus =
         financeActionForm.resolutionType === "charge_cancelled"
@@ -1368,7 +1963,6 @@ export default function FinanceiroPage() {
           : financeActionForm.resolutionType === "payment_confirmed"
           ? "paid"
           : selectedTransaction.status || "pending";
-
       const nextWorkflow =
         financeActionForm.resolutionType === "charge_cancelled"
           ? "cancelled"
@@ -1387,19 +1981,27 @@ export default function FinanceiroPage() {
           resolution_type: financeActionForm.resolutionType,
           resolution_notes: financeActionForm.resolutionNotes.trim(),
           payment_confirmed_at:
-            financeActionForm.resolutionType === "payment_confirmed" ? now : selectedTransaction.payment_confirmed_at || null,
+            financeActionForm.resolutionType === "payment_confirmed"
+              ? now
+              : selectedTransaction.payment_confirmed_at || null,
         })
         .eq("id", selectedTransaction.id);
 
-      if (error) throw new Error(error.message || "Erro ao resolver contestação.");
-
+      if (error) throw new Error(error.message);
       showToast("Contestação resolvida.", "success");
-      setFinanceActionForm({ comment: "", resolutionType: "payment_confirmed", resolutionNotes: "" });
+      setFinanceActionForm({
+        comment: "",
+        resolutionType: "payment_confirmed",
+        resolutionNotes: "",
+      });
       setFinanceAttachmentFile(null);
       await fetchData();
       await refreshSelectedTransaction(selectedTransaction.id);
-    } catch (error: any) {
-      showToast(error?.message || "Erro ao resolver contestação.", "error");
+    } catch (error: unknown) {
+      showToast(
+        error instanceof Error ? error.message : "Erro ao resolver.",
+        "error"
+      );
     } finally {
       setActionSubmitting(false);
     }
@@ -1411,9 +2013,7 @@ export default function FinanceiroPage() {
       showToast("Digite um comentário para registrar.", "warning");
       return;
     }
-
     setActionSubmitting(true);
-
     try {
       const eventId = await registerFinanceEvent(
         selectedTransaction.id,
@@ -1421,9 +2021,11 @@ export default function FinanceiroPage() {
         "Comentário do financeiro",
         financeActionForm.comment.trim()
       );
-
-      await attachFinanceFileIfAny(selectedTransaction.id, eventId, "finance_comment_attachment");
-
+      await attachFinanceFileIfAny(
+        selectedTransaction.id,
+        eventId,
+        "finance_comment_attachment"
+      );
       const now = new Date().toISOString();
       const { error } = await supabase
         .from("financial_transactions")
@@ -1436,53 +2038,28 @@ export default function FinanceiroPage() {
           last_interaction_at: now,
         })
         .eq("id", selectedTransaction.id);
-
-      if (error) throw new Error(error.message || "Erro ao registrar comentário.");
-
+      if (error) throw new Error(error.message);
       showToast("Comentário registrado.", "success");
       setFinanceActionForm((prev) => ({ ...prev, comment: "" }));
       setFinanceAttachmentFile(null);
       await fetchData();
       await refreshSelectedTransaction(selectedTransaction.id);
-    } catch (error: any) {
-      showToast(error?.message || "Erro ao registrar comentário.", "error");
+    } catch (error: unknown) {
+      showToast(
+        error instanceof Error ? error.message : "Erro ao comentar.",
+        "error"
+      );
     } finally {
       setActionSubmitting(false);
     }
   };
 
-  const receivableForGroup = useMemo(() => {
-    if (!selectedTransaction || selectedTransaction.type !== "income") return [];
-    return transactions
-      .filter((t) => t.type === "income")
-      .filter((t) => {
-        if (selectedTransaction.document_number && t.document_number) {
-          return t.document_number === selectedTransaction.document_number;
-        }
-        if (selectedTransaction.quote_id && t.quote_id) {
-          return t.quote_id === selectedTransaction.quote_id;
-        }
-        if (selectedTransaction.client_id && t.client_id && selectedTransaction.description) {
-          const baseA = selectedTransaction.description.replace(/-\s*parcela\s*\d+\/\d+/i, "").trim();
-          const baseB = t.description.replace(/-\s*parcela\s*\d+\/\d+/i, "").trim();
-          return selectedTransaction.client_id === t.client_id && baseA === baseB;
-        }
-        return t.id === selectedTransaction.id;
-      })
-      .sort((a, b) => {
-        const aN = a.installment_number || 999;
-        const bN = b.installment_number || 999;
-        if (aN !== bN) return aN - bN;
-        return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
-      });
-  }, [selectedTransaction, transactions]);
-
-  const selectedPaymentInfo = useMemo(
-    () => (selectedTransaction ? getPaymentDifference(selectedTransaction) : null),
-    [selectedTransaction]
-  );
-
-  const renderMetricCard = (label: string, value: string, tone?: "default" | "green" | "gold" | "red" | "orange") => {
+  // ── Render helpers ────────────────────────────────────────────────────────
+  const renderMetricCard = (
+    label: string,
+    value: string,
+    tone?: "default" | "green" | "gold" | "red" | "orange"
+  ) => {
     const valueColor =
       tone === "green"
         ? "text-cs-green"
@@ -1493,7 +2070,6 @@ export default function FinanceiroPage() {
         : tone === "orange"
         ? "text-orange-400"
         : "text-white";
-
     const borderTone =
       tone === "green"
         ? "border-cs-green/20"
@@ -1504,11 +2080,18 @@ export default function FinanceiroPage() {
         : tone === "orange"
         ? "border-orange-500/20"
         : "border-surface/50";
-
     return (
-      <div className={`rounded-xl border ${borderTone} bg-surface p-5 shadow-lg`}>
-        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-text-secondary">{label}</p>
-        <p className={`mt-3 break-words text-2xl font-black leading-tight ${valueColor}`}>{value}</p>
+      <div
+        className={`rounded-xl border ${borderTone} bg-surface p-5 shadow-lg`}
+      >
+        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-text-secondary">
+          {label}
+        </p>
+        <p
+          className={`mt-3 break-words text-2xl font-black leading-tight ${valueColor}`}
+        >
+          {value}
+        </p>
       </div>
     );
   };
@@ -1517,9 +2100,21 @@ export default function FinanceiroPage() {
     typeFilter: "income" | "expense",
     expFilter?: "administrative" | "operational" | "personnel"
   ) => {
-    const rows = filteredTransactions.filter(
-      (t) => t.type === typeFilter && (!expFilter || t.expense_type === expFilter)
+    const baseRows = filteredTransactions.filter(
+      (t) =>
+        t.type === typeFilter &&
+        (!expFilter || t.expense_type === expFilter)
     );
+
+    const totalPages = Math.ceil(baseRows.length / PAGE_SIZE);
+    const paginatedRows = baseRows.slice(
+      (currentPage - 1) * PAGE_SIZE,
+      currentPage * PAGE_SIZE
+    );
+
+    const allSelected =
+      paginatedRows.length > 0 &&
+      paginatedRows.every((r) => selectedIds.has(r.id));
 
     return (
       <div className="space-y-5">
@@ -1530,89 +2125,268 @@ export default function FinanceiroPage() {
                 <h4 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-white">
                   <ShieldAlert size={16} className="text-cs-gold" />
                   Fila de ações do cliente
+                  {newQueueCount > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/20 px-2 py-0.5 text-[10px] font-black text-orange-400 animate-pulse">
+                      <Bell size={10} /> {newQueueCount} novo(s)
+                    </span>
+                  )}
                 </h4>
                 <p className="mt-1 text-xs uppercase tracking-wide text-text-secondary">
-                  Apenas cobranças a receber com pagamento informado, divergência ou contestação.
+                  Cobranças com pagamento informado, divergência ou contestação.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <span className="rounded-full border border-cs-gold/20 bg-cs-gold/10 px-3 py-1 text-xs font-black uppercase text-cs-gold">
-                  Aguardando financeiro: {clientActionQueue.filter((t) => t.workflow_status === "awaiting_finance").length}
+                  Aguardando financeiro:{" "}
+                  {
+                    clientActionQueue.filter(
+                      (t) => t.workflow_status === "awaiting_finance"
+                    ).length
+                  }
                 </span>
                 <span className="rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-black uppercase text-orange-400">
-                  Contestações: {clientActionQueue.filter((t) => t.dispute_status && t.dispute_status !== "resolved").length}
+                  Contestações:{" "}
+                  {
+                    clientActionQueue.filter(
+                      (t) =>
+                        t.dispute_status && t.dispute_status !== "resolved"
+                    ).length
+                  }
                 </span>
               </div>
             </div>
-
             <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
               {clientActionQueue.length === 0 ? (
                 <div className="rounded-lg border border-white/10 bg-background/40 p-4 text-xs font-bold uppercase tracking-wide text-text-secondary">
                   Nenhuma ação pendente do cliente no momento.
                 </div>
               ) : (
-                clientActionQueue.slice(0, 8).map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={async () => {
-                      setSelectedTransaction(t);
-                      setIsDetailModalOpen(true);
-                      await fetchInteractionDetails(t.id);
-                    }}
-                    className="rounded-lg border border-white/10 bg-background/40 p-4 text-left transition-all hover:border-cs-gold/40 hover:bg-background/60"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-bold text-white">{t.description}</p>
-                        <p className="mt-1 text-[11px] font-black uppercase tracking-wide text-text-secondary">
-                          {t.clients?.company_name || "Sem cliente"} · {t.document_number || "Sem documento"}
-                        </p>
+                clientActionQueue.slice(0, 8).map((t) => {
+                  const isNew =
+                    lastQueueViewedAtRef.current &&
+                    t.last_interaction_at &&
+                    new Date(t.last_interaction_at) >
+                      new Date(lastQueueViewedAtRef.current);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={async () => {
+                        lastQueueViewedAtRef.current = new Date().toISOString();
+                        setNewQueueCount(0);
+                        setSelectedTransaction(t);
+                        setIsDetailModalOpen(true);
+                        await fetchInteractionDetails(t.id);
+                      }}
+                      className={`rounded-lg border p-4 text-left transition-all hover:border-cs-gold/40 hover:bg-background/60 ${
+                        isNew
+                          ? "border-orange-500/30 bg-orange-500/5"
+                          : "border-white/10 bg-background/40"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-white">
+                            {t.description}
+                          </p>
+                          <p className="mt-1 text-[11px] font-black uppercase tracking-wide text-text-secondary">
+                            {t.clients?.company_name || "Sem cliente"} ·{" "}
+                            {t.document_number || "Sem documento"}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-1">
+                          {isNew && (
+                            <span className="rounded-full bg-orange-500/20 px-2 py-0.5 text-[9px] font-black uppercase text-orange-400">
+                              Novo
+                            </span>
+                          )}
+                          <span
+                            className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase ${statusClass(t)}`}
+                          >
+                            {statusLabel(t)}
+                          </span>
+                        </div>
                       </div>
-                      <span className={`shrink-0 rounded-full border px-3 py-1 text-[10px] font-black uppercase ${statusClass(t)}`}>
-                        {statusLabel(t)}
-                      </span>
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-text-secondary">
-                      <span>{formatCurrency(Number(t.amount))}</span>
-                      <span>Vence em {formatDate(t.due_date)}</span>
-                      {t.payment_reported_amount ? (
-                        <span>Informado: {formatCurrency(Number(t.payment_reported_amount))}</span>
-                      ) : null}
-                    </div>
-                  </button>
-                ))
+                      <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-text-secondary">
+                        <span>{formatCurrency(Number(t.amount))}</span>
+                        <span>Vence em {formatDate(t.due_date)}</span>
+                        {t.payment_reported_amount ? (
+                          <span>
+                            Informado:{" "}
+                            {formatCurrency(Number(t.payment_reported_amount))}
+                          </span>
+                        ) : null}
+                      </div>
+                    </button>
+                  );
+                })
               )}
             </div>
           </section>
         )}
 
-        <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden shadow-xl">
-          <div className="p-4 border-b border-surface/50 bg-surface/50 flex flex-col sm:flex-row justify-between items-center gap-4">
-            <div className="relative w-full sm:w-80">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={16} />
-              <input
-                type="text"
-                placeholder="Filtrar lançamentos..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-background border border-surface rounded-md text-xs text-white focus:border-cs-green outline-none transition-all"
-              />
+        <div className="overflow-hidden rounded-lg border border-surface/50 bg-surface shadow-xl">
+          {/* Toolbar */}
+          <div className="flex flex-col gap-3 border-b border-surface/50 bg-surface/50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative">
+                <Search
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary"
+                  size={16}
+                />
+                <input
+                  type="text"
+                  placeholder="Filtrar lançamentos..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-64 rounded-md border border-surface bg-background py-2 pl-9 pr-4 text-xs text-white outline-none transition-all focus:border-cs-green"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFilters((p) => !p)}
+                className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-black uppercase transition-all ${
+                  showFilters
+                    ? "border-cs-gold/40 bg-cs-gold/10 text-cs-gold"
+                    : "border-surface text-text-secondary hover:text-white"
+                }`}
+              >
+                <SlidersHorizontal size={14} /> Filtros
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={fetchData}
-              className="inline-flex items-center gap-2 rounded-md border border-surface px-4 py-2 text-xs font-black uppercase tracking-wide text-white hover:bg-background"
-            >
-              <RefreshCw size={14} />
-              Atualizar
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {selectedIds.size > 0 && (
+                <>
+                  <span className="text-xs font-bold text-text-secondary">
+                    {selectedIds.size} selecionado(s)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleBatchWhatsApp}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-cs-green/20 bg-cs-green/10 px-3 py-1.5 text-[11px] font-black uppercase text-cs-green hover:bg-cs-green/20"
+                  >
+                    <MessageCircle size={13} /> WhatsApp em lote
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBatchEmail}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-blue-500/20 bg-blue-500/10 px-3 py-1.5 text-[11px] font-black uppercase text-blue-400 hover:bg-blue-500/20"
+                  >
+                    <Mail size={13} /> E-mail em lote
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearSelection}
+                    className="text-xs text-text-secondary hover:text-white"
+                  >
+                    <X size={14} />
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() =>
+                  exportCSV(
+                    baseRows,
+                    `lancamentos-${typeFilter}-${new Date().toISOString().split("T")[0]}.csv`
+                  )
+                }
+                className="inline-flex items-center gap-2 rounded-md border border-surface px-3 py-2 text-xs font-black uppercase text-white hover:bg-background"
+              >
+                <Download size={14} /> CSV
+              </button>
+              <button
+                type="button"
+                onClick={fetchData}
+                className="inline-flex items-center gap-2 rounded-md border border-surface px-3 py-2 text-xs font-black uppercase text-white hover:bg-background"
+              >
+                <RefreshCw size={14} /> Atualizar
+              </button>
+            </div>
           </div>
 
+          {/* Filter bar */}
+          {showFilters && (
+            <div className="flex flex-wrap gap-3 border-b border-surface/50 bg-background/30 px-4 py-3">
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="rounded-md border border-surface bg-background px-3 py-2 text-xs text-white outline-none focus:border-cs-green"
+              >
+                <option value="">Todos os status</option>
+                <option value="pending">Pendente</option>
+                <option value="paid">Pago</option>
+                <option value="overdue">Vencido</option>
+                <option value="awaiting_finance">Aguardando financeiro</option>
+                <option value="disputed">Contestação</option>
+                <option value="cancelled">Cancelado</option>
+              </select>
+              {typeFilter === "income" && (
+                <select
+                  value={filterClientId}
+                  onChange={(e) => setFilterClientId(e.target.value)}
+                  className="rounded-md border border-surface bg-background px-3 py-2 text-xs text-white outline-none focus:border-cs-green"
+                >
+                  <option value="">Todos os clientes</option>
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.company_name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <div className="flex items-center gap-2">
+                <CalendarRange size={14} className="text-text-secondary" />
+                <input
+                  type="date"
+                  value={filterDateFrom}
+                  onChange={(e) => setFilterDateFrom(e.target.value)}
+                  className="rounded-md border border-surface bg-background px-3 py-2 text-xs text-white outline-none focus:border-cs-green"
+                  style={{ colorScheme: "dark" }}
+                />
+                <span className="text-xs text-text-secondary">até</span>
+                <input
+                  type="date"
+                  value={filterDateTo}
+                  onChange={(e) => setFilterDateTo(e.target.value)}
+                  className="rounded-md border border-surface bg-background px-3 py-2 text-xs text-white outline-none focus:border-cs-green"
+                  style={{ colorScheme: "dark" }}
+                />
+              </div>
+              {(filterStatus || filterClientId || filterDateFrom || filterDateTo) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterStatus("");
+                    setFilterClientId("");
+                    setFilterDateFrom("");
+                    setFilterDateTo("");
+                  }}
+                  className="text-xs font-bold text-red-400 hover:text-red-300"
+                >
+                  Limpar filtros
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Table */}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="bg-background/50 text-xs uppercase tracking-wide text-text-secondary font-black">
+              <thead className="bg-background/50 text-xs font-black uppercase tracking-wide text-text-secondary">
                 <tr>
+                  <th className="px-4 py-4 w-10">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={() =>
+                        allSelected
+                          ? clearSelection()
+                          : selectAllRows(paginatedRows)
+                      }
+                      className="cursor-pointer accent-cs-green"
+                    />
+                  </th>
                   <th className="px-6 py-4">Descrição / Favorecido</th>
                   <th className="px-6 py-4">Categoria</th>
                   <th className="px-6 py-4">Vencimento</th>
@@ -1624,41 +2398,80 @@ export default function FinanceiroPage() {
               <tbody className="divide-y divide-surface/50">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-10 text-center">
-                      <Loader2 className="animate-spin mx-auto text-cs-green" size={24} />
+                    <td colSpan={7} className="px-6 py-10 text-center">
+                      <Loader2
+                        className="mx-auto animate-spin text-cs-green"
+                        size={24}
+                      />
                     </td>
                   </tr>
-                ) : rows.length === 0 ? (
+                ) : paginatedRows.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-10 text-center text-text-secondary text-sm uppercase font-semibold tracking-wide">
+                    <td
+                      colSpan={7}
+                      className="px-6 py-10 text-center text-sm font-semibold uppercase tracking-wide text-text-secondary"
+                    >
                       Nenhum lançamento encontrado.
                     </td>
                   </tr>
                 ) : (
-                  rows.map((t) => (
-                    <tr key={t.id} className="hover:bg-background/50 transition-colors group">
+                  paginatedRows.map((t) => (
+                    <tr
+                      key={t.id}
+                      className="group transition-colors hover:bg-background/50"
+                    >
+                      <td className="px-4 py-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(t.id)}
+                          onChange={() => toggleSelect(t.id)}
+                          className="cursor-pointer accent-cs-green"
+                        />
+                      </td>
                       <td className="px-6 py-4">
-                        <p className="font-bold text-white group-hover:text-cs-green transition-colors">{t.description}</p>
+                        <p className="font-bold text-white transition-colors group-hover:text-cs-green">
+                          {t.description}
+                        </p>
                         <div className="mt-1 flex flex-wrap items-center gap-2">
                           <p className="text-xs font-black uppercase text-text-secondary">
-                            {t.clients?.company_name || t.member?.full_name || "—"}
+                            {t.clients?.company_name ||
+                              t.member?.full_name ||
+                              "—"}
                           </p>
-                          {typeFilter === "income" && t.payment_reported_amount ? (
+                          {typeFilter === "income" &&
+                          t.payment_reported_amount ? (
                             <span className="rounded-full border border-cs-gold/20 bg-cs-gold/10 px-2 py-0.5 text-[10px] font-black uppercase text-cs-gold">
-                              Informado: {formatCurrency(Number(t.payment_reported_amount))}
+                              Informado:{" "}
+                              {formatCurrency(
+                                Number(t.payment_reported_amount)
+                              )}
                             </span>
                           ) : null}
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-sm text-text-secondary">{t.category}</td>
+                      <td className="px-6 py-4 text-sm text-text-secondary">
+                        {t.category}
+                      </td>
                       <td className="px-6 py-4">
-                        <span className={`text-xs font-bold ${isOverdue(t.due_date, t.status || "pending") ? "text-red-500" : "text-white"}`}>
-                          {new Date(`${t.due_date}T00:00:00`).toLocaleDateString("pt-BR")}
+                        <span
+                          className={`text-xs font-bold ${
+                            isOverdue(t.due_date, t.status || "pending")
+                              ? "text-red-500"
+                              : "text-white"
+                          }`}
+                        >
+                          {new Date(
+                            `${t.due_date}T00:00:00`
+                          ).toLocaleDateString("pt-BR")}
                         </span>
                       </td>
-                      <td className="px-6 py-4 font-black text-white">{formatCurrency(Number(t.amount))}</td>
+                      <td className="px-6 py-4 font-black text-white">
+                        {formatCurrency(Number(t.amount))}
+                      </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-black uppercase border ${statusClass(t)}`}>
+                        <span
+                          className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-black uppercase ${statusClass(t)}`}
+                        >
                           {statusLabel(t)}
                         </span>
                       </td>
@@ -1669,7 +2482,7 @@ export default function FinanceiroPage() {
                             setIsDetailModalOpen(true);
                             await fetchInteractionDetails(t.id);
                           }}
-                          className="text-text-secondary hover:text-white transition-all"
+                          className="text-text-secondary transition-all hover:text-white"
                           aria-label="Ver detalhes"
                         >
                           <Eye size={18} />
@@ -1681,16 +2494,45 @@ export default function FinanceiroPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between border-t border-surface/50 px-6 py-4">
+              <p className="text-xs text-text-secondary">
+                {baseRows.length} registros · Página {currentPage} de{" "}
+                {totalPages}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="inline-flex items-center gap-1 rounded-md border border-surface px-3 py-1.5 text-xs font-bold text-white hover:bg-background disabled:opacity-40"
+                >
+                  <ChevronLeft size={14} /> Anterior
+                </button>
+                <button
+                  onClick={() =>
+                    setCurrentPage((p) => Math.min(totalPages, p + 1))
+                  }
+                  disabled={currentPage === totalPages}
+                  className="inline-flex items-center gap-1 rounded-md border border-surface px-3 py-1.5 text-xs font-bold text-white hover:bg-background disabled:opacity-40"
+                >
+                  Próxima <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
   };
 
+  // ── Main render ───────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6 relative pb-12">
+    <div className="relative space-y-6 pb-12">
       {toast && (
         <div
-          className={`fixed bottom-6 right-6 z-[200] max-w-[92vw] px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border bg-[#1a1413] ${
+          className={`fixed bottom-6 right-6 z-[200] flex max-w-[92vw] items-center gap-3 rounded-lg border bg-[#1a1413] px-6 py-4 shadow-2xl ${
             toast.type === "success"
               ? "border-cs-green text-cs-green"
               : toast.type === "warning"
@@ -1698,39 +2540,56 @@ export default function FinanceiroPage() {
               : "border-red-500 text-red-500"
           }`}
         >
-          {toast.type === "success" ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
+          {toast.type === "success" ? (
+            <CheckCircle size={20} />
+          ) : (
+            <AlertTriangle size={20} />
+          )}
           <span className="text-sm font-semibold">{toast.message}</span>
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-surface p-6 border border-surface/50 rounded-xl shadow-lg">
+      {/* Header */}
+      <div className="flex flex-col items-start justify-between gap-4 rounded-xl border border-surface/50 bg-surface p-6 shadow-lg md:flex-row md:items-center">
         <div>
-          <h3 className="text-2xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
+          <h3 className="flex items-center gap-3 text-2xl font-black uppercase tracking-tighter text-white">
             <Wallet className="text-cs-green" size={28} /> {L.hub}
           </h3>
-          <p className="text-xs text-text-secondary mt-1 uppercase font-semibold tracking-wide">
-            {(companyProfile?.company_name as string) || "ARXUM"} · Gestão Financeira
+          <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-text-secondary">
+            {(companyProfile?.company_name as string) || "ARXUM"} · Gestão
+            Financeira
           </p>
         </div>
-        {view === "list" && (
+        <div className="flex flex-wrap items-center gap-3">
           <button
-            onClick={() => openCreateForTab(activeTab)}
-            className="bg-cs-green text-white px-8 py-3 rounded-md font-black text-xs uppercase tracking-widest hover:bg-opacity-90 transition-all shadow-lg flex items-center gap-2"
+            onClick={() => setIsReguaOpen(true)}
+            className="inline-flex items-center gap-2 rounded-md border border-cs-gold/30 bg-cs-gold/10 px-5 py-2.5 text-xs font-black uppercase tracking-widest text-cs-gold transition-all hover:bg-cs-gold/20"
           >
-            <Plus size={18} /> Novo {L.transacao}
+            <Bell size={15} /> Régua de Cobrança
           </button>
-        )}
+          {view === "list" && (
+            <button
+              onClick={() => openCreateForTab(activeTab)}
+              className="flex items-center gap-2 rounded-md bg-cs-green px-8 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all hover:bg-opacity-90"
+            >
+              <Plus size={18} /> Novo {L.transacao}
+            </button>
+          )}
+        </div>
       </div>
 
       {view === "list" && (
         <>
-          <div className="flex gap-0 border-b border-surface/50 overflow-x-auto">
+          {/* Tabs */}
+          <div className="flex gap-0 overflow-x-auto border-b border-surface/50">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-6 py-4 text-xs font-black uppercase tracking-wide border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
-                  activeTab === tab.id ? "border-cs-green text-cs-green" : "border-transparent text-text-secondary hover:text-white"
+                className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-6 py-4 text-xs font-black uppercase tracking-wide transition-all ${
+                  activeTab === tab.id
+                    ? "border-cs-green text-cs-green"
+                    : "border-transparent text-text-secondary hover:text-white"
                 }`}
               >
                 <tab.icon size={13} /> {tab.label}
@@ -1739,68 +2598,144 @@ export default function FinanceiroPage() {
           </div>
 
           {activeTab === "dashboard" && (
-            <div className="space-y-6 animate-in fade-in duration-500">
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                {renderMetricCard("Saldo realizado", formatCurrency(stats.balance), stats.balance >= 0 ? "green" : "red")}
-                {renderMetricCard(`${L.receber} pendente`, formatCurrency(stats.pendingIn), "green")}
-                {renderMetricCard("Aguardando financeiro", formatCurrency(stats.waitingFinance), "gold")}
-                {renderMetricCard("Contestação em aberto", formatCurrency(stats.disputedOpen), "orange")}
+            <div className="animate-in fade-in space-y-6 duration-500">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {renderMetricCard(
+                  "Saldo realizado",
+                  formatCurrency(stats.balance),
+                  stats.balance >= 0 ? "green" : "red"
+                )}
+                {renderMetricCard(
+                  `${L.receber} pendente`,
+                  formatCurrency(stats.pendingIn),
+                  "green"
+                )}
+                {renderMetricCard(
+                  "Aguardando financeiro",
+                  formatCurrency(stats.waitingFinance),
+                  "gold"
+                )}
+                {renderMetricCard(
+                  "Contestação em aberto",
+                  formatCurrency(stats.disputedOpen),
+                  "orange"
+                )}
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                {renderMetricCard("Inadimplência real", formatCurrency(stats.overdueIn), "red")}
-                {renderMetricCard("Pago no mês", formatCurrency(stats.paidThisMonth), "green")}
-                {renderMetricCard("Despesas pagas", formatCurrency(stats.expensePaid), "red")}
-                {renderMetricCard("Folha + comissão", formatCurrency(stats.peopleCost), "gold")}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {renderMetricCard(
+                  "Inadimplência real",
+                  formatCurrency(stats.overdueIn),
+                  "red"
+                )}
+                {renderMetricCard(
+                  "Pago no mês",
+                  formatCurrency(stats.paidThisMonth),
+                  "green"
+                )}
+                {renderMetricCard(
+                  "Despesas pagas",
+                  formatCurrency(stats.expensePaid),
+                  "red"
+                )}
+                {renderMetricCard(
+                  "Folha + comissão",
+                  formatCurrency(stats.peopleCost),
+                  "gold"
+                )}
               </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-surface border border-surface/50 p-6 rounded-xl">
-                  <h4 className="text-xs font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
-                    <TrendingUp size={16} className="text-cs-gold" /> Projeção de {L.receber}
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <div className="rounded-xl border border-surface/50 bg-surface p-6">
+                  <h4 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
+                    <TrendingUp size={16} className="text-cs-gold" /> Projeção
+                    de {L.receber}
                   </h4>
                   <div className="grid grid-cols-2 gap-4">
                     {[
-                      { label: "Vencidos", val: stats.overdueIn, color: "bg-red-500" },
-                      { label: "Próx. 7 dias", val: stats.pendingIn * 0.4, color: "bg-cs-gold" },
-                      { label: "15–30 dias", val: stats.pendingIn * 0.3, color: "bg-blue-500" },
-                      { label: "30+ dias", val: stats.pendingIn * 0.3, color: "bg-cs-green" },
+                      {
+                        label: "Vencidos",
+                        val: stats.overdueIn,
+                        color: "bg-red-500",
+                      },
+                      {
+                        label: "Próx. 7 dias",
+                        val: stats.pendingIn * 0.4,
+                        color: "bg-cs-gold",
+                      },
+                      {
+                        label: "15–30 dias",
+                        val: stats.pendingIn * 0.3,
+                        color: "bg-blue-500",
+                      },
+                      {
+                        label: "30+ dias",
+                        val: stats.pendingIn * 0.3,
+                        color: "bg-cs-green",
+                      },
                     ].map((b) => (
                       <div key={b.label} className="space-y-2">
-                        <div className="h-2 w-full bg-background rounded-full overflow-hidden">
-                          <div className={`h-full ${b.color} transition-all`} style={{ width: `${Math.min((b.val / (stats.pendingIn || 1)) * 100, 100)}%` }} />
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-background">
+                          <div
+                            className={`h-full ${b.color} transition-all`}
+                            style={{
+                              width: `${Math.min(
+                                (b.val / (stats.pendingIn || 1)) * 100,
+                                100
+                              )}%`,
+                            }}
+                          />
                         </div>
-                        <p className="text-[9px] font-black text-text-secondary uppercase">{b.label}</p>
-                        <p className="text-sm font-bold text-white break-words">{formatCurrency(b.val)}</p>
+                        <p className="text-[9px] font-black uppercase text-text-secondary">
+                          {b.label}
+                        </p>
+                        <p className="break-words text-sm font-bold text-white">
+                          {formatCurrency(b.val)}
+                        </p>
                       </div>
                     ))}
                   </div>
                 </div>
-
-                <div className="bg-surface border border-surface/50 p-6 rounded-xl">
-                  <h4 className="text-xs font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
-                    <PieChart size={16} className="text-cs-gold" /> Centro de Custos
+                <div className="rounded-xl border border-surface/50 bg-surface p-6">
+                  <h4 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
+                    <PieChart size={16} className="text-cs-gold" /> Centro de
+                    Custos
                   </h4>
                   {expenseByCategory.length === 0 ? (
-                    <p className="text-text-secondary text-xs uppercase font-black text-center py-8">
+                    <p className="py-8 text-center text-xs font-black uppercase text-text-secondary">
                       Sem despesas efetivadas.
                     </p>
                   ) : (
                     <div className="space-y-3">
                       {expenseByCategory.map((item, i) => (
                         <div key={item.cat} className="space-y-1">
-                          <div className="flex justify-between items-center gap-3">
-                            <span className="text-xs font-semibold text-text-secondary uppercase truncate max-w-[65%]">{item.cat}</span>
-                            <span className="text-xs font-black text-white">{formatCurrency(item.val)}</span>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="max-w-[65%] truncate text-xs font-semibold uppercase text-text-secondary">
+                              {item.cat}
+                            </span>
+                            <span className="text-xs font-black text-white">
+                              {formatCurrency(item.val)}
+                            </span>
                           </div>
-                          <div className="h-1.5 w-full bg-background rounded-full overflow-hidden">
-                            <div className={`h-full ${CHART_COLORS[i % CHART_COLORS.length]} transition-all`} style={{ width: `${(item.val / (totalExpenses || 1)) * 100}%` }} />
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-background">
+                            <div
+                              className={`h-full ${
+                                CHART_COLORS[i % CHART_COLORS.length]
+                              } transition-all`}
+                              style={{
+                                width: `${
+                                  (item.val / (totalExpenses || 1)) * 100
+                                }%`,
+                              }}
+                            />
                           </div>
                         </div>
                       ))}
-                      <div className="pt-2 border-t border-surface/50 flex justify-between gap-3">
-                        <span className="text-xs font-bold text-text-secondary uppercase">Total Despesas</span>
-                        <span className="text-xs font-black text-red-400">{formatCurrency(totalExpenses)}</span>
+                      <div className="flex justify-between gap-3 border-t border-surface/50 pt-2">
+                        <span className="text-xs font-bold uppercase text-text-secondary">
+                          Total Despesas
+                        </span>
+                        <span className="text-xs font-black text-red-400">
+                          {formatCurrency(totalExpenses)}
+                        </span>
                       </div>
                     </div>
                   )}
@@ -1810,44 +2745,70 @@ export default function FinanceiroPage() {
           )}
 
           {activeTab === "receber" && renderTable("income")}
-          {activeTab === "pagar_admin" && renderTable("expense", "administrative")}
-          {activeTab === "pagar_operacional" && renderTable("expense", "operational")}
+          {activeTab === "pagar_admin" &&
+            renderTable("expense", "administrative")}
+          {activeTab === "pagar_operacional" &&
+            renderTable("expense", "operational")}
 
           {activeTab === "pessoal" && (
-            <div className="space-y-6 animate-in fade-in">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-surface border border-surface/50 p-6 rounded-xl flex items-center justify-between">
+            <div className="animate-in fade-in space-y-6">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="flex items-center justify-between rounded-xl border border-surface/50 bg-surface p-6">
                   <div>
-                    <p className="text-xs font-bold text-text-secondary uppercase">{L.salario}s Pagos</p>
-                    <p className="text-2xl font-black text-white break-words">{formatCurrency(personnelStats.totalSalaries)}</p>
+                    <p className="text-xs font-bold uppercase text-text-secondary">
+                      {L.salario}s Pagos
+                    </p>
+                    <p className="break-words text-2xl font-black text-white">
+                      {formatCurrency(personnelStats.totalSalaries)}
+                    </p>
                   </div>
                   <UserCheck className="text-cs-green opacity-20" size={48} />
                 </div>
-                <div className="bg-surface border border-surface/50 p-6 rounded-xl flex items-center justify-between">
+                <div className="flex items-center justify-between rounded-xl border border-surface/50 bg-surface p-6">
                   <div>
-                    <p className="text-xs font-bold text-text-secondary uppercase">{L.comissao} Pagas</p>
-                    <p className="text-2xl font-black text-cs-gold break-words">{formatCurrency(personnelStats.totalCommissions)}</p>
+                    <p className="text-xs font-bold uppercase text-text-secondary">
+                      {L.comissao} Pagas
+                    </p>
+                    <p className="break-words text-2xl font-black text-cs-gold">
+                      {formatCurrency(personnelStats.totalCommissions)}
+                    </p>
                   </div>
                   <Percent className="text-cs-gold opacity-20" size={48} />
                 </div>
               </div>
-
               {personnelStats.commissionByMember.length > 0 && (
-                <div className="bg-surface border border-surface/50 p-6 rounded-xl">
-                  <h4 className="text-xs font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2">
-                    <BarChart3 size={16} className="text-cs-gold" /> Ranking de {L.comissao} por {L.colaborador}
+                <div className="rounded-xl border border-surface/50 bg-surface p-6">
+                  <h4 className="mb-4 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
+                    <BarChart3 size={16} className="text-cs-gold" /> Ranking de{" "}
+                    {L.comissao} por {L.colaborador}
                   </h4>
                   <div className="space-y-3">
                     {personnelStats.commissionByMember.map((m, i) => (
                       <div key={m.name} className="flex items-center gap-4">
-                        <span className="text-xs font-bold text-text-secondary w-5 text-right">{i + 1}.</span>
+                        <span className="w-5 text-right text-xs font-bold text-text-secondary">
+                          {i + 1}.
+                        </span>
                         <div className="flex-1">
-                          <div className="flex justify-between mb-1 gap-3">
-                            <span className="text-xs font-bold text-white">{m.name}</span>
-                            <span className="text-xs font-black text-cs-gold">{formatCurrency(m.total)}</span>
+                          <div className="mb-1 flex justify-between gap-3">
+                            <span className="text-xs font-bold text-white">
+                              {m.name}
+                            </span>
+                            <span className="text-xs font-black text-cs-gold">
+                              {formatCurrency(m.total)}
+                            </span>
                           </div>
-                          <div className="h-1.5 bg-background rounded-full overflow-hidden">
-                            <div className="h-full bg-cs-gold transition-all" style={{ width: `${(m.total / (personnelStats.commissionByMember[0]?.total || 1)) * 100}%` }} />
+                          <div className="h-1.5 overflow-hidden rounded-full bg-background">
+                            <div
+                              className="h-full bg-cs-gold transition-all"
+                              style={{
+                                width: `${
+                                  (m.total /
+                                    (personnelStats.commissionByMember[0]
+                                      ?.total || 1)) *
+                                  100
+                                }%`,
+                              }}
+                            />
                           </div>
                         </div>
                       </div>
@@ -1855,15 +2816,14 @@ export default function FinanceiroPage() {
                   </div>
                 </div>
               )}
-
               {renderTable("expense", "personnel")}
             </div>
           )}
 
           {activeTab === "clientes" && (
-            <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden shadow-2xl animate-in fade-in">
+            <div className="animate-in fade-in overflow-hidden rounded-lg border border-surface/50 bg-surface shadow-2xl">
               <table className="w-full text-left text-sm">
-                <thead className="bg-background/50 text-xs uppercase tracking-wide text-text-secondary font-black">
+                <thead className="bg-background/50 text-xs font-black uppercase tracking-wide text-text-secondary">
                   <tr>
                     <th className="px-8 py-5">{L.cliente}</th>
                     <th className="px-8 py-5">LTV (Total Pago)</th>
@@ -1874,16 +2834,28 @@ export default function FinanceiroPage() {
                 <tbody className="divide-y divide-surface/50">
                   {clientSummary.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-8 py-10 text-center text-text-secondary text-xs uppercase font-black tracking-widest">
+                      <td
+                        colSpan={4}
+                        className="px-8 py-10 text-center text-xs font-black uppercase tracking-widest text-text-secondary"
+                      >
                         Nenhum {L.cliente} com movimentação financeira.
                       </td>
                     </tr>
                   ) : (
                     clientSummary.map((c) => (
-                      <tr key={c.id} className="hover:bg-background/40 transition-colors group">
-                        <td className="px-8 py-6 font-black text-white uppercase tracking-tight">{c.company_name}</td>
-                        <td className="px-8 py-6 font-bold text-cs-green">{formatCurrency(c.ltv)}</td>
-                        <td className="px-8 py-6 font-bold text-red-400">{formatCurrency(c.debt)}</td>
+                      <tr
+                        key={c.id}
+                        className="group transition-colors hover:bg-background/40"
+                      >
+                        <td className="px-8 py-6 font-black uppercase tracking-tight text-white">
+                          {c.company_name}
+                        </td>
+                        <td className="px-8 py-6 font-bold text-cs-green">
+                          {formatCurrency(c.ltv)}
+                        </td>
+                        <td className="px-8 py-6 font-bold text-red-400">
+                          {formatCurrency(c.debt)}
+                        </td>
                         <td className="px-8 py-6 text-right">
                           <button
                             onClick={() => {
@@ -1902,34 +2874,143 @@ export default function FinanceiroPage() {
               </table>
             </div>
           )}
+
+          {/* ── DRE Tab ─────────────────────────────────────────────────── */}
+          {activeTab === "dre" && (
+            <div className="animate-in fade-in space-y-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-black uppercase tracking-tight text-white">
+                    Demonstrativo de Resultado (DRE)
+                  </h3>
+                  <p className="mt-1 text-xs uppercase tracking-wide text-text-secondary">
+                    Apenas lançamentos efetivados (pagos/recebidos/confirmados)
+                  </p>
+                </div>
+                <button
+                  onClick={exportDRE}
+                  className="inline-flex items-center gap-2 rounded-md border border-cs-green/30 bg-cs-green/10 px-5 py-2.5 text-xs font-black uppercase text-cs-green transition-all hover:bg-cs-green/20"
+                >
+                  <Download size={14} /> Exportar CSV
+                </button>
+              </div>
+
+              {dreByMonth.length === 0 ? (
+                <div className="rounded-xl border border-surface/50 bg-surface p-10 text-center text-sm text-text-secondary">
+                  Nenhum lançamento efetivado registrado ainda.
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-xl border border-surface/50 bg-surface shadow-xl">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-background/50 text-xs font-black uppercase tracking-wide text-text-secondary">
+                      <tr>
+                        <th className="px-6 py-4">Mês / Ano</th>
+                        <th className="px-6 py-4 text-cs-green">Receitas</th>
+                        <th className="px-6 py-4 text-red-400">Despesas</th>
+                        <th className="px-6 py-4">Resultado</th>
+                        <th className="px-6 py-4 text-text-secondary">
+                          Acumulado
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-surface/50">
+                      {dreByMonth.map((m) => (
+                        <tr
+                          key={m.key}
+                          className="transition-colors hover:bg-background/40"
+                        >
+                          <td className="px-6 py-4 font-bold capitalize text-white">
+                            {m.month} {m.year}
+                          </td>
+                          <td className="px-6 py-4 font-bold text-cs-green">
+                            {formatCurrency(m.income)}
+                          </td>
+                          <td className="px-6 py-4 font-bold text-red-400">
+                            {formatCurrency(m.expense)}
+                          </td>
+                          <td
+                            className={`px-6 py-4 font-black ${
+                              m.balance >= 0 ? "text-cs-green" : "text-red-500"
+                            }`}
+                          >
+                            {m.balance >= 0 ? "+" : ""}
+                            {formatCurrency(m.balance)}
+                          </td>
+                          <td
+                            className={`px-6 py-4 font-bold ${
+                              m.cumulative >= 0
+                                ? "text-zinc-300"
+                                : "text-red-400"
+                            }`}
+                          >
+                            {formatCurrency(m.cumulative)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="border-t border-surface/50 bg-background/50">
+                      <tr>
+                        <td className="px-6 py-4 text-xs font-black uppercase tracking-wide text-text-secondary">
+                          Total
+                        </td>
+                        <td className="px-6 py-4 font-black text-cs-green">
+                          {formatCurrency(
+                            dreByMonth.reduce((a, m) => a + m.income, 0)
+                          )}
+                        </td>
+                        <td className="px-6 py-4 font-black text-red-400">
+                          {formatCurrency(
+                            dreByMonth.reduce((a, m) => a + m.expense, 0)
+                          )}
+                        </td>
+                        <td
+                          className={`px-6 py-4 font-black ${
+                            dreByMonth.reduce((a, m) => a + m.balance, 0) >= 0
+                              ? "text-cs-green"
+                              : "text-red-500"
+                          }`}
+                        >
+                          {formatCurrency(
+                            dreByMonth.reduce((a, m) => a + m.balance, 0)
+                          )}
+                        </td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
 
+      {/* ── Create/Edit form (unchanged structure) ───────────────────────── */}
       {view === "create" && (
-        <div className="max-w-5xl mx-auto space-y-6">
+        <div className="mx-auto max-w-5xl space-y-6">
           <button
             onClick={() => {
               resetForm();
               setView("list");
             }}
-            className="flex items-center gap-2 text-text-secondary hover:text-white transition-all uppercase text-xs font-black tracking-widest"
+            className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-text-secondary transition-all hover:text-white"
           >
             <ArrowLeft size={16} /> Voltar ao Fluxo
           </button>
-
-          <div className="bg-surface border border-surface/50 p-8 rounded-xl shadow-2xl">
-            <h2 className="text-2xl font-black text-white mb-8 border-b border-surface/50 pb-4 uppercase tracking-tighter">
+          <div className="rounded-xl border border-surface/50 bg-surface p-8 shadow-2xl">
+            <h2 className="mb-8 border-b border-surface/50 pb-4 text-2xl font-black uppercase tracking-tighter text-white">
               {editId ? `Ajustar ${L.transacao}` : `Novo ${L.transacao}`}
             </h2>
-
             <form onSubmit={handleSave} className="space-y-8">
               <div className="space-y-4">
-                <div className="flex gap-2 p-1 bg-background rounded-lg border border-surface/50 w-fit">
+                <div className="flex w-fit gap-2 rounded-lg border border-surface/50 bg-background p-1">
                   <button
                     type="button"
                     onClick={() => setFormType("income")}
-                    className={`px-8 py-2 rounded text-xs font-black uppercase transition-all ${
-                      formType === "income" ? "bg-cs-green text-white shadow-lg" : "text-text-secondary"
+                    className={`rounded px-8 py-2 text-xs font-black uppercase transition-all ${
+                      formType === "income"
+                        ? "bg-cs-green text-white shadow-lg"
+                        : "text-text-secondary"
                     }`}
                   >
                     {L.receita}
@@ -1937,27 +3018,32 @@ export default function FinanceiroPage() {
                   <button
                     type="button"
                     onClick={() => setFormType("expense")}
-                    className={`px-8 py-2 rounded text-xs font-black uppercase transition-all ${
-                      formType === "expense" ? "bg-red-500 text-white shadow-lg" : "text-text-secondary"
+                    className={`rounded px-8 py-2 text-xs font-black uppercase transition-all ${
+                      formType === "expense"
+                        ? "bg-red-500 text-white shadow-lg"
+                        : "text-text-secondary"
                     }`}
                   >
                     {L.despesa}
                   </button>
                 </div>
-
                 {formType === "expense" && (
                   <div className="flex gap-2">
-                    {([
-                      { id: "administrative", label: L.pagarAdmin },
-                      { id: "operational", label: L.pagarOp },
-                      { id: "personnel", label: L.pessoal },
-                    ] as const).map((opt) => (
+                    {(
+                      [
+                        { id: "administrative", label: L.pagarAdmin },
+                        { id: "operational", label: L.pagarOp },
+                        { id: "personnel", label: L.pessoal },
+                      ] as const
+                    ).map((opt) => (
                       <button
                         key={opt.id}
                         type="button"
                         onClick={() => setExpenseType(opt.id)}
-                        className={`flex-1 py-2 rounded text-xs font-black uppercase border border-surface transition-all ${
-                          expenseType === opt.id ? "bg-white text-black" : "text-text-secondary"
+                        className={`flex-1 rounded border border-surface py-2 text-xs font-black uppercase transition-all ${
+                          expenseType === opt.id
+                            ? "bg-white text-black"
+                            : "text-text-secondary"
                         }`}
                       >
                         {opt.label}
@@ -1967,24 +3053,28 @@ export default function FinanceiroPage() {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+              <div className="grid grid-cols-1 gap-10 lg:grid-cols-2">
                 <div className="space-y-6">
                   <div>
-                    <label className="block text-xs font-bold text-text-secondary uppercase mb-1.5 tracking-wide">
+                    <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
                       Descrição *
                     </label>
                     <input
                       type="text"
                       required
                       value={formData.description}
-                      onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
-                      className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none transition-all"
+                      onChange={(e) =>
+                        setForm((p) => ({
+                          ...p,
+                          description: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none transition-all focus:border-cs-green"
                     />
                   </div>
-
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-text-secondary uppercase mb-1.5 tracking-wide">
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
                         Valor ({currencyCode}) *
                       </label>
                       <input
@@ -1993,33 +3083,38 @@ export default function FinanceiroPage() {
                         min="0"
                         required
                         value={formData.amount}
-                        onChange={(e) => setForm((p) => ({ ...p, amount: e.target.value }))}
-                        className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none transition-all"
+                        onChange={(e) =>
+                          setForm((p) => ({ ...p, amount: e.target.value }))
+                        }
+                        className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none transition-all focus:border-cs-green"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-text-secondary uppercase mb-1.5 tracking-wide">
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
                         Vencimento *
                       </label>
                       <input
                         type="date"
                         required
                         value={formData.dueDate}
-                        onChange={(e) => setForm((p) => ({ ...p, dueDate: e.target.value }))}
-                        className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none transition-all"
+                        onChange={(e) =>
+                          setForm((p) => ({ ...p, dueDate: e.target.value }))
+                        }
+                        className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none transition-all focus:border-cs-green"
                         style={{ colorScheme: "dark" }}
                       />
                     </div>
                   </div>
-
                   <div>
-                    <label className="block text-xs font-bold text-text-secondary uppercase mb-2 tracking-wide">
+                    <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">
                       Categoria
                     </label>
                     <select
                       value={formData.category}
-                      onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}
-                      className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none transition-all"
+                      onChange={(e) =>
+                        setForm((p) => ({ ...p, category: e.target.value }))
+                      }
+                      className="w-full rounded-md border border-surface bg-background px-4 py-3 text-sm text-white outline-none transition-all focus:border-cs-green"
                     >
                       <option value="">Selecionar...</option>
                       {currentCategories.map((cat) => (
@@ -2029,10 +3124,9 @@ export default function FinanceiroPage() {
                       ))}
                     </select>
                   </div>
-
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-text-secondary uppercase mb-2 tracking-wide">
+                      <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">
                         Status
                       </label>
                       <select
@@ -2040,10 +3134,13 @@ export default function FinanceiroPage() {
                         onChange={(e) =>
                           setForm((p) => ({
                             ...p,
-                            status: e.target.value as "pending" | "paid" | "cancelled",
+                            status: e.target.value as
+                              | "pending"
+                              | "paid"
+                              | "cancelled",
                           }))
                         }
-                        className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none transition-all"
+                        className="w-full rounded-md border border-surface bg-background px-4 py-3 text-sm text-white outline-none transition-all focus:border-cs-green"
                       >
                         <option value="pending">Pendente</option>
                         <option value="paid">Pago / Efetivado</option>
@@ -2051,13 +3148,18 @@ export default function FinanceiroPage() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-text-secondary uppercase mb-2 tracking-wide">
+                      <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">
                         Método
                       </label>
                       <select
                         value={formData.paymentMethod}
-                        onChange={(e) => setForm((p) => ({ ...p, paymentMethod: e.target.value }))}
-                        className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none transition-all"
+                        onChange={(e) =>
+                          setForm((p) => ({
+                            ...p,
+                            paymentMethod: e.target.value,
+                          }))
+                        }
+                        className="w-full rounded-md border border-surface bg-background px-4 py-3 text-sm text-white outline-none transition-all focus:border-cs-green"
                       >
                         <option value="pix">PIX</option>
                         <option value="boleto">Boleto</option>
@@ -2067,17 +3169,21 @@ export default function FinanceiroPage() {
                       </select>
                     </div>
                   </div>
-
                   {formData.status === "paid" && (
                     <div>
-                      <label className="block text-xs font-bold text-text-secondary uppercase mb-1.5 tracking-wide">
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
                         Data do Pagamento
                       </label>
                       <input
                         type="date"
                         value={formData.paymentDate}
-                        onChange={(e) => setForm((p) => ({ ...p, paymentDate: e.target.value }))}
-                        className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-green outline-none transition-all"
+                        onChange={(e) =>
+                          setForm((p) => ({
+                            ...p,
+                            paymentDate: e.target.value,
+                          }))
+                        }
+                        className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none transition-all focus:border-cs-green"
                         style={{ colorScheme: "dark" }}
                       />
                     </div>
@@ -2087,54 +3193,69 @@ export default function FinanceiroPage() {
                 <div className="space-y-6">
                   {formType === "income" && (
                     <div className="relative">
-                      <label className="block text-xs font-bold text-text-secondary uppercase mb-1.5 tracking-wide">
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
                         Vincular {L.cliente}
                       </label>
                       <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={14} />
+                        <Search
+                          className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary"
+                          size={14}
+                        />
                         <input
                           type="text"
                           value={clientSearch}
                           onChange={(e) => {
                             setClientSearch(e.target.value);
-                            if (!e.target.value) setForm((p) => ({ ...p, clientId: "" }));
+                            if (!e.target.value)
+                              setForm((p) => ({ ...p, clientId: "" }));
                           }}
                           placeholder={`Pesquisar ${L.cliente}...`}
-                          className="w-full bg-background border border-surface rounded-md pl-9 pr-4 py-2.5 text-white text-sm focus:border-cs-green outline-none transition-all"
+                          className="w-full rounded-md border border-surface bg-background py-2.5 pl-9 pr-4 text-sm text-white outline-none transition-all focus:border-cs-green"
                         />
                       </div>
-                      {clientSearch && filteredClientsList.length > 0 && !formData.clientId && (
-                        <div className="absolute z-50 w-full mt-1 bg-surface border border-surface/50 rounded-md shadow-2xl">
-                          {filteredClientsList.map((c) => (
-                            <button
-                              key={c.id}
-                              type="button"
-                              onClick={() => {
-                                setForm((p) => ({ ...p, clientId: c.id }));
-                                setClientSearch(c.company_name);
-                              }}
-                              className="w-full text-left px-4 py-2 text-xs text-white hover:bg-cs-green/20 border-b border-surface/50 last:border-0"
-                            >
-                              {c.company_name}
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                      {clientSearch &&
+                        filteredClientsList.length > 0 &&
+                        !formData.clientId && (
+                          <div className="absolute z-50 mt-1 w-full rounded-md border border-surface/50 bg-surface shadow-2xl">
+                            {filteredClientsList.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => {
+                                  setForm((p) => ({ ...p, clientId: c.id }));
+                                  setClientSearch(c.company_name);
+                                }}
+                                className="w-full border-b border-surface/50 px-4 py-2 text-left text-xs text-white last:border-0 hover:bg-cs-green/20"
+                              >
+                                {c.company_name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       {formData.clientId && (
-                        <p className="text-xs text-cs-green mt-1 font-semibold">✓ {L.cliente} vinculado</p>
+                        <p className="mt-1 text-xs font-semibold text-cs-green">
+                          ✓ {L.cliente} vinculado
+                        </p>
                       )}
                     </div>
                   )}
 
-                  {(formType === "income" || (formType === "expense" && expenseType === "operational")) && (
+                  {(formType === "income" ||
+                    (formType === "expense" &&
+                      expenseType === "operational")) && (
                     <div>
-                      <label className="block text-xs font-bold text-text-secondary uppercase mb-2 tracking-wide">
+                      <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">
                         Centro de Custos ({L.os})
                       </label>
                       <select
                         value={formData.serviceOrderId}
-                        onChange={(e) => setForm((p) => ({ ...p, serviceOrderId: e.target.value }))}
-                        className="w-full bg-background border border-surface rounded-md px-4 py-3 text-white text-sm focus:border-cs-green outline-none transition-all"
+                        onChange={(e) =>
+                          setForm((p) => ({
+                            ...p,
+                            serviceOrderId: e.target.value,
+                          }))
+                        }
+                        className="w-full rounded-md border border-surface bg-background px-4 py-3 text-sm text-white outline-none transition-all focus:border-cs-green"
                       >
                         <option value="">Geral / Sem {L.os}</option>
                         {approvedQuotes.map((q) => (
@@ -2149,62 +3270,89 @@ export default function FinanceiroPage() {
                   {formType === "expense" && expenseType === "personnel" && (
                     <>
                       <div className="relative">
-                        <label className="block text-xs font-bold text-text-secondary uppercase mb-1.5 tracking-wide">
+                        <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
                           {L.colaborador}
                         </label>
                         <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={14} />
+                          <Search
+                            className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary"
+                            size={14}
+                          />
                           <input
                             type="text"
                             value={memberSearch}
                             onChange={(e) => {
                               setMemberSearch(e.target.value);
-                              if (!e.target.value) setForm((p) => ({ ...p, memberId: "" }));
+                              if (!e.target.value)
+                                setForm((p) => ({ ...p, memberId: "" }));
                             }}
                             placeholder={`Pesquisar ${L.colaborador}...`}
-                            className="w-full bg-background border border-surface rounded-md pl-9 pr-4 py-2.5 text-white text-sm focus:border-cs-green outline-none transition-all"
+                            className="w-full rounded-md border border-surface bg-background py-2.5 pl-9 pr-4 text-sm text-white outline-none transition-all focus:border-cs-green"
                           />
                         </div>
-                        {memberSearch && filteredTeamList.length > 0 && !formData.memberId && (
-                          <div className="absolute z-50 w-full mt-1 bg-surface border border-surface/50 rounded-md shadow-2xl">
-                            {filteredTeamList.map((m) => (
-                              <button
-                                key={m.id}
-                                type="button"
-                                onClick={() => {
-                                  setForm((p) => ({ ...p, memberId: m.id }));
-                                  setMemberSearch(m.full_name);
-                                }}
-                                className="w-full text-left px-4 py-2 text-xs text-white hover:bg-cs-gold/20 border-b border-surface/50 last:border-0"
-                              >
-                                <span className="font-bold">{m.full_name}</span>
-                                {m.commission_percentage ? (
-                                  <span className="ml-2 text-cs-gold">· {m.commission_percentage}% {L.comissao}</span>
-                                ) : null}
-                              </button>
-                            ))}
-                          </div>
-                        )}
+                        {memberSearch &&
+                          filteredTeamList.length > 0 &&
+                          !formData.memberId && (
+                            <div className="absolute z-50 mt-1 w-full rounded-md border border-surface/50 bg-surface shadow-2xl">
+                              {filteredTeamList.map((m) => (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setForm((p) => ({
+                                      ...p,
+                                      memberId: m.id,
+                                    }));
+                                    setMemberSearch(m.full_name);
+                                  }}
+                                  className="w-full border-b border-surface/50 px-4 py-2 text-left text-xs text-white last:border-0 hover:bg-cs-gold/20"
+                                >
+                                  <span className="font-bold">
+                                    {m.full_name}
+                                  </span>
+                                  {m.commission_percentage ? (
+                                    <span className="ml-2 text-cs-gold">
+                                      · {m.commission_percentage}%{" "}
+                                      {L.comissao}
+                                    </span>
+                                  ) : null}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         {formData.memberId && (
-                          <p className="text-xs text-cs-gold mt-1 font-semibold">✓ {L.colaborador} vinculado</p>
+                          <p className="mt-1 text-xs font-semibold text-cs-gold">
+                            ✓ {L.colaborador} vinculado
+                          </p>
                         )}
                       </div>
 
                       {formData.category.toLowerCase().includes("comiss") && (
-                        <div className="bg-cs-gold/5 border border-cs-gold/20 rounded-lg p-4 space-y-3">
-                          <p className="text-xs font-black text-cs-gold uppercase tracking-widest">{L.comissao} de Venda</p>
+                        <div className="space-y-3 rounded-lg border border-cs-gold/20 bg-cs-gold/5 p-4">
+                          <p className="text-xs font-black uppercase tracking-widest text-cs-gold">
+                            {L.comissao} de Venda
+                          </p>
                           {formData.memberId &&
                             (() => {
-                              const member = team.find((m) => m.id === formData.memberId);
+                              const member = team.find(
+                                (m) => m.id === formData.memberId
+                              );
                               return member?.commission_percentage ? (
                                 <p className="text-xs text-text-secondary">
-                                  Taxa cadastrada: <strong className="text-white">{member.commission_percentage}%</strong>
+                                  Taxa:{" "}
+                                  <strong className="text-white">
+                                    {member.commission_percentage}%
+                                  </strong>
                                   {formData.amount ? (
                                     <>
                                       {" "}
                                       · Calculado:{" "}
                                       <strong className="text-cs-gold">
-                                        {formatCurrency((Number(formData.amount) * member.commission_percentage) / 100)}
+                                        {formatCurrency(
+                                          (Number(formData.amount) *
+                                            member.commission_percentage) /
+                                            100
+                                        )}
                                       </strong>
                                     </>
                                   ) : null}
@@ -2212,7 +3360,7 @@ export default function FinanceiroPage() {
                               ) : null;
                             })()}
                           <div>
-                            <label className="block text-xs font-bold text-text-secondary uppercase mb-1.5 tracking-wide">
+                            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
                               Valor da {L.comissao} ({currencyCode})
                             </label>
                             <input
@@ -2222,9 +3370,13 @@ export default function FinanceiroPage() {
                               placeholder="Valor final a pagar..."
                               value={formData.commissionAmount}
                               onChange={(e) =>
-                                setForm((p) => ({ ...p, commissionAmount: e.target.value, amount: e.target.value }))
+                                setForm((p) => ({
+                                  ...p,
+                                  commissionAmount: e.target.value,
+                                  amount: e.target.value,
+                                }))
                               }
-                              className="w-full bg-background border border-surface rounded-md px-3 py-2.5 text-white text-sm focus:border-cs-gold outline-none transition-all"
+                              className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none transition-all focus:border-cs-gold"
                             />
                           </div>
                         </div>
@@ -2233,15 +3385,19 @@ export default function FinanceiroPage() {
                   )}
 
                   <div>
-                    <label className="block text-xs font-bold text-text-secondary uppercase mb-2 tracking-wide">
+                    <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">
                       Comprovante / Anexo
                     </label>
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="w-full bg-surface border border-surface/50 py-3 rounded-md text-xs font-black uppercase text-white hover:bg-background transition-all flex items-center justify-center gap-2"
+                      className="flex w-full items-center justify-center gap-2 rounded-md border border-surface/50 bg-surface py-3 text-xs font-black uppercase text-white transition-all hover:bg-background"
                     >
-                      {uploading ? <Loader2 className="animate-spin" size={14} /> : <Upload size={14} />}
+                      {uploading ? (
+                        <Loader2 className="animate-spin" size={14} />
+                      ) : (
+                        <Upload size={14} />
+                      )}
                       {formData.attachmentUrl ? "Trocar Arquivo" : "Fazer Upload"}
                     </button>
                     <input
@@ -2252,19 +3408,25 @@ export default function FinanceiroPage() {
                       accept=".pdf,.jpg,.jpeg,.png,.webp"
                     />
                     {formData.attachmentUrl && (
-                      <p className="text-xs text-cs-green mt-1 font-semibold">✓ Arquivo anexado</p>
+                      <p className="mt-1 text-xs font-semibold text-cs-green">
+                        ✓ Arquivo anexado
+                      </p>
                     )}
                   </div>
                 </div>
               </div>
 
-              <div className="pt-8 border-t border-surface/50 flex justify-end">
+              <div className="flex justify-end border-t border-surface/50 pt-8">
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="bg-cs-green text-white px-12 py-4 rounded-md font-black text-sm uppercase tracking-[0.2em] shadow-2xl hover:bg-opacity-90 disabled:opacity-50 transition-all flex items-center gap-3"
+                  className="flex items-center gap-3 rounded-md bg-cs-green px-12 py-4 text-sm font-black uppercase tracking-[0.2em] text-white shadow-2xl transition-all hover:bg-opacity-90 disabled:opacity-50"
                 >
-                  {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+                  {isSubmitting ? (
+                    <Loader2 className="animate-spin" size={18} />
+                  ) : (
+                    <Save size={18} />
+                  )}
                   Finalizar Registro
                 </button>
               </div>
@@ -2273,227 +3435,399 @@ export default function FinanceiroPage() {
         </div>
       )}
 
+      {/* ── Detail Modal ─────────────────────────────────────────────────── */}
       {isDetailModalOpen && selectedTransaction && (
-        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[150] backdrop-blur-md p-4">
-          <div className="bg-[#1a1413] border border-surface/50 rounded-xl w-full max-w-7xl overflow-hidden shadow-2xl flex flex-col max-h-[94vh]">
-            <div className="p-6 bg-background/50 border-b border-surface/50 flex justify-between items-start gap-4">
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 p-4 backdrop-blur-md">
+          <div className="flex max-h-[94vh] w-full max-w-7xl flex-col overflow-hidden rounded-xl border border-surface/50 bg-[#1a1413] shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-surface/50 bg-background/50 p-6">
               <div className="min-w-0">
-                <h2 className="text-2xl font-black text-white uppercase tracking-tighter mb-2">
+                <h2 className="mb-2 text-2xl font-black uppercase tracking-tighter text-white">
                   {selectedTransaction.description}
                 </h2>
-                <div className="flex gap-2 flex-wrap">
+                <div className="flex flex-wrap gap-2">
                   <span
-                    className={`text-xs font-black px-3 py-1 rounded-full uppercase border ${
+                    className={`rounded-full border px-3 py-1 text-xs font-black uppercase ${
                       selectedTransaction.type === "income"
-                        ? "bg-cs-green/10 text-cs-green border-cs-green/20"
-                        : "bg-red-500/10 text-red-500 border-red-500/20"
+                        ? "border-cs-green/20 bg-cs-green/10 text-cs-green"
+                        : "border-red-500/20 bg-red-500/10 text-red-500"
                     }`}
                   >
-                    {selectedTransaction.type === "income" ? L.receita : L.despesa}
+                    {selectedTransaction.type === "income"
+                      ? L.receita
+                      : L.despesa}
                   </span>
-                  <span className="text-xs font-black px-3 py-1 rounded-full uppercase bg-surface border border-surface/50 text-text-secondary">
+                  <span className="rounded-full border border-surface/50 bg-surface px-3 py-1 text-xs font-black uppercase text-text-secondary">
                     {selectedTransaction.category}
                   </span>
                   {selectedTransaction.document_number && (
-                    <span className="text-xs font-black px-3 py-1 rounded-full uppercase bg-white/5 border border-white/10 text-zinc-300">
-                      Documento: {selectedTransaction.document_number}
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-black uppercase text-zinc-300">
+                      Doc: {selectedTransaction.document_number}
                     </span>
                   )}
                 </div>
               </div>
               <button
                 onClick={() => setIsDetailModalOpen(false)}
-                className="text-text-secondary hover:text-white transition-colors bg-surface p-2 rounded-full border border-surface/50"
-                aria-label="Fechar"
+                className="rounded-full border border-surface/50 bg-surface p-2 text-text-secondary transition-colors hover:text-white"
+                aria-label="Fechar (ESC)"
               >
                 <XCircle size={24} />
               </button>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_430px] gap-0 overflow-hidden">
-              <div className="p-6 overflow-y-auto space-y-6 max-h-[calc(94vh-110px)]">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div className="bg-background p-4 rounded-lg border border-surface/50">
-                    <p className="text-[9px] font-black text-text-secondary uppercase mb-1">Montante</p>
-                    <p className="text-xl font-black text-white break-words">{formatCurrency(Number(selectedTransaction.amount))}</p>
-                  </div>
-                  <div className="bg-background p-4 rounded-lg border border-surface/50">
-                    <p className="text-[9px] font-black text-text-secondary uppercase mb-1">Vencimento</p>
-                    <p className="text-sm font-bold text-white">{formatDate(selectedTransaction.due_date)}</p>
-                  </div>
-                  <div className="bg-background p-4 rounded-lg border border-surface/50">
-                    <p className="text-[9px] font-black text-text-secondary uppercase mb-1">Status</p>
-                    <p className={`text-sm font-bold uppercase ${statusClass(selectedTransaction).split(" ")[1]}`}>
-                      {statusLabel(selectedTransaction)}
-                    </p>
-                  </div>
-                  <div className="bg-background p-4 rounded-lg border border-surface/50">
-                    <p className="text-[9px] font-black text-text-secondary uppercase mb-1">Workflow</p>
-                    <p className="text-sm font-bold text-white">{translateWorkflowStatus(selectedTransaction.workflow_status)}</p>
-                  </div>
+            <div className="grid grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_430px]">
+              {/* Left column */}
+              <div className="max-h-[calc(94vh-110px)] space-y-6 overflow-y-auto p-6">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                  {[
+                    {
+                      label: "Montante",
+                      val: formatCurrency(Number(selectedTransaction.amount)),
+                      color: "text-white",
+                    },
+                    {
+                      label: "Vencimento",
+                      val: formatDate(selectedTransaction.due_date),
+                      color: "text-white",
+                    },
+                    {
+                      label: "Status",
+                      val: statusLabel(selectedTransaction),
+                      color: statusClass(selectedTransaction).split(" ")[1],
+                    },
+                    {
+                      label: "Workflow",
+                      val: translateWorkflowStatus(
+                        selectedTransaction.workflow_status
+                      ),
+                      color: "text-white",
+                    },
+                  ].map((card) => (
+                    <div
+                      key={card.label}
+                      className="rounded-lg border border-surface/50 bg-background p-4"
+                    >
+                      <p className="mb-1 text-[9px] font-black uppercase text-text-secondary">
+                        {card.label}
+                      </p>
+                      <p
+                        className={`break-words text-sm font-bold uppercase ${card.color}`}
+                      >
+                        {card.val}
+                      </p>
+                    </div>
+                  ))}
                 </div>
 
                 {selectedTransaction.type === "income" && selectedPaymentInfo ? (
                   <section className="rounded-xl border border-cs-gold/20 bg-cs-gold/5 p-5">
                     <div className="flex items-center gap-2">
                       <Scale size={18} className="text-cs-gold" />
-                      <h4 className="text-sm font-black uppercase tracking-widest text-white">Conciliação do pagamento</h4>
+                      <h4 className="text-sm font-black uppercase tracking-widest text-white">
+                        Conciliação do pagamento
+                      </h4>
                     </div>
-
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
-                      <div className="rounded-lg border border-white/10 bg-background/40 p-4">
-                        <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Valor da parcela</p>
-                        <p className="mt-2 text-lg font-black text-white">{formatCurrency(selectedPaymentInfo.expected)}</p>
-                      </div>
-                      <div className="rounded-lg border border-white/10 bg-background/40 p-4">
-                        <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Valor informado</p>
-                        <p className="mt-2 text-lg font-black text-cs-gold">{formatCurrency(selectedPaymentInfo.reported)}</p>
-                      </div>
-                      <div className="rounded-lg border border-white/10 bg-background/40 p-4">
-                        <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Diferença</p>
-                        <p
-                          className={`mt-2 text-lg font-black ${
+                    <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-4">
+                      {[
+                        {
+                          label: "Valor da parcela",
+                          val: formatCurrency(selectedPaymentInfo.expected),
+                          color: "text-white",
+                        },
+                        {
+                          label: "Valor informado",
+                          val: formatCurrency(selectedPaymentInfo.reported),
+                          color: "text-cs-gold",
+                        },
+                        {
+                          label: "Diferença",
+                          val: `${selectedPaymentInfo.difference >= 0 ? "+" : ""}${formatCurrency(selectedPaymentInfo.difference)}`,
+                          color:
                             selectedPaymentInfo.difference === 0
                               ? "text-cs-green"
                               : selectedPaymentInfo.difference < 0
                               ? "text-orange-400"
-                              : "text-blue-400"
-                          }`}
+                              : "text-blue-400",
+                        },
+                        {
+                          label: "Classificação",
+                          val: selectedPaymentInfo.label,
+                          color: "text-white",
+                        },
+                      ].map((card) => (
+                        <div
+                          key={card.label}
+                          className="rounded-lg border border-white/10 bg-background/40 p-4"
                         >
-                          {selectedPaymentInfo.difference >= 0 ? "+" : ""}
-                          {formatCurrency(selectedPaymentInfo.difference)}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border border-white/10 bg-background/40 p-4">
-                        <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Classificação</p>
-                        <p className="mt-2 text-sm font-black text-white uppercase">{selectedPaymentInfo.label}</p>
-                      </div>
+                          <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">
+                            {card.label}
+                          </p>
+                          <p
+                            className={`mt-2 text-sm font-black uppercase ${card.color}`}
+                          >
+                            {card.val}
+                          </p>
+                        </div>
+                      ))}
                     </div>
-
-                    <p className="mt-4 text-sm text-zinc-200">{selectedPaymentInfo.helper}</p>
-
-                    {receivableForGroup.length > 1 ? (
+                    <p className="mt-4 text-sm text-zinc-200">
+                      {selectedPaymentInfo.helper}
+                    </p>
+                    {receivableForGroup.length > 1 && (
                       <div className="mt-4 rounded-lg border border-white/10 bg-background/30 p-4">
                         <div className="flex items-center gap-2">
                           <Clock3 size={16} className="text-cs-gold" />
                           <p className="text-xs font-black uppercase tracking-widest text-text-secondary">
-                            Grupo relacionado da cobrança
+                            Grupo de cobranças relacionadas
                           </p>
                         </div>
                         <div className="mt-3 space-y-2">
                           {receivableForGroup.map((row) => (
-                            <div key={row.id} className="flex flex-col gap-2 rounded-lg border border-white/10 bg-background/40 px-3 py-3 md:flex-row md:items-center md:justify-between">
+                            <div
+                              key={row.id}
+                              className={`flex flex-col gap-2 rounded-lg border px-3 py-3 md:flex-row md:items-center md:justify-between ${
+                                row.id === selectedTransaction.id
+                                  ? "border-cs-gold/30 bg-cs-gold/5"
+                                  : "border-white/10 bg-background/40"
+                              }`}
+                            >
                               <div>
                                 <p className="text-sm font-semibold text-white">
-                                  Parcela {row.installment_number || 1}/{row.total_installments || receivableForGroup.length}
+                                  Parcela{" "}
+                                  {row.installment_number || 1}/
+                                  {row.total_installments ||
+                                    receivableForGroup.length}
+                                  {row.id === selectedTransaction.id && (
+                                    <span className="ml-2 text-[10px] font-black uppercase text-cs-gold">
+                                      ← atual
+                                    </span>
+                                  )}
                                 </p>
                                 <p className="text-xs uppercase tracking-wide text-text-secondary">
-                                  Vencimento {formatDate(row.due_date)} · {statusLabel(row)}
+                                  Venc. {formatDate(row.due_date)} ·{" "}
+                                  {statusLabel(row)}
                                 </p>
                               </div>
-                              <div className="text-sm font-black text-white">{formatCurrency(Number(row.amount))}</div>
+                              <div className="text-sm font-black text-white">
+                                {formatCurrency(Number(row.amount))}
+                              </div>
                             </div>
                           ))}
                         </div>
                       </div>
-                    ) : null}
+                    )}
                   </section>
                 ) : null}
 
+                {/* Resumo financeiro */}
                 <section className="rounded-xl border border-surface/50 bg-background/40 p-5">
-                  <h4 className="text-xs font-black text-white uppercase tracking-widest border-b border-surface/50 pb-3">
+                  <h4 className="border-b border-surface/50 pb-3 text-xs font-black uppercase tracking-widest text-white">
                     Resumo financeiro
                   </h4>
-                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Cliente</p>
-                      <p className="mt-1 text-sm text-white">{selectedTransaction.clients?.company_name || "-"}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Pagamento informado</p>
-                      <p className="mt-1 text-sm text-white">
-                        {selectedTransaction.payment_reported_at ? formatDateTime(selectedTransaction.payment_reported_at) : "-"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Valor informado pelo cliente</p>
-                      <p className="mt-1 text-sm text-white">
-                        {selectedTransaction.payment_reported_amount != null
-                          ? formatCurrency(Number(selectedTransaction.payment_reported_amount))
-                          : "-"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Forma informada</p>
-                      <p className="mt-1 text-sm text-white">{selectedTransaction.payment_reported_method || selectedTransaction.payment_method || "-"}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Referência</p>
-                      <p className="mt-1 text-sm text-white">{selectedTransaction.payment_reported_reference || "-"}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Pagamento confirmado</p>
-                      <p className="mt-1 text-sm text-white">
-                        {selectedTransaction.payment_confirmed_at ? formatDateTime(selectedTransaction.payment_confirmed_at) : "-"}
-                      </p>
-                    </div>
-                    {selectedTransaction.type === "income" ? (
+                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                    {[
+                      {
+                        label: "Cliente",
+                        val: selectedTransaction.clients?.company_name || "-",
+                      },
+                      {
+                        label: "Pagamento informado",
+                        val: formatDateTime(
+                          selectedTransaction.payment_reported_at
+                        ),
+                      },
+                      {
+                        label: "Valor informado",
+                        val:
+                          selectedTransaction.payment_reported_amount != null
+                            ? formatCurrency(
+                                Number(
+                                  selectedTransaction.payment_reported_amount
+                                )
+                              )
+                            : "-",
+                      },
+                      {
+                        label: "Forma informada",
+                        val:
+                          selectedTransaction.payment_reported_method ||
+                          selectedTransaction.payment_method ||
+                          "-",
+                      },
+                      {
+                        label: "Referência",
+                        val:
+                          selectedTransaction.payment_reported_reference || "-",
+                      },
+                      {
+                        label: "Pagamento confirmado",
+                        val: formatDateTime(
+                          selectedTransaction.payment_confirmed_at
+                        ),
+                      },
+                    ].map((item) => (
+                      <div key={item.label}>
+                        <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">
+                          {item.label}
+                        </p>
+                        <p className="mt-1 text-sm text-white">{item.val}</p>
+                      </div>
+                    ))}
+                    {selectedTransaction.type === "income" && (
                       <>
                         <div>
-                          <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Categoria da contestação</p>
-                          <p className="mt-1 text-sm text-white">{translateDisputeCategory(selectedTransaction.dispute_category)}</p>
+                          <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">
+                            Categoria contestação
+                          </p>
+                          <p className="mt-1 text-sm text-white">
+                            {translateDisputeCategory(
+                              selectedTransaction.dispute_category
+                            )}
+                          </p>
                         </div>
                         <div>
-                          <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Motivo da contestação</p>
-                          <p className="mt-1 text-sm text-white">{selectedTransaction.dispute_reason || "-"}</p>
+                          <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">
+                            Motivo contestação
+                          </p>
+                          <p className="mt-1 text-sm text-white">
+                            {selectedTransaction.dispute_reason || "-"}
+                          </p>
                         </div>
                       </>
-                    ) : null}
+                    )}
                     <div className="md:col-span-2">
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Observações</p>
-                      <p className="mt-1 text-sm text-white">{selectedTransaction.invoice_notes || selectedTransaction.attachment_url || "-"}</p>
-                    </div>
-                    <div className="md:col-span-2">
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Retorno / resolução do financeiro</p>
-                      <p className="mt-1 text-sm text-white">{selectedTransaction.resolution_notes || "-"}</p>
+                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">
+                        Retorno / resolução do financeiro
+                      </p>
+                      <p className="mt-1 text-sm text-white">
+                        {selectedTransaction.resolution_notes || "-"}
+                      </p>
                     </div>
                   </div>
                 </section>
 
+                {/* Histórico */}
                 <section className="rounded-xl border border-surface/50 bg-background/40 p-5">
                   <div className="flex items-center justify-between gap-3">
-                    <h4 className="text-xs font-black text-white uppercase tracking-widest">Histórico da cobrança</h4>
-                    {detailLoading ? <Loader2 className="animate-spin text-cs-gold" size={18} /> : null}
+                    <h4 className="text-xs font-black uppercase tracking-widest text-white">
+                      Histórico da cobrança
+                    </h4>
+                    {detailLoading ? (
+                      <Loader2
+                        className="animate-spin text-cs-gold"
+                        size={18}
+                      />
+                    ) : null}
                   </div>
                   <div className="mt-4 space-y-3">
                     {events.length === 0 ? (
-                      <p className="text-sm text-text-secondary">Nenhuma interação registrada.</p>
+                      <p className="text-sm text-text-secondary">
+                        Nenhuma interação registrada.
+                      </p>
                     ) : (
                       events.map((event) => (
-                        <div key={event.id} className="rounded-xl border border-surface/50 bg-surface p-4">
+                        <div
+                          key={event.id}
+                          className={`rounded-xl border p-4 ${
+                            event.author_type === "finance" ||
+                            event.author_type === "system"
+                              ? "border-blue-500/20 bg-blue-500/5"
+                              : "border-surface/50 bg-surface"
+                          }`}
+                        >
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="font-semibold text-white">{event.title || translateEventType(event.event_type)}</p>
-                            <span className="text-xs text-text-secondary">{formatDateTime(event.created_at)}</span>
+                            <p className="font-semibold text-white">
+                              {event.title ||
+                                translateEventType(event.event_type)}
+                            </p>
+                            <span className="text-xs text-text-secondary">
+                              {formatDateTime(event.created_at)}
+                            </span>
                           </div>
                           <p className="mt-1 text-xs uppercase tracking-wider text-text-secondary">
                             {event.author_type === "client"
                               ? "Cliente"
                               : event.author_type === "finance"
                               ? "Financeiro"
-                              : "Sistema"}
-                            {" · "}
-                            {event.visibility === "shared" ? "Compartilhado" : "Interno"}
+                              : "Sistema"}{" "}
+                            ·{" "}
+                            {event.visibility === "shared"
+                              ? "Compartilhado"
+                              : "Interno"}
                           </p>
-                          <p className="mt-3 text-sm text-zinc-200">{event.message || "-"}</p>
-                          {event.metadata && Object.keys(event.metadata).length > 0 && (
-                            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
-                              {Object.entries(event.metadata).map(([key, value]) => (
-                                <div key={key} className="rounded-lg border border-surface/40 bg-background/30 px-3 py-2 text-xs text-text-secondary">
-                                  <span className="block uppercase tracking-wider">{key.replaceAll("_", " ")}</span>
-                                  <span className="mt-1 block text-white">{String(value ?? "-")}</span>
-                                </div>
-                              ))}
-                            </div>
+                          <p className="mt-3 text-sm text-zinc-200">
+                            {event.message || "-"}
+                          </p>
+                          {event.metadata &&
+                            Object.keys(event.metadata).length > 0 && (
+                              <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                                {Object.entries(event.metadata).map(
+                                  ([key, value]) => (
+                                    <div
+                                      key={key}
+                                      className="rounded-lg border border-surface/40 bg-background/30 px-3 py-2 text-xs text-text-secondary"
+                                    >
+                                      <span className="block uppercase tracking-wider">
+                                        {key.replaceAll("_", " ")}
+                                      </span>
+                                      <span className="mt-1 block text-white">
+                                        {String(value ?? "-")}
+                                      </span>
+                                    </div>
+                                  )
+                                )}
+                              </div>
+                            )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </section>
+
+                {/* Anexos */}
+                <section className="rounded-xl border border-surface/50 bg-background/40 p-5">
+                  <h4 className="text-xs font-black uppercase tracking-widest text-white">
+                    Anexos
+                  </h4>
+                  <div className="mt-4 space-y-3">
+                    {attachments.length === 0 ? (
+                      <p className="text-sm text-text-secondary">
+                        Nenhum anexo disponível.
+                      </p>
+                    ) : (
+                      attachments.map((file) => (
+                        <div
+                          key={file.id}
+                          className="flex flex-col gap-3 rounded-xl border border-surface/50 bg-surface p-4 md:flex-row md:items-center md:justify-between"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-white">
+                              {file.file_name}
+                            </p>
+                            <p className="mt-1 text-xs uppercase tracking-wider text-text-secondary">
+                              {file.attachment_type} ·{" "}
+                              {file.uploaded_by_type === "client"
+                                ? "Cliente"
+                                : file.uploaded_by_type === "finance"
+                                ? "Financeiro"
+                                : "Sistema"}{" "}
+                              · {formatDateTime(file.created_at)}
+                            </p>
+                          </div>
+                          {signedUrls[file.id] ? (
+                            <a
+                              href={signedUrls[file.id]}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-2 rounded-lg border border-surface/50 bg-background px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-background/70"
+                            >
+                              <Paperclip size={16} /> Abrir
+                            </a>
+                          ) : (
+                            <span className="inline-flex items-center gap-2 rounded-lg border border-surface/50 bg-background px-4 py-2 text-sm font-semibold text-text-secondary">
+                              <Loader2 className="animate-spin" size={16} />{" "}
+                              Carregando
+                            </span>
                           )}
                         </div>
                       ))
@@ -2501,185 +3835,196 @@ export default function FinanceiroPage() {
                   </div>
                 </section>
 
+                {/* Ações rápidas */}
                 <section className="rounded-xl border border-surface/50 bg-background/40 p-5">
-                  <h4 className="text-xs font-black text-white uppercase tracking-widest">Anexos</h4>
-                  <div className="mt-4 space-y-3">
-                    {attachments.length === 0 ? (
-                      <p className="text-sm text-text-secondary">Nenhum anexo disponível.</p>
-                    ) : (
-                      attachments.map((file) => (
-                        <div
-                          key={file.id}
-                          className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 rounded-xl border border-surface/50 bg-surface p-4"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate font-semibold text-white">{file.file_name}</p>
-                            <p className="mt-1 text-xs uppercase tracking-wider text-text-secondary">
-                              {file.attachment_type} · {file.uploaded_by_type === "client" ? "Cliente" : file.uploaded_by_type === "finance" ? "Financeiro" : "Sistema"} · {formatDateTime(file.created_at)}
-                            </p>
-                          </div>
-                          <div className="flex gap-2">
-                            {signedUrls[file.id] ? (
-                              <a
-                                href={signedUrls[file.id]}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-2 rounded-lg border border-surface/50 bg-background px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-background/70"
-                              >
-                                <Paperclip size={16} /> Abrir
-                              </a>
-                            ) : (
-                              <span className="inline-flex items-center gap-2 rounded-lg border border-surface/50 bg-background px-4 py-2 text-sm font-semibold text-text-secondary">
-                                <Loader2 className="animate-spin" size={16} /> Carregando
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </section>
-
-                <section className="rounded-xl border border-surface/50 bg-background/40 p-5">
-                  <h4 className="text-xs font-black text-white uppercase tracking-widest border-b border-surface/50 pb-3">
+                  <h4 className="border-b border-surface/50 pb-3 text-xs font-black uppercase tracking-widest text-white">
                     Ações rápidas
                   </h4>
-                  <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
                     {selectedTransaction.type === "income" ? (
                       <>
                         <button
                           onClick={() => sendWhatsApp(selectedTransaction)}
-                          className="flex items-center justify-center gap-2 bg-cs-green/10 text-cs-green border border-cs-green/20 py-3 rounded-md font-black text-xs uppercase hover:bg-cs-green/20 transition-all"
+                          className="flex items-center justify-center gap-2 rounded-md border border-cs-green/20 bg-cs-green/10 py-3 text-xs font-black uppercase text-cs-green transition-all hover:bg-cs-green/20"
                         >
                           <MessageCircle size={16} /> WhatsApp
                         </button>
                         <button
                           onClick={() => sendInvoiceEmail(selectedTransaction)}
                           disabled={isSendingMail}
-                          className="flex items-center justify-center gap-2 bg-blue-500/10 text-blue-400 border border-blue-500/20 py-3 rounded-md font-black text-xs uppercase hover:bg-blue-500/20 transition-all disabled:opacity-50"
+                          className="flex items-center justify-center gap-2 rounded-md border border-blue-500/20 bg-blue-500/10 py-3 text-xs font-black uppercase text-blue-400 transition-all hover:bg-blue-500/20 disabled:opacity-50"
                         >
-                          {isSendingMail ? <Loader2 className="animate-spin" size={16} /> : <Mail size={16} />} E-mail
+                          {isSendingMail ? (
+                            <Loader2 className="animate-spin" size={16} />
+                          ) : (
+                            <Mail size={16} />
+                          )}{" "}
+                          E-mail
                         </button>
                         <button
-                          onClick={() => router.push(`/financeiro/fatura/${selectedTransaction.id}`)}
-                          className="flex items-center justify-center gap-2 bg-surface border border-surface/50 py-3 rounded-md font-black text-xs uppercase text-white hover:bg-background transition-all"
+                          onClick={() =>
+                            router.push(
+                              `/financeiro/fatura/${selectedTransaction.id}`
+                            )
+                          }
+                          className="flex items-center justify-center gap-2 rounded-md border border-surface/50 bg-surface py-3 text-xs font-black uppercase text-white transition-all hover:bg-background"
                         >
                           <Receipt size={16} /> Gerar Fatura PDF
                         </button>
                       </>
                     ) : (
-                      <div className="md:col-span-3 text-sm text-text-secondary">
-                        Esta ação rápida está focada em cobranças a receber.
+                      <div className="text-sm text-text-secondary md:col-span-3">
+                        Ações rápidas disponíveis apenas para cobranças a
+                        receber.
                       </div>
                     )}
                   </div>
                 </section>
               </div>
 
-              <aside className="border-l border-surface/50 bg-background/30 p-6 overflow-y-auto max-h-[calc(94vh-110px)] space-y-5">
+              {/* Right sidebar — finance actions */}
+              <aside className="max-h-[calc(94vh-110px)] space-y-5 overflow-y-auto border-l border-surface/50 bg-background/30 p-6">
                 <section className="rounded-xl border border-cs-gold/20 bg-cs-gold/5 p-5">
                   <h4 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-white">
                     <ShieldAlert size={16} className="text-cs-gold" />
                     Atendimento financeiro
                   </h4>
                   <p className="mt-2 text-xs uppercase tracking-wide text-text-secondary">
-                    Registre comentário, confirme, rejeite ou resolva a cobrança selecionada.
+                    Registre comentário, confirme, rejeite ou resolva.
                   </p>
-
                   <div className="mt-4 space-y-4">
                     <div>
-                      <label className="block text-xs font-bold uppercase tracking-wide text-text-secondary mb-1.5">
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
                         Comentário do financeiro
                       </label>
                       <textarea
                         value={financeActionForm.comment}
-                        onChange={(e) => setFinanceActionForm((prev) => ({ ...prev, comment: e.target.value }))}
+                        onChange={(e) =>
+                          setFinanceActionForm((prev) => ({
+                            ...prev,
+                            comment: e.target.value,
+                          }))
+                        }
                         className="min-h-[110px] w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-gold"
-                        placeholder="Escreva um retorno claro para o cliente ou para o histórico interno."
+                        placeholder="Retorno claro para o cliente ou histórico interno."
                       />
                     </div>
-
                     <div>
-                      <label className="block text-xs font-bold uppercase tracking-wide text-text-secondary mb-1.5">
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
                         Tipo de resolução
                       </label>
                       <select
                         value={financeActionForm.resolutionType}
-                        onChange={(e) => setFinanceActionForm((prev) => ({ ...prev, resolutionType: e.target.value }))}
+                        onChange={(e) =>
+                          setFinanceActionForm((prev) => ({
+                            ...prev,
+                            resolutionType: e.target.value,
+                          }))
+                        }
                         className="w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-gold"
                       >
-                        <option value="payment_confirmed">Pagamento confirmado</option>
-                        <option value="charge_adjusted">Cobrança ajustada</option>
-                        <option value="charge_maintained">Cobrança mantida</option>
-                        <option value="charge_cancelled">Cobrança cancelada</option>
+                        <option value="payment_confirmed">
+                          Pagamento confirmado
+                        </option>
+                        <option value="charge_adjusted">
+                          Cobrança ajustada
+                        </option>
+                        <option value="charge_maintained">
+                          Cobrança mantida
+                        </option>
+                        <option value="charge_cancelled">
+                          Cobrança cancelada
+                        </option>
                       </select>
                     </div>
-
                     <div>
-                      <label className="block text-xs font-bold uppercase tracking-wide text-text-secondary mb-1.5">
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
                         Observação de resolução
                       </label>
                       <textarea
                         value={financeActionForm.resolutionNotes}
-                        onChange={(e) => setFinanceActionForm((prev) => ({ ...prev, resolutionNotes: e.target.value }))}
-                        className="min-h-[110px] w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-gold"
-                        placeholder="Explique a decisão tomada pelo financeiro."
+                        onChange={(e) =>
+                          setFinanceActionForm((prev) => ({
+                            ...prev,
+                            resolutionNotes: e.target.value,
+                          }))
+                        }
+                        className="min-h-[90px] w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-gold"
+                        placeholder="Explique a decisão tomada."
                       />
                     </div>
-
                     <div>
-                      <label className="block text-xs font-bold uppercase tracking-wide text-text-secondary mb-2">
+                      <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">
                         Anexo do financeiro
                       </label>
                       <button
                         type="button"
-                        onClick={() => financeAttachmentInputRef.current?.click()}
-                        className="w-full rounded-lg border border-dashed border-surface bg-background px-4 py-3 text-sm font-semibold text-white hover:border-cs-gold transition-all flex items-center justify-center gap-2"
+                        onClick={() =>
+                          financeAttachmentInputRef.current?.click()
+                        }
+                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-surface bg-background px-4 py-3 text-sm font-semibold text-white transition-all hover:border-cs-gold"
                       >
                         <Upload size={16} />
-                        {financeAttachmentFile ? financeAttachmentFile.name : "Selecionar arquivo"}
+                        {financeAttachmentFile
+                          ? financeAttachmentFile.name
+                          : "Selecionar arquivo"}
                       </button>
                       <input
                         ref={financeAttachmentInputRef}
                         type="file"
                         className="hidden"
                         accept=".pdf,.jpg,.jpeg,.png,.webp"
-                        onChange={(e) => setFinanceAttachmentFile(e.target.files?.[0] || null)}
+                        onChange={(e) =>
+                          setFinanceAttachmentFile(
+                            e.target.files?.[0] || null
+                          )
+                        }
                       />
                     </div>
                   </div>
                 </section>
 
                 {selectedTransaction.type === "income" && selectedPaymentInfo ? (
-                  <section className="rounded-xl border border-white/10 bg-surface p-4 space-y-3">
+                  <section className="space-y-3 rounded-xl border border-white/10 bg-surface p-4">
                     <h5 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
                       <Scale size={15} className="text-cs-gold" />
                       Decisão de conciliação
                     </h5>
                     <div className="rounded-lg border border-white/10 bg-background/40 p-3 text-sm text-zinc-200">
-                      {selectedPaymentInfo.label}: {selectedPaymentInfo.helper}
+                      {selectedPaymentInfo.label}:{" "}
+                      {selectedPaymentInfo.helper}
                     </div>
 
                     <button
                       type="button"
                       onClick={handleAddFinanceComment}
                       disabled={actionSubmitting}
-                      className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white hover:bg-white/10 disabled:opacity-50"
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white hover:bg-white/10 disabled:opacity-50"
                     >
-                      {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <FileText size={18} />}
+                      {actionSubmitting ? (
+                        <Loader2 className="animate-spin" size={18} />
+                      ) : (
+                        <FileText size={18} />
+                      )}
                       Registrar comentário
                     </button>
 
-                    {(selectedTransaction.workflow_status === "awaiting_finance" ||
-                      selectedTransaction.workflow_status === "under_review") && (
+                    {(selectedTransaction.workflow_status ===
+                      "awaiting_finance" ||
+                      selectedTransaction.workflow_status ===
+                        "under_review") && (
                       <>
                         <button
                           type="button"
                           onClick={handleConfirmPayment}
                           disabled={actionSubmitting}
-                          className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-cs-green px-4 py-3 text-sm font-bold text-white shadow-lg hover:opacity-90 disabled:opacity-50"
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-cs-green px-4 py-3 text-sm font-bold text-white shadow-lg hover:opacity-90 disabled:opacity-50"
                         >
-                          {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <CheckCheck size={18} />}
+                          {actionSubmitting ? (
+                            <Loader2 className="animate-spin" size={18} />
+                          ) : (
+                            <CheckCheck size={18} />
+                          )}
                           {selectedPaymentInfo.scenario === "partial"
                             ? "Registrar parcial e manter saldo"
                             : "Confirmar pagamento e dar baixa"}
@@ -2689,19 +4034,57 @@ export default function FinanceiroPage() {
                           type="button"
                           onClick={handleRejectPayment}
                           disabled={actionSubmitting}
-                          className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-3 text-sm font-bold text-white shadow-lg hover:bg-red-500 disabled:opacity-50"
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-3 text-sm font-bold text-white shadow-lg hover:bg-red-500 disabled:opacity-50"
                         >
-                          {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <X size={18} />}
+                          {actionSubmitting ? (
+                            <Loader2 className="animate-spin" size={18} />
+                          ) : (
+                            <X size={18} />
+                          )}
                           Rejeitar pagamento informado
                         </button>
                       </>
                     )}
 
-                    {selectedPaymentInfo.scenario === "over" && receivableForGroup.length > 1 ? (
-                      <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 text-xs text-blue-300">
-                        Valor acima da parcela. O ideal é evoluir para conciliação por grupo e rateio entre parcelas abertas.
-                      </div>
-                    ) : null}
+                    {/* Auto-conciliation button for overpayment */}
+                    {selectedPaymentInfo.scenario === "over" &&
+                      receivableForGroup.filter(
+                        (r) =>
+                          r.id !== selectedTransaction.id &&
+                          r.status === "pending"
+                      ).length > 0 && (
+                        <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 space-y-3">
+                          <p className="text-xs font-black uppercase tracking-wide text-blue-300">
+                            Conciliação automática disponível
+                          </p>
+                          <p className="text-xs text-zinc-400">
+                            Excedente de{" "}
+                            {formatCurrency(selectedPaymentInfo.difference)}{" "}
+                            pode ser distribuído automaticamente para as{" "}
+                            {
+                              receivableForGroup.filter(
+                                (r) =>
+                                  r.id !== selectedTransaction.id &&
+                                  r.status === "pending"
+                              ).length
+                            }{" "}
+                            parcela(s) abertas do grupo.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={handleAutoDistribute}
+                            disabled={actionSubmitting}
+                            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/15 px-4 py-3 text-sm font-bold text-blue-300 hover:bg-blue-500/25 disabled:opacity-50"
+                          >
+                            {actionSubmitting ? (
+                              <Loader2 className="animate-spin" size={18} />
+                            ) : (
+                              <Layers size={18} />
+                            )}
+                            Distribuir excedente automaticamente
+                          </button>
+                        </div>
+                      )}
                   </section>
                 ) : (
                   <section className="rounded-xl border border-white/10 bg-surface p-4">
@@ -2709,57 +4092,70 @@ export default function FinanceiroPage() {
                       type="button"
                       onClick={handleAddFinanceComment}
                       disabled={actionSubmitting}
-                      className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white hover:bg-white/10 disabled:opacity-50"
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white hover:bg-white/10 disabled:opacity-50"
                     >
-                      {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <FileText size={18} />}
+                      {actionSubmitting ? (
+                        <Loader2 className="animate-spin" size={18} />
+                      ) : (
+                        <FileText size={18} />
+                      )}
                       Registrar comentário
                     </button>
                   </section>
                 )}
 
                 {selectedTransaction.type === "income" &&
-                selectedTransaction.dispute_status &&
-                selectedTransaction.dispute_status !== "resolved" ? (
-                  <section className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-4 space-y-3">
-                    <h5 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
-                      <AlertTriangle size={15} className="text-orange-400" />
-                      Contestação
-                    </h5>
-                    <button
-                      type="button"
-                      onClick={handleResolveDispute}
-                      disabled={actionSubmitting}
-                      className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-3 text-sm font-bold text-white shadow-lg hover:opacity-90 disabled:opacity-50"
-                    >
-                      {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <ShieldAlert size={18} />}
-                      Resolver contestação
-                    </button>
-                  </section>
-                ) : null}
+                  selectedTransaction.dispute_status &&
+                  selectedTransaction.dispute_status !== "resolved" && (
+                    <section className="space-y-3 rounded-xl border border-orange-500/20 bg-orange-500/5 p-4">
+                      <h5 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
+                        <AlertTriangle size={15} className="text-orange-400" />
+                        Contestação
+                      </h5>
+                      <button
+                        type="button"
+                        onClick={handleResolveDispute}
+                        disabled={actionSubmitting}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-3 text-sm font-bold text-white shadow-lg hover:opacity-90 disabled:opacity-50"
+                      >
+                        {actionSubmitting ? (
+                          <Loader2 className="animate-spin" size={18} />
+                        ) : (
+                          <ShieldAlert size={18} />
+                        )}
+                        Resolver contestação
+                      </button>
+                    </section>
+                  )}
 
                 <section className="rounded-xl border border-surface/50 bg-surface p-4">
                   <div className="flex items-center justify-between gap-3">
                     <button
-                      onClick={() => setConfirmDeleteId(selectedTransaction.id)}
-                      className="flex items-center gap-2 text-xs font-black uppercase text-red-500 hover:text-red-400 transition-colors"
+                      onClick={() =>
+                        setConfirmDeleteId(selectedTransaction.id)
+                      }
+                      className="flex items-center gap-2 text-xs font-black uppercase text-red-500 transition-colors hover:text-red-400"
                     >
                       <Trash2 size={16} /> Excluir
                     </button>
                     <div className="flex gap-3">
                       <button
                         onClick={() => openEditForm(selectedTransaction)}
-                        className="bg-background border border-surface/50 text-white px-4 py-2.5 rounded-md text-xs font-black uppercase tracking-widest hover:bg-surface/80 transition-all"
+                        className="rounded-md border border-surface/50 bg-background px-4 py-2.5 text-xs font-black uppercase tracking-widest text-white transition-all hover:bg-surface/80"
                       >
                         Editar
                       </button>
-                      {selectedTransaction.status === "pending" && selectedTransaction.type === "expense" && (
-                        <button
-                          onClick={() => updateStatus(selectedTransaction.id, "paid")}
-                          className="bg-cs-green text-white px-5 py-2.5 rounded-md text-xs font-black uppercase tracking-widest shadow-lg hover:bg-opacity-90 transition-all"
-                        >
-                          Dar baixa manual
-                        </button>
-                      )}
+                      {selectedTransaction.status === "pending" &&
+                        selectedTransaction.type === "expense" && (
+                          <button
+                            onClick={() =>
+                              updateStatus(selectedTransaction.id, "paid")
+                            }
+                            className="rounded-md bg-cs-green px-5 py-2.5 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all hover:bg-opacity-90"
+                          >
+                            Dar baixa manual
+                          </button>
+                        )}
                     </div>
                   </div>
                 </section>
@@ -2769,26 +4165,160 @@ export default function FinanceiroPage() {
         </div>
       )}
 
+      {/* ── Régua de cobrança modal ───────────────────────────────────────── */}
+      {isReguaOpen && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl overflow-hidden rounded-xl border border-cs-gold/30 bg-[#1a1413] shadow-2xl">
+            <div className="flex items-center justify-between border-b border-surface/50 bg-background/50 p-6">
+              <div>
+                <h3 className="flex items-center gap-2 text-lg font-black uppercase tracking-tighter text-white">
+                  <Bell size={20} className="text-cs-gold" /> Régua de Cobrança
+                </h3>
+                <p className="mt-1 text-xs uppercase tracking-wide text-text-secondary">
+                  Mensagens automáticas por WhatsApp para cobranças pendentes
+                </p>
+              </div>
+              <button
+                onClick={() => setIsReguaOpen(false)}
+                className="text-text-secondary hover:text-white"
+              >
+                <X size={22} />
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] overflow-y-auto p-6 space-y-5">
+              {(
+                [
+                  {
+                    key: "enableMinus3",
+                    msgKey: "messageMinus3",
+                    label: "D-3 — 3 dias antes do vencimento",
+                    color: "text-blue-400",
+                  },
+                  {
+                    key: "enableD0",
+                    msgKey: "messageD0",
+                    label: "D0 — No dia do vencimento",
+                    color: "text-cs-gold",
+                  },
+                  {
+                    key: "enablePlus5",
+                    msgKey: "messagePlus5",
+                    label: "D+5 — 5 dias após o vencimento",
+                    color: "text-red-400",
+                  },
+                ] as const
+              ).map((item) => (
+                <div
+                  key={item.key}
+                  className="rounded-xl border border-surface/50 bg-surface p-4 space-y-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id={item.key}
+                      checked={reguaConfig[item.key]}
+                      onChange={(e) =>
+                        setReguaConfig((p) => ({
+                          ...p,
+                          [item.key]: e.target.checked,
+                        }))
+                      }
+                      className="cursor-pointer accent-cs-gold"
+                    />
+                    <label
+                      htmlFor={item.key}
+                      className={`text-sm font-black uppercase tracking-wide cursor-pointer ${item.color}`}
+                    >
+                      {item.label}
+                    </label>
+                  </div>
+                  {reguaConfig[item.key] && (
+                    <div>
+                      <p className="mb-1 text-[10px] uppercase tracking-wider text-text-secondary">
+                        Variáveis: {"{cliente}"}, {"{valor}"}, {"{data}"}
+                      </p>
+                      <textarea
+                        value={reguaConfig[item.msgKey]}
+                        onChange={(e) =>
+                          setReguaConfig((p) => ({
+                            ...p,
+                            [item.msgKey]: e.target.value,
+                          }))
+                        }
+                        rows={3}
+                        className="w-full resize-none rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-gold"
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              <div className="rounded-xl border border-cs-gold/20 bg-cs-gold/5 p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-cs-gold">
+                  Como funciona
+                </p>
+                <p className="mt-2 text-xs text-zinc-400 leading-relaxed">
+                  Ao clicar em "Executar régua agora", o sistema identifica
+                  todas as cobranças pendentes cujo vencimento coincide com os
+                  gatilhos ativados (hoje) e abre janelas do WhatsApp com as
+                  mensagens formatadas. Nenhuma mensagem é enviada
+                  automaticamente — você confirma cada uma.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 border-t border-surface/50 p-6">
+              <button
+                onClick={() => setIsReguaOpen(false)}
+                className="flex-1 rounded-md border border-surface py-3 text-xs font-black uppercase text-text-secondary hover:text-white"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  setReguaRunning(true);
+                  await runRegua();
+                  setReguaRunning(false);
+                }}
+                disabled={reguaRunning}
+                className="flex-1 inline-flex items-center justify-center gap-2 rounded-md bg-cs-gold py-3 text-xs font-black uppercase text-black shadow-lg hover:opacity-90 disabled:opacity-50"
+              >
+                {reguaRunning ? (
+                  <Loader2 className="animate-spin" size={16} />
+                ) : (
+                  <Bell size={16} />
+                )}
+                Executar régua agora
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirm delete modal ─────────────────────────────────────────── */}
       {confirmDeleteId && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[160] backdrop-blur-sm">
-          <div className="bg-[#1a1413] border border-surface/50 rounded-xl w-full max-w-sm p-8 text-center space-y-6 shadow-2xl">
-            <div className="mx-auto w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center border border-red-500/20">
+        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm space-y-6 rounded-xl border border-surface/50 bg-[#1a1413] p-8 text-center shadow-2xl">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-red-500/20 bg-red-500/10">
               <AlertTriangle size={32} className="text-red-500" />
             </div>
-            <h3 className="text-xl font-black text-white uppercase tracking-tighter">Remover Registro?</h3>
-            <p className="text-sm text-text-secondary font-medium">
+            <h3 className="text-xl font-black uppercase tracking-tighter text-white">
+              Remover Registro?
+            </h3>
+            <p className="text-sm font-medium text-text-secondary">
               Esta ação é irreversível e afetará os relatórios financeiros.
             </p>
             <div className="flex gap-4">
               <button
                 onClick={() => setConfirmDeleteId(null)}
-                className="flex-1 py-3 border border-surface rounded-md text-xs font-black uppercase text-text-secondary hover:text-white transition-all"
+                className="flex-1 rounded-md border border-surface py-3 text-xs font-black uppercase text-text-secondary transition-all hover:text-white"
               >
                 Cancelar
               </button>
               <button
                 onClick={() => handleDeleteTransaction(confirmDeleteId)}
-                className="flex-1 py-3 bg-red-600 text-white rounded-md text-xs font-black uppercase shadow-lg hover:bg-red-500 transition-all"
+                className="flex-1 rounded-md bg-red-600 py-3 text-xs font-black uppercase text-white shadow-lg transition-all hover:bg-red-500"
               >
                 Excluir
               </button>
