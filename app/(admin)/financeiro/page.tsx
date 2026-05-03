@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "../../../lib/supabase";
-import { useSettings } from "../../../providers/SettingsProvider";
+import { supabase } from "../../lib/supabase";
+import { useSettings } from "../../providers/SettingsProvider";
 import {
   AlertTriangle,
   Bell,
