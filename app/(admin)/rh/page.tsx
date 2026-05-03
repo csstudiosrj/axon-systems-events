@@ -799,56 +799,38 @@ function EmployeeFormModal({ initial, onClose, onSaved }: {
     e.preventDefault();
     setSaving(true);
 
-    // Payload base — somente colunas que existiam no schema original
-    const basePayload = {
-      full_name:     form.full_name.trim(),
-      document_cpf:  form.document_cpf || null,
-      document_rg:   form.document_rg || null,
-      birth_date:    form.birth_date || null,
-      hiring_date:   form.hiring_date || null,
-      contract_type: form.contract_type,
-      base_salary:   parseFloat(form.base_salary) || 0,
-      vt_value:      parseFloat(form.vt_value) || 0,
-      va_value:      parseFloat(form.va_value) || 0,
-      pix_key:       form.pix_key || null,
-      status:        form.status,
-      // bank_info é JSONB e sempre existiu — guarda tudo como fallback
-      bank_info: {
-        name:              form.bank_name,
-        agency:            form.bank_agency,
-        account:           form.bank_account,
-        email:             form.email,
-        phone:             form.phone,
-        role_label:        form.role_label,
-        commission_rate:   parseFloat(form.commission_rate) || 0,
-        vr_value:          parseFloat(form.vr_value) || 0,
-        health_plan_value: parseFloat(form.health_plan_value) || 0,
-        dental_plan_value: parseFloat(form.dental_plan_value) || 0,
-        insurance_value:   parseFloat(form.insurance_value) || 0,
-      },
-    };
-
-    // Payload estendido — inclui colunas adicionadas pela migration
-    const extendedPayload = {
-      ...basePayload,
+    // Payload espelha exatamente as colunas confirmadas no banco
+    const payload = {
+      full_name:         form.full_name.trim(),
+      document_cpf:      form.document_cpf || null,
+      document_rg:       form.document_rg || null,
+      birth_date:        form.birth_date || null,
+      hiring_date:       form.hiring_date || null,
       email:             form.email || null,
       phone:             form.phone || null,
       role_label:        form.role_label || null,
-      commission_rate:   parseFloat(form.commission_rate) || 0,
+      contract_type:     form.contract_type,
+      base_salary:       parseFloat(form.base_salary) || 0,
+      vt_value:          parseFloat(form.vt_value) || 0,
+      va_value:          parseFloat(form.va_value) || 0,
       vr_value:          parseFloat(form.vr_value) || 0,
       health_plan_value: parseFloat(form.health_plan_value) || 0,
       dental_plan_value: parseFloat(form.dental_plan_value) || 0,
       insurance_value:   parseFloat(form.insurance_value) || 0,
+      commission_rate:   parseFloat(form.commission_rate) || 0,
+      pix_key:           form.pix_key || null,
+      status:            form.status,
+      // bank_info é JSONB — agrupa os campos bancários
+      bank_info: {
+        name:    form.bank_name,
+        agency:  form.bank_agency,
+        account: form.bank_account,
+      },
     };
 
-    let error;
-    if (initial) {
-      ({ error } = await supabase.from("hr_employee_details").update(extendedPayload).eq("id", initial.id));
-      if (error) ({ error } = await supabase.from("hr_employee_details").update(basePayload).eq("id", initial.id));
-    } else {
-      ({ error } = await supabase.from("hr_employee_details").insert([extendedPayload]));
-      if (error) ({ error } = await supabase.from("hr_employee_details").insert([basePayload]));
-    }
+    const { error } = initial
+      ? await supabase.from("hr_employee_details").update(payload).eq("id", initial.id)
+      : await supabase.from("hr_employee_details").insert([payload]);
 
     setSaving(false);
     if (!error) onSaved();
@@ -994,11 +976,20 @@ function OccurrenceFormModal({ employees, onClose, onSaved }: {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
-    const path = `rh/ocorrencias/${Date.now()}-${file.name}`;
-    const { error } = await supabase.storage.from("axon-assets").upload(path, file);
+    // Sanitiza nome do arquivo removendo caracteres especiais
+    const safeName = file.name
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9._-]/g, "-")
+      .toLowerCase();
+    const path = `rh/ocorrencias/${Date.now()}-${safeName}`;
+    const { error } = await supabase.storage
+      .from("axon-assets")
+      .upload(path, file, { upsert: true });
     if (!error) {
       const { data } = supabase.storage.from("axon-assets").getPublicUrl(path);
       set("attachment_url", data.publicUrl);
+    } else {
+      console.error("Erro upload:", error.message);
     }
     setUploading(false);
   }
@@ -1007,8 +998,13 @@ function OccurrenceFormModal({ employees, onClose, onSaved }: {
     e.preventDefault();
     if (!form.employee_id) return;
     setSaving(true);
+
     const today = new Date().toISOString().slice(0, 10);
-    if (form.occurrence_date > today) { alert("Não é permitido registrar ocorrências em datas futuras."); setSaving(false); return; }
+    if (form.occurrence_date > today) {
+      alert("Não é permitido registrar ocorrências em datas futuras.");
+      setSaving(false);
+      return;
+    }
 
     const { error } = await supabase.from("hr_occurrences").insert([{
       employee_id:     form.employee_id,
@@ -1019,8 +1015,10 @@ function OccurrenceFormModal({ employees, onClose, onSaved }: {
       witnesses:       form.witnesses || null,
       attachment_url:  form.attachment_url || null,
     }]);
+
     setSaving(false);
     if (!error) onSaved();
+    else console.error("Erro ao registrar ocorrência:", error);
   }
 
   const needsWitnesses = form.type === "warning" || form.type === "suspension";
@@ -1202,21 +1200,42 @@ function PayrollFormModal({ employees, onClose, onSaved, showToast }: {
 
         {/* Prévia */}
         {emp && (
-          <div className="rounded-lg border border-white/10 bg-black/20 p-4">
-            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Prévia do contracheque</p>
-            <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm md:grid-cols-3">
-              <PreviewRow label="Salário base"    value={formatBRL(emp.base_salary)} />
-              <PreviewRow label="Benefícios"      value={`+ ${formatBRL(benefits)}`} green />
-              <PreviewRow label="Comissões"       value={`+ ${formatBRL(parseFloat(form.total_commissions) || 0)}`} green />
-              <PreviewRow label="Reembolsos"      value={`+ ${formatBRL(parseFloat(form.total_reimbursements) || 0)}`} green />
-              <PreviewRow label="Desc. faltas"    value={`- ${formatBRL(absDiscount)}`} red />
-              <PreviewRow label="INSS"            value={`- ${formatBRL(inss)}`} red />
-              <PreviewRow label="IRRF"            value={`- ${formatBRL(irrf)}`} red />
-              <PreviewRow label="Outros descontos" value={`- ${formatBRL(parseFloat(form.other_discounts) || 0)}`} red />
+          <div className="rounded-lg border border-white/10 bg-black/20 overflow-hidden">
+            <div className="border-b border-white/10 bg-black/20 px-4 py-2.5">
+              <p className="text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">
+                Prévia · {emp.full_name} · {monthName(parseInt(form.reference_month))}/{form.reference_year}
+              </p>
             </div>
-            <div className="mt-3 border-t border-white/10 pt-3 flex justify-between items-center">
-              <span className="text-sm font-bold text-white">Líquido a receber</span>
-              <span className="text-lg font-black text-[var(--color-cs-green)]">{formatBRL(netSalary)}</span>
+
+            {/* Proventos */}
+            <div className="p-4 space-y-1">
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-cs-green)]">Proventos</p>
+              <SlipRow label="Salário base"           value={formatBRL(emp.base_salary)} />
+              {(parseFloat(form.total_commissions) > 0) && <SlipRow label="Comissões" value={formatBRL(parseFloat(form.total_commissions))} />}
+              {(parseFloat(form.total_reimbursements) > 0) && <SlipRow label="Reembolsos aprovados" value={formatBRL(parseFloat(form.total_reimbursements))} />}
+              {emp.vt_value > 0    && <SlipRow label="Vale Transporte"  value={formatBRL(emp.vt_value)} />}
+              {emp.va_value > 0    && <SlipRow label="Vale Alimentação" value={formatBRL(emp.va_value)} />}
+              {(emp.vr_value ?? 0) > 0           && <SlipRow label="Vale Refeição"    value={formatBRL(emp.vr_value ?? 0)} />}
+              {(emp.health_plan_value ?? 0) > 0  && <SlipRow label="Plano de Saúde"  value={formatBRL(emp.health_plan_value ?? 0)} />}
+              {(emp.dental_plan_value ?? 0) > 0  && <SlipRow label="Plano Odonto"    value={formatBRL(emp.dental_plan_value ?? 0)} />}
+              {(emp.insurance_value ?? 0) > 0    && <SlipRow label="Seguro de vida"  value={formatBRL(emp.insurance_value ?? 0)} />}
+              <SlipRow label="Total de proventos" value={formatBRL(emp.base_salary + (parseFloat(form.total_commissions) || 0) + (parseFloat(form.total_reimbursements) || 0) + benefits)} bold />
+            </div>
+
+            {/* Descontos */}
+            <div className="border-t border-white/10 p-4 space-y-1">
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-red-400">Descontos</p>
+              <SlipRow label="INSS"                value={formatBRL(inss)}        red />
+              <SlipRow label="IRRF"                value={formatBRL(irrf)}        red />
+              {absDiscount > 0 && <SlipRow label={`Faltas (${absenceDays}d)`}  value={formatBRL(absDiscount)} red />}
+              {(parseFloat(form.other_discounts) > 0) && <SlipRow label="Outros descontos" value={formatBRL(parseFloat(form.other_discounts))} red />}
+              <SlipRow label="Total de descontos"  value={formatBRL(totalDeduct)} bold red />
+            </div>
+
+            {/* Líquido */}
+            <div className="border-t border-[var(--color-cs-green)]/30 bg-[var(--color-cs-green)]/5 px-4 py-3 flex justify-between items-center">
+              <span className="text-sm font-bold text-white">Salário líquido</span>
+              <span className="text-xl font-black text-[var(--color-cs-green)]">{formatBRL(netSalary)}</span>
             </div>
           </div>
         )}
@@ -1234,11 +1253,11 @@ function PayrollFormModal({ employees, onClose, onSaved, showToast }: {
   );
 }
 
-function PreviewRow({ label, value, green, red }: { label: string; value: string; green?: boolean; red?: boolean }) {
+function SlipRow({ label, value, red, bold }: { label: string; value: string; red?: boolean; bold?: boolean }) {
   return (
-    <div className="flex justify-between gap-2">
-      <span className="text-xs text-[var(--color-text-secondary)]">{label}</span>
-      <span className={`text-xs font-semibold ${green ? "text-[var(--color-cs-green)]" : red ? "text-red-400" : "text-white"}`}>{value}</span>
+    <div className={`flex justify-between gap-4 py-0.5 ${bold ? "border-t border-white/10 mt-1 pt-2" : ""}`}>
+      <span className={`text-xs ${bold ? "font-bold text-white" : "text-[var(--color-text-secondary)]"}`}>{label}</span>
+      <span className={`text-xs font-semibold tabular-nums ${red ? "text-red-400" : bold ? "text-white" : "text-white"}`}>{value}</span>
     </div>
   );
 }
