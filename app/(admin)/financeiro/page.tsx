@@ -413,6 +413,7 @@ export default function FinanceiroPage() {
   const [filterClientId, setFilterClientId] = useState<string>("");
   const [filterDateFrom, setFilterDateFrom] = useState<string>("");
   const [filterDateTo, setFilterDateTo] = useState<string>("");
+  const [filterCategory, setFilterCategory] = useState<string>("");
   const [currentPage, setCurrentPage] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
 
@@ -805,7 +806,10 @@ export default function FinanceiroPage() {
         : true;
       const matchDateTo = filterDateTo ? t.due_date <= filterDateTo : true;
 
-      return matchText && matchStatus && matchClient && matchDateFrom && matchDateTo;
+      const matchCategory = filterCategory
+        ? t.category === filterCategory
+        : true;
+      return matchText && matchStatus && matchClient && matchDateFrom && matchDateTo && matchCategory;
     });
   }, [
     transactions,
@@ -814,6 +818,7 @@ export default function FinanceiroPage() {
     filterClientId,
     filterDateFrom,
     filterDateTo,
+    filterCategory,
   ]);
 
   // ── DRE by month ──────────────────────────────────────────────────────────
@@ -988,9 +993,16 @@ export default function FinanceiroPage() {
         }
       });
 
+    const totalRH = pt
+      .filter((t) =>
+        ["Folha de Pagamento", "Reembolsos RH", "Desconto RH"].includes(t.category)
+      )
+      .reduce((a, b) => a + Number(b.amount), 0);
+
     return {
       totalSalaries,
       totalCommissions,
+      totalRH,
       commissionByMember: Object.values(byMember).sort(
         (a, b) => b.total - a.total
       ),
@@ -1757,6 +1769,41 @@ export default function FinanceiroPage() {
 
       if (error) throw new Error(error.message || "Erro ao confirmar pagamento.");
 
+      // Inserir comissão de venda ao confirmar pagamento integral
+      if (paymentInfo.scenario !== "partial" && selectedTransaction.quote_id) {
+        const { data: quoteData } = await supabase
+          .from("quotes")
+          .select("salesperson_id")
+          .eq("id", selectedTransaction.quote_id)
+          .single();
+
+        if (quoteData?.salesperson_id) {
+          const { data: sellerData } = await supabase
+            .from("profiles")
+            .select("commission_percentage")
+            .eq("id", quoteData.salesperson_id)
+            .single();
+
+          if (sellerData?.commission_percentage) {
+            const commissionAmount =
+              (Number(selectedTransaction.amount) * sellerData.commission_percentage) / 100;
+            await supabase.from("financial_transactions").insert({
+              type: "expense",
+              expense_type: "personnel",
+              category: "Comissão de Vendas",
+              description: `Comissão sobre ${selectedTransaction.description || "venda"}`,
+              amount: commissionAmount,
+              status: "pending",
+              due_date: new Date().toISOString().split("T")[0],
+              member_id: quoteData.salesperson_id,
+              client_id: selectedTransaction.client_id ?? null,
+              quote_id: selectedTransaction.quote_id,
+              source: "commission_auto",
+            });
+          }
+        }
+      }
+
       showToast(
         paymentInfo.scenario === "partial"
           ? "Pagamento parcial registrado. A cobrança segue em análise."
@@ -2353,7 +2400,18 @@ export default function FinanceiroPage() {
                   style={{ colorScheme: "dark" }}
                 />
               </div>
-              {(filterStatus || filterClientId || filterDateFrom || filterDateTo) && (
+              <select
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+                className="rounded-md border border-surface bg-background px-3 py-2 text-xs text-white outline-none focus:border-cs-green"
+              >
+                <option value="">Todas as categorias</option>
+                <option value="Folha de Pagamento">Folha de Pagamento</option>
+                <option value="Reembolsos RH">Reembolsos RH</option>
+                <option value="Desconto RH">Desconto RH</option>
+                <option value="Comissão de Vendas">Comissão de Vendas</option>
+              </select>
+              {(filterStatus || filterClientId || filterDateFrom || filterDateTo || filterCategory) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -2361,6 +2419,7 @@ export default function FinanceiroPage() {
                     setFilterClientId("");
                     setFilterDateFrom("");
                     setFilterDateTo("");
+                    setFilterCategory("");
                   }}
                   className="text-xs font-bold text-red-400 hover:text-red-300"
                 >
@@ -2776,6 +2835,24 @@ export default function FinanceiroPage() {
                   <Percent className="text-cs-gold opacity-20" size={48} />
                 </div>
               </div>
+              {personnelStats.totalRH > 0 && (
+                <div className="rounded-xl border border-surface/50 bg-surface p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="mb-1 text-xs font-black uppercase text-text-secondary">
+                        Centro de Custo RH
+                      </p>
+                      <p className="break-words text-2xl font-black text-cs-gold">
+                        {formatCurrency(personnelStats.totalRH)}
+                      </p>
+                      <p className="mt-1 text-xs text-text-secondary">
+                        Folha de Pagamento · Reembolsos RH · Descontos RH
+                      </p>
+                    </div>
+                    <Users className="text-cs-gold opacity-20" size={48} />
+                  </div>
+                </div>
+              )}
               {personnelStats.commissionByMember.length > 0 && (
                 <div className="rounded-xl border border-surface/50 bg-surface p-6">
                   <h4 className="mb-4 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
