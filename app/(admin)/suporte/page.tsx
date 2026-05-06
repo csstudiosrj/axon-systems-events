@@ -2,8 +2,8 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabase";
-import { useSettings } from "../../providers/SettingsProvider";
+import { supabase } from "../../../lib/supabase";
+import { useSettings } from "../../../providers/SettingsProvider";
 import {
   Ticket,
   Loader2,
@@ -11,11 +11,14 @@ import {
   Clock,
   MessageSquare,
   Send,
+  Plus,
+  AlertCircle,
+  CheckCircle,
   Paperclip,
   X,
   Download,
-  Filter,
-  Circle,
+  BookOpen,
+  ChevronRight,
 } from "lucide-react";
 
 type TicketStatus = "open" | "in_progress" | "resolved";
@@ -29,6 +32,18 @@ const DEPARTMENTS: { value: Department; label: string }[] = [
   { value: "administrative", label: "Administrativo" },
   { value: "hr", label: "RH" },
 ];
+
+type ServiceOrderOption = {
+  id: string;
+  label: string;
+};
+
+type KBArticle = {
+  id: string;
+  title: string;
+  content: string;
+  department: Department;
+};
 
 type AttachmentRow = {
   id: string;
@@ -46,7 +61,8 @@ type TicketRow = {
   department: Department;
   sla_deadline: string | null;
   created_at: string;
-  clients?: { company_name?: string | null; contact_name?: string | null } | null;
+  service_order_id: string | null;
+  client_id: string | null;
   service_orders?: { quotes?: { title?: string | null } | null } | null;
 };
 
@@ -56,38 +72,53 @@ type TicketMessageRow = {
   sender_id: string;
   message: string;
   created_at: string;
-  sender?: { full_name?: string | null; role?: string | null; email?: string | null } | null;
+  is_staff?: boolean;
+  sender_name?: string;
   ticket_attachments?: AttachmentRow[];
 };
 
-export default function SuportePage() {
+export default function ClientSupportPage() {
   const router = useRouter();
-  const { systemPreferences } = useSettings();
+  const { systemPreferences, resolvedClientId } = useSettings();
 
   const supportEnabled = systemPreferences?.feature_toggles?.enable_support ?? true;
   const labels = systemPreferences?.custom_labels;
-  const clientSingular = labels?.entity_client_singular || "Cliente";
   const serviceOrderSingular = labels?.entity_service_order_singular || "Projeto";
   const supportMenuLabel = labels?.menu_support || "Suporte";
 
-  const [view, setView] = useState<"list" | "details">("list");
+  // ─── State ──────────────────────────────────────────────────────────────────
+  const [view, setView] = useState<"list" | "create">("list");
   const [tickets, setTickets] = useState<TicketRow[]>([]);
-  const [loadingList, setLoadingList] = useState(true);
-  const [loadingDetails, setLoadingDetails] = useState(false);
-  const [pageError, setPageError] = useState<string | null>(null);
-  const [filterStatus, setFilterStatus] = useState<string>("all");
-  const [filterDepartment, setFilterDepartment] = useState<string>("all");
-
-  const [activeTicket, setActiveTicket] = useState<TicketRow | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
   const [messages, setMessages] = useState<TicketMessageRow[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [isSending, setIsSending] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [serviceOrderOptions, setServiceOrderOptions] = useState<ServiceOrderOption[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
-  const [lastViewedMap, setLastViewedMap] = useState<Record<string, string>>({});
+  const [formAttachedFiles, setFormAttachedFiles] = useState<File[]>([]);
+
+  // KB suggestion state
+  const [kbSuggestions, setKbSuggestions] = useState<KBArticle[]>([]);
+  const [kbLoading, setKbLoading] = useState(false);
+  const [openArticle, setOpenArticle] = useState<KBArticle | null>(null);
+
+  // Create form state
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [serviceOrderId, setServiceOrderId] = useState("");
+  const [department, setDepartment] = useState<Department>("support");
+  const [priority, setPriority] = useState<TicketPriority>("medium");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const formFileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const kbDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const currentTicket =
+    tickets.find((t) => t.id === activeTicketId) || null;
 
   const statusLabels: Record<TicketStatus, string> = {
     open: "Aberto",
@@ -102,34 +133,8 @@ export default function SuportePage() {
     critical: "Crítica",
   };
 
-  const statusOptions = [
-    { value: "open" as TicketStatus, label: "Aberto (Aguardando)" },
-    { value: "in_progress" as TicketStatus, label: "Em Andamento" },
-    { value: "resolved" as TicketStatus, label: "Resolvido" },
-  ];
-
   const getDepartmentLabel = (dept: Department) =>
     DEPARTMENTS.find((d) => d.value === dept)?.label || dept;
-
-  const getStatusBadgeClass = (status: TicketStatus) => {
-    if (status === "open") return "bg-red-500/10 text-red-400 border-red-500/20";
-    if (status === "in_progress") return "bg-cs-gold/10 text-cs-gold border-cs-gold/20";
-    return "bg-cs-green/10 text-cs-green border-cs-green/20";
-  };
-
-  const getPriorityBadge = (priority: TicketPriority) => {
-    const config: Record<TicketPriority, string> = {
-      low: "bg-gray-500/10 text-gray-400 border-gray-500/20",
-      medium: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-      high: "bg-orange-500/10 text-orange-400 border-orange-500/20",
-      critical: "bg-red-500/10 text-red-400 border-red-500/20",
-    };
-    return (
-      <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase border ${config[priority]}`}>
-        {priorityLabels[priority]}
-      </span>
-    );
-  };
 
   const formatFileSize = (bytes: number | null) => {
     if (!bytes) return "";
@@ -138,53 +143,94 @@ export default function SuportePage() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  const getStatusBadge = (status: TicketStatus) => {
+    switch (status) {
+      case "resolved":
+        return (
+          <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-cs-green/10 text-cs-green border border-cs-green/20">
+            <CheckCircle size={14} /> {statusLabels.resolved}
+          </span>
+        );
+      case "in_progress":
+        return (
+          <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-cs-gold/10 text-cs-gold border border-cs-gold/20">
+            <Clock size={14} /> {statusLabels.in_progress}
+          </span>
+        );
+      default:
+        return (
+          <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-500/10 text-red-400 border border-red-500/20">
+            <AlertCircle size={14} /> {statusLabels.open}
+          </span>
+        );
+    }
+  };
+
+  // ─── Data fetching ───────────────────────────────────────────────────────────
   const getCurrentUser = useCallback(async () => {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    if (session?.user?.id) setCurrentUserId(session.user.id);
-  }, []);
+    if (!session?.user?.id) {
+      router.replace("/acesso");
+      return;
+    }
+    setCurrentUserId(session.user.id);
+  }, [router]);
 
-  const loadLastViewedMap = useCallback(() => {
-    try {
-      const stored = localStorage.getItem("ticket_last_viewed_admin");
-      if (stored) setLastViewedMap(JSON.parse(stored));
-    } catch {}
-  }, []);
-
-  const markTicketAsViewed = useCallback((ticketId: string) => {
-    const now = new Date().toISOString();
-    setLastViewedMap((prev) => {
-      const updated = { ...prev, [ticketId]: now };
-      try {
-        localStorage.setItem("ticket_last_viewed_admin", JSON.stringify(updated));
-      } catch {}
-      return updated;
-    });
-  }, []);
-
-  const fetchTickets = useCallback(async () => {
-    setLoadingList(true);
-    setPageError(null);
+  const fetchMyTickets = useCallback(async () => {
+    if (!resolvedClientId) {
+      setTickets([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
 
     const { data, error } = await supabase
       .from("tickets")
       .select(
         `id, title, description, status, priority, department,
-         sla_deadline, created_at,
-         clients ( company_name, contact_name ),
+         sla_deadline, created_at, service_order_id, client_id,
          service_orders ( quotes ( title ) )`
       )
+      .eq("client_id", resolvedClientId)
       .order("created_at", { ascending: false });
 
-    if (error) {
-      setPageError("Não foi possível carregar os chamados.");
-      setTickets([]);
-    } else {
-      setTickets((data as TicketRow[]) || []);
+    setTickets(!error && data ? (data as TicketRow[]) : []);
+    setLoading(false);
+  }, [resolvedClientId]);
+
+  const fetchServiceOrders = useCallback(async () => {
+    if (!resolvedClientId) return;
+
+    // Fetch quotes with their linked service_orders for this client
+    const { data, error } = await supabase
+      .from("quotes")
+      .select("id, title, service_orders(id)")
+      .eq("client_id", resolvedClientId)
+      .order("created_at", { ascending: false });
+
+    if (!error && data) {
+      const options: ServiceOrderOption[] = [];
+      for (const quote of data as any[]) {
+        const serviceOrders = Array.isArray(quote.service_orders)
+          ? quote.service_orders
+          : quote.service_orders
+          ? [quote.service_orders]
+          : [];
+
+        for (const so of serviceOrders) {
+          if (so?.id) {
+            options.push({
+              id: so.id,
+              label: quote.title || "Projeto sem título",
+            });
+          }
+        }
+      }
+      setServiceOrderOptions(options);
     }
-    setLoadingList(false);
-  }, []);
+  }, [resolvedClientId]);
 
   const fetchMessages = useCallback(async (ticketId: string) => {
     const { data, error } = await supabase
@@ -197,32 +243,35 @@ export default function SuportePage() {
       .eq("ticket_id", ticketId)
       .order("created_at", { ascending: true });
 
-    if (!error) setMessages((data as TicketMessageRow[]) || []);
+    if (!error && data) {
+      const mapped = (data as any[]).map((msg) => ({
+        ...msg,
+        is_staff:
+          msg.sender?.role !== "client" && msg.sender?.role !== "student",
+        sender_name:
+          msg.sender?.full_name ||
+          msg.sender?.email?.split("@")[0] ||
+          "Usuário",
+      }));
+      setMessages(mapped as TicketMessageRow[]);
+    } else {
+      setMessages([]);
+    }
   }, []);
 
-  const openTicketDetails = useCallback(
-    async (ticket: TicketRow) => {
-      setLoadingDetails(true);
-      setActiveTicket(ticket);
-      setMessages([]);
-      setAttachedFiles([]);
-      setNewMessage("");
-      setView("details");
-      markTicketAsViewed(ticket.id);
-      await fetchMessages(ticket.id);
-      setLoadingDetails(false);
-    },
-    [fetchMessages, markTicketAsViewed]
-  );
-
-  const updateTicketStatus = useCallback(async (id: string, newStatus: TicketStatus) => {
-    const { error } = await supabase
-      .from("tickets")
-      .update({ status: newStatus })
-      .eq("id", id);
-    if (error) return;
-    setActiveTicket((prev) => (prev?.id === id ? { ...prev, status: newStatus } : prev));
-    setTickets((prev) => prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t)));
+  const searchKnowledgeBase = useCallback(async (query: string) => {
+    if (query.trim().length < 3) {
+      setKbSuggestions([]);
+      return;
+    }
+    setKbLoading(true);
+    const { data } = await supabase
+      .from("knowledge_base")
+      .select("id, title, content, department")
+      .ilike("title", `%${query}%`)
+      .limit(4);
+    setKbSuggestions((data as KBArticle[]) || []);
+    setKbLoading(false);
   }, []);
 
   const uploadAttachments = useCallback(
@@ -249,342 +298,626 @@ export default function SuportePage() {
     []
   );
 
-  const handleSendMessage = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (
-        (!newMessage.trim() && attachedFiles.length === 0) ||
-        !activeTicket?.id ||
-        !currentUserId
-      )
-        return;
+  // ─── Actions ─────────────────────────────────────────────────────────────────
+  const handleCreateTicket = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title || !description || !serviceOrderId || !resolvedClientId) return;
 
-      setIsSending(true);
-      const messageText =
-        newMessage.trim() ||
-        (attachedFiles.length > 0 ? `[${attachedFiles.length} anexo(s)]` : "");
+    setIsSubmitting(true);
 
-      const { data: msgData, error } = await supabase
-        .from("ticket_messages")
-        .insert([{ ticket_id: activeTicket.id, sender_id: currentUserId, message: messageText }])
-        .select("id")
-        .single();
+    const slaHoursMap: Record<TicketPriority, number> = {
+      critical: 2,
+      high: 4,
+      medium: 24,
+      low: 48,
+    };
+    const slaDeadline = new Date(
+      Date.now() + slaHoursMap[priority] * 60 * 60 * 1000
+    ).toISOString();
 
-      if (!error && msgData) {
-        if (attachedFiles.length > 0) {
-          await uploadAttachments(attachedFiles, activeTicket.id, msgData.id);
-        }
-        setNewMessage("");
-        setAttachedFiles([]);
-        if (fileInputRef.current) fileInputRef.current.value = "";
-        await fetchMessages(activeTicket.id);
-        if (activeTicket.status === "open") {
-          await updateTicketStatus(activeTicket.id, "in_progress");
+    const { data: ticketData, error } = await supabase
+      .from("tickets")
+      .insert([
+        {
+          title,
+          description,
+          service_order_id: serviceOrderId,
+          client_id: resolvedClientId,
+          department,
+          priority,
+          status: "open",
+          sla_deadline: slaDeadline,
+        },
+      ])
+      .select("id")
+      .single();
+
+    if (!error && ticketData) {
+      // Upload initial attachments as a system message
+      if (formAttachedFiles.length > 0) {
+        const { data: msgData } = await supabase
+          .from("ticket_messages")
+          .insert([
+            {
+              ticket_id: ticketData.id,
+              sender_id: currentUserId,
+              message: `[${formAttachedFiles.length} anexo(s) enviado(s) na abertura do chamado]`,
+            },
+          ])
+          .select("id")
+          .single();
+        if (msgData) {
+          await uploadAttachments(formAttachedFiles, ticketData.id, msgData.id);
         }
       }
-      setIsSending(false);
-    },
-    [
-      newMessage,
-      attachedFiles,
-      activeTicket,
-      currentUserId,
-      fetchMessages,
-      updateTicketStatus,
-      uploadAttachments,
-    ]
-  );
 
-  const filteredTickets = tickets.filter((t) => {
-    if (filterStatus !== "all" && t.status !== filterStatus) return false;
-    if (filterDepartment !== "all" && t.department !== filterDepartment) return false;
-    return true;
-  });
+      setTitle("");
+      setDescription("");
+      setServiceOrderId("");
+      setDepartment("support");
+      setPriority("medium");
+      setFormAttachedFiles([]);
+      setKbSuggestions([]);
+      if (formFileInputRef.current) formFileInputRef.current.value = "";
+      setView("list");
+      await fetchMyTickets();
+    }
 
+    setIsSubmitting(false);
+  };
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (
+      (!newMessage.trim() && attachedFiles.length === 0) ||
+      !currentTicket?.id ||
+      !currentUserId
+    )
+      return;
+
+    setIsSending(true);
+    const messageText =
+      newMessage.trim() ||
+      (attachedFiles.length > 0 ? `[${attachedFiles.length} anexo(s)]` : "");
+
+    const { data: msgData, error } = await supabase
+      .from("ticket_messages")
+      .insert([
+        {
+          ticket_id: currentTicket.id,
+          sender_id: currentUserId,
+          message: messageText,
+        },
+      ])
+      .select("id")
+      .single();
+
+    if (!error && msgData) {
+      if (attachedFiles.length > 0) {
+        await uploadAttachments(attachedFiles, currentTicket.id, msgData.id);
+      }
+      setNewMessage("");
+      setAttachedFiles([]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      await fetchMessages(currentTicket.id);
+    }
+    setIsSending(false);
+  };
+
+  // ─── Effects ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     getCurrentUser();
-    loadLastViewedMap();
-  }, [getCurrentUser, loadLastViewedMap]);
+  }, [getCurrentUser]);
 
   useEffect(() => {
     if (!supportEnabled) {
-      router.replace("/admin");
+      router.replace("/portal");
       return;
     }
-    if (view === "list") fetchTickets();
-  }, [supportEnabled, router, view, fetchTickets]);
+    if (view === "list") fetchMyTickets();
+    if (view === "create") fetchServiceOrders();
+  }, [supportEnabled, router, view, fetchMyTickets, fetchServiceOrders]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (!currentTicket?.id) return;
+    fetchMessages(currentTicket.id);
 
-  useEffect(() => {
-    if (!activeTicket?.id) return;
     const channel = supabase
-      .channel(`admin-ticket-messages-${activeTicket.id}`)
+      .channel(`client-ticket-${currentTicket.id}`)
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
           table: "ticket_messages",
-          filter: `ticket_id=eq.${activeTicket.id}`,
+          filter: `ticket_id=eq.${currentTicket.id}`,
         },
         async () => {
-          await fetchMessages(activeTicket.id);
+          await fetchMessages(currentTicket.id);
         }
       )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [activeTicket?.id, fetchMessages]);
+  }, [currentTicket?.id, fetchMessages]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // KB debounced search on title change
+  useEffect(() => {
+    if (kbDebounceRef.current) clearTimeout(kbDebounceRef.current);
+    kbDebounceRef.current = setTimeout(() => {
+      searchKnowledgeBase(title);
+    }, 400);
+    return () => {
+      if (kbDebounceRef.current) clearTimeout(kbDebounceRef.current);
+    };
+  }, [title, searchKnowledgeBase]);
 
   if (!supportEnabled) return null;
 
-  // ─── Details view ────────────────────────────────────────────────────────────
-  if (view === "details" && activeTicket) {
-    const isOverdue =
-      !!activeTicket.sla_deadline &&
-      new Date(activeTicket.sla_deadline) < new Date() &&
-      activeTicket.status !== "resolved";
-
+  // ─── Article reader overlay ──────────────────────────────────────────────────
+  if (openArticle) {
     return (
-      <div className="space-y-6 max-w-6xl mx-auto h-[calc(100vh-120px)] flex flex-col">
-        {/* Top bar */}
-        <div className="flex items-center justify-between shrink-0">
+      <div className="flex-1 bg-background p-8">
+        <div className="max-w-3xl mx-auto space-y-6">
+          <button
+            onClick={() => setOpenArticle(null)}
+            className="flex items-center gap-2 text-text-secondary hover:text-white transition-colors"
+          >
+            <ArrowLeft size={20} /> Voltar para o chamado
+          </button>
+
+          <div className="bg-surface border border-surface/50 p-8 rounded-2xl">
+            <div className="flex items-center gap-2 mb-4">
+              <BookOpen size={18} className="text-cs-gold" />
+              <span className="text-xs text-text-secondary uppercase tracking-wider">
+                Base de Conhecimento
+              </span>
+              <span className="text-xs px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                {getDepartmentLabel(openArticle.department)}
+              </span>
+            </div>
+
+            <h2 className="text-2xl font-bold text-white mb-6">{openArticle.title}</h2>
+
+            <div className="prose prose-invert prose-sm max-w-none text-text-secondary leading-relaxed whitespace-pre-wrap">
+              {openArticle.content}
+            </div>
+
+            <div className="mt-8 pt-6 border-t border-surface/50">
+              <p className="text-sm text-text-secondary mb-4">
+                Este artigo resolveu seu problema?
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setOpenArticle(null)}
+                  className="flex items-center gap-2 rounded-lg bg-cs-green text-white py-2 px-5 text-sm font-bold hover:bg-opacity-90 transition-all"
+                >
+                  Sim, problema resolvido
+                </button>
+                <button
+                  onClick={() => setOpenArticle(null)}
+                  className="flex items-center gap-2 rounded-lg border border-surface/50 bg-surface text-text-secondary py-2 px-5 text-sm font-medium hover:text-white transition-all"
+                >
+                  Não, continuar abrindo chamado
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Create view ─────────────────────────────────────────────────────────────
+  if (view === "create") {
+    return (
+      <div className="flex-1 bg-background p-8">
+        <div className="max-w-3xl mx-auto space-y-6">
           <button
             onClick={() => setView("list")}
             className="flex items-center gap-2 text-text-secondary hover:text-white transition-colors"
           >
-            <ArrowLeft size={20} />
-            Voltar para {supportMenuLabel}
+            <ArrowLeft size={20} /> Voltar para Meus Chamados
           </button>
 
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-text-secondary">Status:</span>
-            <select
-              value={activeTicket.status}
-              onChange={(e) =>
-                updateTicketStatus(activeTicket.id, e.target.value as TicketStatus)
-              }
-              className="bg-surface border border-surface/50 text-white text-sm rounded-md px-4 py-2 focus:border-cs-green focus:outline-none font-bold cursor-pointer"
-            >
-              {statusOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-0">
-          {/* Left — ticket info */}
-          <div className="lg:col-span-1 space-y-4 overflow-y-auto custom-scrollbar pr-2">
-            <div className="bg-surface border border-surface/50 p-6 rounded-lg">
-              <div className="flex items-center gap-2 flex-wrap mb-4">
-                <span className="bg-background px-2 py-1 rounded text-[10px] font-mono text-text-secondary uppercase">
-                  #{activeTicket.id.split("-")[0]}
-                </span>
-                {getPriorityBadge(activeTicket.priority)}
-                <span className="px-2 py-1 rounded text-[10px] font-bold uppercase border bg-purple-500/10 text-purple-400 border-purple-500/20">
-                  {getDepartmentLabel(activeTicket.department)}
-                </span>
-              </div>
-
-              <h2 className="text-xl font-bold text-white mb-2">{activeTicket.title}</h2>
-              <p className="text-sm text-text-secondary mb-6">
-                {activeTicket.description || "Sem descrição."}
+          <div className="bg-surface border border-surface/50 p-8 rounded-2xl shadow-lg">
+            <div className="mb-8 border-b border-surface/50 pb-6">
+              <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                <MessageSquare className="text-cs-gold" size={28} />
+                Abrir Novo Chamado
+              </h2>
+              <p className="text-text-secondary mt-2">
+                Descreva o problema com o máximo de detalhes para agilizar o
+                atendimento.
               </p>
-
-              <div className="space-y-4 border-t border-surface/50 pt-4">
-                <div>
-                  <p className="text-[10px] text-text-secondary uppercase tracking-wider mb-1">
-                    {clientSingular}
-                  </p>
-                  <p className="text-sm font-medium text-white">
-                    {activeTicket.clients?.company_name || "Não informado"}
-                  </p>
-                  <p className="text-xs text-text-secondary">
-                    {activeTicket.clients?.contact_name || ""}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-[10px] text-text-secondary uppercase tracking-wider mb-1">
-                    {serviceOrderSingular}
-                  </p>
-                  <p className="text-sm font-medium text-cs-gold">
-                    {activeTicket.service_orders?.quotes?.title || "Não vinculado"}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-[10px] text-text-secondary uppercase tracking-wider mb-1">
-                    Prazo SLA
-                  </p>
-                  <div
-                    className={`flex items-center gap-1.5 text-sm font-medium ${
-                      isOverdue ? "text-red-400" : "text-cs-green"
-                    }`}
-                  >
-                    <Clock size={14} />
-                    {activeTicket.sla_deadline
-                      ? new Date(activeTicket.sla_deadline).toLocaleString("pt-BR", {
-                          dateStyle: "short",
-                          timeStyle: "short",
-                        })
-                      : "Não definido"}
-                    {isOverdue && (
-                      <span className="text-[10px] bg-red-500/20 px-2 py-0.5 rounded ml-1">
-                        VENCIDO
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-[10px] text-text-secondary uppercase tracking-wider mb-1">
-                    Aberto em
-                  </p>
-                  <p className="text-sm text-white">
-                    {new Date(activeTicket.created_at).toLocaleString("pt-BR", {
-                      dateStyle: "short",
-                      timeStyle: "short",
-                    })}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Right — chat */}
-          <div className="lg:col-span-2 bg-surface border border-surface/50 rounded-lg flex flex-col overflow-hidden">
-            <div className="p-4 border-b border-surface/50 bg-background/50 shrink-0">
-              <h3 className="text-md font-bold text-white flex items-center gap-2">
-                <MessageSquare className="text-cs-green" size={18} />
-                Histórico de Atendimento
-              </h3>
             </div>
 
-            <div className="flex-1 p-6 overflow-y-auto custom-scrollbar space-y-6 bg-background/20">
-              {loadingDetails ? (
-                <div className="h-full flex items-center justify-center">
-                  <Loader2 size={28} className="animate-spin text-cs-green" />
-                </div>
-              ) : messages.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-text-secondary">
-                  <MessageSquare size={48} className="mb-4 opacity-20" />
-                  <p>Nenhuma mensagem ainda.</p>
-                  <p className="text-xs mt-1">
-                    Envie a primeira mensagem para iniciar o atendimento.
-                  </p>
-                </div>
-              ) : (
-                messages.map((msg) => {
-                  const isMe = msg.sender_id === currentUserId;
-                  const isClient =
-                    msg.sender?.role === "client" || msg.sender?.role === "student";
-                  const senderName =
-                    msg.sender?.full_name ||
-                    msg.sender?.email?.split("@")[0] ||
-                    "Usuário";
-
-                  return (
-                    <div
-                      key={msg.id}
-                      className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}
-                    >
-                      <div className="flex items-center gap-2 mb-1 px-1">
-                        <span className="text-[10px] font-medium text-text-secondary">
-                          {senderName}
-                        </span>
-                        {!isClient && (
-                          <span className="text-[8px] bg-cs-green/20 text-cs-green px-1.5 py-0.5 rounded uppercase">
-                            Staff
-                          </span>
-                        )}
-                        <span className="text-[10px] text-surface/80">•</span>
-                        <span className="text-[10px] text-text-secondary">
-                          {new Date(msg.created_at).toLocaleTimeString("pt-BR", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                      </div>
-
-                      <div
-                        className={`max-w-[80%] p-3 rounded-2xl text-sm ${
-                          isMe
-                            ? "bg-cs-green text-white rounded-tr-sm"
-                            : isClient
-                            ? "bg-surface border border-surface/50 text-white rounded-tl-sm"
-                            : "bg-surface border border-cs-green/30 text-white rounded-tl-sm"
-                        }`}
-                      >
-                        {msg.message}
-
-                        {msg.ticket_attachments && msg.ticket_attachments.length > 0 && (
-                          <div className="mt-2 space-y-1">
-                            {msg.ticket_attachments.map((att) => (
-                              <a
-                                key={att.id}
-                                href={att.file_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-2 text-xs bg-black/20 rounded px-2 py-1.5 hover:bg-black/30 transition-colors"
-                              >
-                                <Download size={12} className="shrink-0" />
-                                <span className="truncate max-w-[180px]">{att.file_name}</span>
-                                {att.file_size && (
-                                  <span className="opacity-60 shrink-0 ml-auto">
-                                    {formatFileSize(att.file_size)}
-                                  </span>
-                                )}
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            <div className="p-4 bg-background/50 border-t border-surface/50 shrink-0">
-              {attachedFiles.length > 0 && (
-                <div className="flex flex-wrap gap-2 mb-3">
-                  {attachedFiles.map((file, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center gap-1.5 bg-surface border border-surface/50 rounded px-2 py-1 text-xs text-white"
-                    >
-                      <Paperclip size={12} className="text-cs-green shrink-0" />
-                      <span className="max-w-[120px] truncate">{file.name}</span>
-                      <button
-                        onClick={() =>
-                          setAttachedFiles((prev) => prev.filter((_, idx) => idx !== i))
-                        }
-                        className="text-text-secondary hover:text-red-400 transition-colors ml-1"
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
+            <form onSubmit={handleCreateTicket} className="space-y-6">
+              {/* Department */}
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-2">
+                  Departamento *
+                </label>
+                <select
+                  required
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value as Department)}
+                  className="block w-full rounded-lg border border-surface bg-background px-4 py-3 text-white focus:border-cs-gold focus:outline-none focus:ring-1 focus:ring-cs-gold transition-colors"
+                >
+                  {DEPARTMENTS.map((d) => (
+                    <option key={d.value} value={d.value}>
+                      {d.label}
+                    </option>
                   ))}
-                </div>
-              )}
+                </select>
+              </div>
 
-              <form onSubmit={handleSendMessage} className="flex gap-3">
+              {/* Project/Service Order */}
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-2">
+                  {serviceOrderSingular} relacionado *
+                </label>
+                <select
+                  required
+                  value={serviceOrderId}
+                  onChange={(e) => setServiceOrderId(e.target.value)}
+                  className="block w-full rounded-lg border border-surface bg-background px-4 py-3 text-white focus:border-cs-gold focus:outline-none focus:ring-1 focus:ring-cs-gold transition-colors"
+                >
+                  <option value="">Selecione...</option>
+                  {serviceOrderOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Title with KB suggestions */}
+              <div className="relative">
+                <label className="block text-sm font-medium text-text-secondary mb-2">
+                  Resumo do problema *
+                </label>
                 <input
                   type="text"
+                  required
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="block w-full rounded-lg border border-surface bg-background px-4 py-3 text-white focus:border-cs-gold focus:outline-none focus:ring-1 focus:ring-cs-gold transition-colors"
+                  placeholder="Descreva brevemente o que está acontecendo..."
+                />
+
+                {/* KB suggestions dropdown */}
+                {(kbSuggestions.length > 0 || kbLoading) && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-surface border border-surface/50 rounded-lg shadow-xl z-10 overflow-hidden">
+                    <div className="px-3 py-2 border-b border-surface/50 flex items-center gap-2">
+                      <BookOpen size={14} className="text-cs-gold" />
+                      <p className="text-[11px] text-text-secondary uppercase tracking-wider">
+                        Artigos que podem ajudar
+                      </p>
+                      {kbLoading && (
+                        <Loader2 size={12} className="animate-spin text-cs-gold ml-auto" />
+                      )}
+                    </div>
+                    {kbSuggestions.map((article) => (
+                      <button
+                        key={article.id}
+                        type="button"
+                        onClick={() => setOpenArticle(article)}
+                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-background/50 transition-colors text-left group"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-white group-hover:text-cs-gold transition-colors">
+                            {article.title}
+                          </p>
+                          <p className="text-xs text-text-secondary mt-0.5">
+                            {getDepartmentLabel(article.department)}
+                          </p>
+                        </div>
+                        <ChevronRight size={16} className="text-text-secondary shrink-0" />
+                      </button>
+                    ))}
+                    <div className="px-4 py-2 border-t border-surface/50">
+                      <p className="text-[11px] text-text-secondary">
+                        Nenhum artigo resolveu? Continue preenchendo o formulário abaixo.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Priority */}
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-2">
+                  Nível de urgência *
+                </label>
+                <select
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value as TicketPriority)}
+                  className="block w-full rounded-lg border border-surface bg-background px-4 py-3 text-white focus:border-cs-gold focus:outline-none focus:ring-1 focus:ring-cs-gold transition-colors"
+                >
+                  <option value="low">Baixa — pode aguardar</option>
+                  <option value="medium">Média — incomoda, mas não paralisa</option>
+                  <option value="high">Alta — prejudica o andamento</option>
+                  <option value="critical">Crítica — operação parada</option>
+                </select>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-2">
+                  Descrição detalhada *
+                </label>
+                <textarea
+                  required
+                  rows={5}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="block w-full rounded-lg border border-surface bg-background px-4 py-3 text-white focus:border-cs-gold focus:outline-none focus:ring-1 focus:ring-cs-gold transition-colors resize-none"
+                  placeholder="Descreva o que está acontecendo, desde quando e quais passos você já tentou..."
+                />
+              </div>
+
+              {/* Attachments */}
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-2">
+                  Anexos (opcional)
+                </label>
+                <input
+                  ref={formFileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files)
+                      setFormAttachedFiles((prev) => [
+                        ...prev,
+                        ...Array.from(e.target.files!),
+                      ]);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => formFileInputRef.current?.click()}
+                  className="flex items-center gap-2 rounded-lg border border-dashed border-surface/80 bg-background/50 px-4 py-3 text-sm text-text-secondary hover:text-white hover:border-cs-gold/50 transition-colors w-full"
+                >
+                  <Paperclip size={16} />
+                  Clique para adicionar arquivos
+                </button>
+                {formAttachedFiles.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {formAttachedFiles.map((file, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-1.5 bg-surface border border-surface/50 rounded px-2 py-1 text-xs text-white"
+                      >
+                        <Paperclip size={12} className="text-cs-gold shrink-0" />
+                        <span className="max-w-[140px] truncate">{file.name}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFormAttachedFiles((prev) =>
+                              prev.filter((_, idx) => idx !== i)
+                            )
+                          }
+                          className="text-text-secondary hover:text-red-400 transition-colors ml-1"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end pt-6 border-t border-surface/50">
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="flex items-center gap-2 rounded-lg bg-cs-gold text-black py-3 px-8 font-bold shadow-lg hover:bg-opacity-90 transition-all disabled:opacity-50"
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="animate-spin" size={20} />
+                  ) : (
+                    "Enviar Chamado"
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── List view ───────────────────────────────────────────────────────────────
+  return (
+    <div className="flex-1 bg-background p-8">
+      <div className="max-w-6xl mx-auto space-y-8">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-surface p-6 rounded-2xl border border-surface/50 shadow-lg">
+          <div>
+            <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+              <Ticket className="text-cs-gold" size={28} />
+              Central de {supportMenuLabel}
+            </h2>
+            <p className="text-text-secondary mt-1">
+              Acompanhe o status dos seus chamados.
+            </p>
+          </div>
+          <button
+            onClick={() => setView("create")}
+            className="flex items-center gap-2 rounded-lg bg-cs-gold text-black py-3 px-6 font-bold shadow-lg hover:bg-opacity-90 transition-all"
+          >
+            <Plus size={20} /> Novo Chamado
+          </button>
+        </div>
+
+        {/* Active ticket detail */}
+        {activeTicketId && currentTicket && (
+          <div className="bg-surface border border-surface/50 rounded-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-3 flex-wrap">
+                {getStatusBadge(currentTicket.status)}
+                <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider bg-background px-2 py-1 rounded">
+                  {priorityLabels[currentTicket.priority]}
+                </span>
+                <span className="text-[10px] font-bold uppercase px-2 py-1 rounded border bg-purple-500/10 text-purple-400 border-purple-500/20">
+                  {getDepartmentLabel(currentTicket.department)}
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  setActiveTicketId(null);
+                  setMessages([]);
+                }}
+                className="flex items-center gap-2 text-text-secondary hover:text-white text-sm transition-colors"
+              >
+                <X size={16} /> Fechar
+              </button>
+            </div>
+
+            <h3 className="text-xl font-bold text-white">{currentTicket.title}</h3>
+            <p className="text-sm text-text-secondary">
+              {currentTicket.description || "Sem descrição."}
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-text-secondary">
+              <div>
+                <span className="block text-[10px] uppercase tracking-wider mb-1">
+                  {serviceOrderSingular}
+                </span>
+                <span className="text-white">
+                  {currentTicket.service_orders?.quotes?.title || "Não especificado"}
+                </span>
+              </div>
+              <div>
+                <span className="block text-[10px] uppercase tracking-wider mb-1">
+                  Prazo SLA
+                </span>
+                <span className="text-white">
+                  {currentTicket.sla_deadline
+                    ? new Date(currentTicket.sla_deadline).toLocaleString("pt-BR", {
+                        dateStyle: "short",
+                        timeStyle: "short",
+                      })
+                    : "Não definido"}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-4 border-t border-surface/50">
+              {/* Messages */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-bold text-white">Histórico</h4>
+                <div className="max-h-80 overflow-y-auto space-y-4 pr-2 custom-scrollbar">
+                  {messages.length === 0 ? (
+                    <p className="text-sm text-text-secondary">
+                      Nenhuma mensagem ainda.
+                    </p>
+                  ) : (
+                    messages.map((msg) => {
+                      const isMe = msg.sender_id === currentUserId;
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}
+                        >
+                          {!isMe && msg.is_staff && (
+                            <div className="flex items-center gap-1.5 mb-1 px-1">
+                              <span className="text-[10px] font-medium text-text-secondary">
+                                {msg.sender_name}
+                              </span>
+                              <span className="text-[8px] bg-cs-green/20 text-cs-green px-1.5 py-0.5 rounded uppercase">
+                                Equipe
+                              </span>
+                            </div>
+                          )}
+                          <div
+                            className={`max-w-[85%] rounded-2xl p-3 text-sm ${
+                              isMe
+                                ? "bg-cs-gold text-black rounded-tr-sm"
+                                : "bg-background border border-surface/50 text-white rounded-tl-sm"
+                            }`}
+                          >
+                            {msg.message}
+                            {msg.ticket_attachments && msg.ticket_attachments.length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                {msg.ticket_attachments.map((att) => (
+                                  <a
+                                    key={att.id}
+                                    href={att.file_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-2 text-xs bg-black/10 rounded px-2 py-1.5 hover:bg-black/20 transition-colors"
+                                  >
+                                    <Download size={12} className="shrink-0" />
+                                    <span className="truncate max-w-[160px]">{att.file_name}</span>
+                                    {att.file_size && (
+                                      <span className="opacity-60 shrink-0 ml-auto">
+                                        {formatFileSize(att.file_size)}
+                                      </span>
+                                    )}
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-text-secondary mt-1 px-1">
+                            {new Date(msg.created_at).toLocaleTimeString("pt-BR", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+              </div>
+
+              {/* Reply form */}
+              <form onSubmit={handleSendMessage} className="space-y-3">
+                <label className="block text-sm font-medium text-text-secondary">
+                  Responder
+                </label>
+                <textarea
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
-                  placeholder="Digite sua resposta..."
-                  className="flex-1 rounded-full border border-surface bg-background px-4 py-3 text-white focus:border-cs-green focus:outline-none focus:ring-1 focus:ring-cs-green text-sm transition-colors"
+                  rows={5}
+                  className="block w-full rounded-lg border border-surface bg-background px-4 py-3 text-white focus:border-cs-gold focus:outline-none focus:ring-1 focus:ring-cs-gold transition-colors resize-none"
+                  placeholder="Digite sua mensagem..."
                 />
+
+                {attachedFiles.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {attachedFiles.map((file, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-1.5 bg-surface border border-surface/50 rounded px-2 py-1 text-xs text-white"
+                      >
+                        <Paperclip size={12} className="text-cs-gold shrink-0" />
+                        <span className="max-w-[100px] truncate">{file.name}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setAttachedFiles((prev) =>
+                              prev.filter((_, idx) => idx !== i)
+                            )
+                          }
+                          className="text-text-secondary hover:text-red-400 transition-colors"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 <input
                   ref={fileInputRef}
@@ -600,198 +933,90 @@ export default function SuportePage() {
                   }}
                 />
 
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  title="Anexar arquivo"
-                  className="w-12 h-12 rounded-full border border-surface bg-surface text-text-secondary hover:text-white flex items-center justify-center transition-colors shrink-0"
-                >
-                  <Paperclip size={18} />
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={
-                    isSending || (!newMessage.trim() && attachedFiles.length === 0)
-                  }
-                  className="w-12 h-12 rounded-full bg-cs-green text-white flex items-center justify-center hover:bg-opacity-90 transition-all disabled:opacity-50 shrink-0"
-                >
-                  {isSending ? (
-                    <Loader2 className="animate-spin" size={18} />
-                  ) : (
-                    <Send size={18} className="ml-0.5" />
-                  )}
-                </button>
+                <div className="flex gap-3 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-2 rounded-lg border border-surface bg-surface text-text-secondary px-4 py-2.5 text-sm hover:text-white transition-colors"
+                  >
+                    <Paperclip size={16} /> Anexar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSending || (!newMessage.trim() && attachedFiles.length === 0)}
+                    className="flex items-center gap-2 rounded-lg bg-cs-gold text-black py-2.5 px-5 font-bold hover:bg-opacity-90 transition-all disabled:opacity-50"
+                  >
+                    {isSending ? (
+                      <Loader2 className="animate-spin" size={18} />
+                    ) : (
+                      <>
+                        <Send size={16} /> Enviar
+                      </>
+                    )}
+                  </button>
+                </div>
               </form>
             </div>
           </div>
-        </div>
-      </div>
-    );
-  }
+        )}
 
-  // ─── List view ───────────────────────────────────────────────────────────────
-  return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center bg-surface p-4 border border-surface/50 rounded-lg">
-        <div>
-          <h3 className="text-lg font-medium text-white flex items-center gap-2">
-            <Ticket className="text-cs-green" size={20} />
-            Central de {supportMenuLabel}
-          </h3>
-          <p className="text-xs text-text-secondary mt-1">
-            Gerenciamento de chamados e atendimento ao {clientSingular.toLowerCase()}.
-          </p>
-        </div>
-      </div>
+        {/* Ticket cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {loading ? (
+            <div className="col-span-full flex justify-center py-12">
+              <Loader2 className="animate-spin text-cs-gold" size={40} />
+            </div>
+          ) : tickets.length === 0 ? (
+            <div className="col-span-full bg-surface border border-surface/50 rounded-2xl p-12 text-center">
+              <Ticket size={48} className="mx-auto text-surface/50 mb-4" />
+              <h3 className="text-xl font-bold text-white mb-2">
+                Nenhum chamado aberto
+              </h3>
+              <p className="text-text-secondary">
+                Tudo funcionando. Se precisar de ajuda, clique em Novo Chamado.
+              </p>
+            </div>
+          ) : (
+            tickets.map((ticket) => (
+              <button
+                key={ticket.id}
+                onClick={() => setActiveTicketId(ticket.id)}
+                className={`text-left bg-surface border rounded-2xl p-6 hover:border-cs-gold/30 transition-colors flex flex-col h-full shadow-md ${
+                  activeTicketId === ticket.id
+                    ? "border-cs-gold/50"
+                    : "border-surface/50"
+                }`}
+              >
+                <div className="flex justify-between items-start mb-4">
+                  {getStatusBadge(ticket.status)}
+                  <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider bg-background px-2 py-1 rounded">
+                    {priorityLabels[ticket.priority]}
+                  </span>
+                </div>
 
-      <div className="flex gap-3 flex-wrap">
-        <div className="flex items-center gap-2 bg-surface border border-surface/50 rounded-lg px-3 py-2">
-          <Filter size={14} className="text-text-secondary" />
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="bg-transparent text-sm text-white focus:outline-none cursor-pointer"
-          >
-            <option value="all">Todos os status</option>
-            {statusOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
+                <h4 className="text-lg font-bold text-white mb-2 line-clamp-2">
+                  {ticket.title}
+                </h4>
+                <p className="text-sm text-text-secondary mb-4 line-clamp-3 flex-1">
+                  {ticket.description}
+                </p>
 
-        <div className="flex items-center gap-2 bg-surface border border-surface/50 rounded-lg px-3 py-2">
-          <Filter size={14} className="text-text-secondary" />
-          <select
-            value={filterDepartment}
-            onChange={(e) => setFilterDepartment(e.target.value)}
-            className="bg-transparent text-sm text-white focus:outline-none cursor-pointer"
-          >
-            <option value="all">Todos os departamentos</option>
-            {DEPARTMENTS.map((d) => (
-              <option key={d.value} value={d.value}>
-                {d.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-text-secondary">
-            <thead className="bg-background/50 text-xs uppercase">
-              <tr>
-                <th className="px-6 py-4 font-medium">Chamado</th>
-                <th className="px-6 py-4 font-medium">
-                  {clientSingular} / {serviceOrderSingular}
-                </th>
-                <th className="px-6 py-4 font-medium">Departamento</th>
-                <th className="px-6 py-4 font-medium">Prioridade</th>
-                <th className="px-6 py-4 font-medium">Prazo SLA</th>
-                <th className="px-6 py-4 font-medium">Status</th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-surface/50">
-              {loadingList ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center">
-                    <Loader2 className="animate-spin mx-auto text-cs-green" size={24} />
-                  </td>
-                </tr>
-              ) : pageError ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-red-400">
-                    {pageError}
-                  </td>
-                </tr>
-              ) : filteredTickets.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-text-secondary">
-                    Nenhum chamado encontrado.
-                  </td>
-                </tr>
-              ) : (
-                filteredTickets.map((ticket) => {
-                  const isOverdue =
-                    !!ticket.sla_deadline &&
-                    new Date(ticket.sla_deadline) < new Date() &&
-                    ticket.status !== "resolved";
-                  const isUnread = !lastViewedMap[ticket.id] && ticket.status !== "resolved";
-
-                  return (
-                    <tr
-                      key={ticket.id}
-                      onClick={() => openTicketDetails(ticket)}
-                      className="hover:bg-background/50 transition-colors cursor-pointer"
-                    >
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          {isUnread && (
-                            <Circle size={8} className="text-cs-green fill-cs-green shrink-0" />
-                          )}
-                          <div>
-                            <p className="font-bold text-white">{ticket.title}</p>
-                            <p className="text-[10px] text-text-secondary mt-1 uppercase">
-                              #{ticket.id.split("-")[0]}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-
-                      <td className="px-6 py-4">
-                        <p className="font-medium text-white">
-                          {ticket.clients?.company_name || "Não informado"}
-                        </p>
-                        <p className="text-xs text-cs-gold truncate max-w-[160px]">
-                          {ticket.service_orders?.quotes?.title || "Não vinculado"}
-                        </p>
-                      </td>
-
-                      <td className="px-6 py-4">
-                        <span className="px-2 py-1 rounded text-[10px] font-bold uppercase border bg-purple-500/10 text-purple-400 border-purple-500/20">
-                          {getDepartmentLabel(ticket.department)}
-                        </span>
-                      </td>
-
-                      <td className="px-6 py-4">{getPriorityBadge(ticket.priority)}</td>
-
-                      <td className="px-6 py-4">
-                        <div
-                          className={`flex items-center gap-1.5 text-xs font-medium ${
-                            isOverdue ? "text-red-400" : "text-text-secondary"
-                          }`}
-                        >
-                          <Clock size={14} />
-                          {ticket.sla_deadline
-                            ? new Date(ticket.sla_deadline).toLocaleString("pt-BR", {
-                                day: "2-digit",
-                                month: "2-digit",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })
-                            : "Não definido"}
-                        </div>
-                      </td>
-
-                      <td className="px-6 py-4">
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusBadgeClass(
-                            ticket.status
-                          )}`}
-                        >
-                          {statusLabels[ticket.status]}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                <div className="pt-4 border-t border-surface/50 mt-auto">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold uppercase px-2 py-0.5 rounded border bg-purple-500/10 text-purple-400 border-purple-500/20">
+                      {getDepartmentLabel(ticket.department)}
+                    </span>
+                    <p className="text-[10px] text-text-secondary">
+                      {new Date(ticket.created_at).toLocaleDateString("pt-BR")}
+                    </p>
+                  </div>
+                  <p className="text-xs font-medium text-cs-gold truncate mt-2">
+                    {ticket.service_orders?.quotes?.title || "Projeto não especificado"}
+                  </p>
+                </div>
+              </button>
+            ))
+          )}
         </div>
       </div>
     </div>
