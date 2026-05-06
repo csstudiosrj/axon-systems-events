@@ -959,10 +959,14 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
 
   const emp = employees.find(e => e.id === (payroll?.employee_id ?? f.employee_id));
 
-  // Busca orçamentos aprovados do funcionário
+  // Busca orçamentos aprovados e ainda não comissionados
   useEffect(() => {
     if (!f.employee_id) { setQuotes([]); return; }
-    void supabase.from("quotes").select("id,title,final_amount,status").eq("salesperson_id", f.employee_id).eq("status", "approved")
+    void supabase.from("quotes")
+      .select("id,title,final_amount,status")
+      .eq("salesperson_id", f.employee_id)
+      .eq("status", "approved")
+      .is("commission_paid_at", null)
       .then(({ data }) => setQuotes((data ?? []) as Quote[]));
   }, [f.employee_id]);
 
@@ -1009,13 +1013,37 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
 
   async function closePayroll() {
     if (!payroll) return; setClosing(true);
-    await supabase.from("hr_payrolls").update({ status: "closed", confirmed_at: new Date().toISOString() }).eq("id", payroll.id);
+    const now = new Date().toISOString();
+
+    // 1. Fecha a folha
+    const { error: e1 } = await supabase.from("hr_payrolls")
+      .update({ status: "closed", confirmed_at: now })
+      .eq("id", payroll.id);
+    if (e1) { showToast(e1.message, "error"); setClosing(false); return; }
+
+    // 2. Injeta no financeiro
     await supabase.from("financial_transactions").insert([{
       description: `Folha ${mName(payroll.reference_month)}/${payroll.reference_year} — ${payroll.hr_employee_details.full_name}`,
       type: "expense", category: "Folha de Pagamento", amount: payroll.final_net_value, status: "pending",
       due_date: new Date(payroll.reference_year, payroll.reference_month - 1, 5).toISOString().split("T")[0],
     }]);
-    showToast("Folha fechada e enviada ao financeiro.", "success");
+
+    // 3. Marca cada orçamento como comissionado com trilha de auditoria
+    if (quotes.length > 0) {
+      const commissionedEmp = employees.find(e => e.id === payroll.employee_id);
+      const rate = (commissionedEmp?.commission_rate ?? 0) / 100;
+      await Promise.all(
+        quotes.map(q =>
+          supabase.from("quotes").update({
+            commission_paid_at:    now,
+            commission_payroll_id: payroll.id,
+            commission_amount:     +(q.final_amount * rate).toFixed(2),
+          }).eq("id", q.id)
+        )
+      );
+    }
+
+    showToast("Folha fechada e comissões registradas.", "success");
     setClosing(false); onSaved();
   }
 
