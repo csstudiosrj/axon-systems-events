@@ -129,7 +129,7 @@ function normalizeText(value: string | null | undefined) {
 
 function removeInstallmentSuffix(value: string | null | undefined) {
   return (value || "")
-    .replace(/[-–—]?\s*parcela\s*\d+\s*\/\s*\d+/i, "")
+    .replace(/[-â€“â€”]?\s*parcela\s*\d+\s*\/\s*\d+/i, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -209,7 +209,7 @@ function validateFile(file: File): string | null {
   const mimeOk = ALLOWED_MIME_TYPES.includes(file.type);
   const extOk = ALLOWED_EXTENSIONS.includes(ext);
   if (!mimeOk && !extOk) {
-    return `Formato não permitido. Utilize PDF, JPG, JPEG, PNG ou WEBP.`;
+    return `Formato nÃ£o permitido. Utilize PDF, JPG, JPEG, PNG ou WEBP.`;
   }
   return null;
 }
@@ -234,7 +234,7 @@ export default function PortalFaturasPage() {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [openActionPanel, setOpenActionPanel] = useState<ActionPanelKey>(null);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
-  // Controla quais IDs já foram marcados como lidos nesta sessão
+  // Controla quais IDs jÃ¡ foram marcados como lidos nesta sessÃ£o
   const readTransactionIdsRef = useRef<Set<string>>(new Set());
 
   const [paymentForm, setPaymentForm] = useState({
@@ -256,9 +256,9 @@ export default function PortalFaturasPage() {
   const invoiceSingular = labels?.entity_invoice_singular || "Fatura";
   const invoicePlural = labels?.entity_invoice_plural || "Faturas";
   const clientSingular = labels?.entity_client_singular || "Cliente";
-  const quoteSingular = labels?.entity_quote_singular || "Orçamento";
+  const quoteSingular = labels?.entity_quote_singular || "OrÃ§amento";
   const serviceOrderSingular =
-    labels?.entity_service_order_singular || "Ordem de Serviço";
+    labels?.entity_service_order_singular || "Ordem de ServiÃ§o";
   const brandName = companyProfile?.company_name || "ARXUM Systems";
   const brandColor = companyProfile?.primary_color || "#138946";
   const currencyCode = systemPreferences?.currency_code || "BRL";
@@ -321,7 +321,7 @@ export default function PortalFaturasPage() {
       open: "Em aberto",
       awaiting_client: "Aguardando cliente",
       awaiting_finance: "Aguardando financeiro",
-      under_review: "Em análise",
+      under_review: "Em anÃ¡lise",
       confirmed: "Confirmado",
       disputed: "Contestado",
       resolved: "Resolvido",
@@ -333,11 +333,11 @@ export default function PortalFaturasPage() {
   const translateDisputeCategory = useCallback((value: string | null) => {
     const map: Record<string, string> = {
       amount_divergence: "Valor divergente",
-      duplicate_charge: "Cobrança duplicada",
-      service_not_delivered: "Serviço não entregue",
+      duplicate_charge: "CobranÃ§a duplicada",
+      service_not_delivered: "ServiÃ§o nÃ£o entregue",
       wrong_due_date: "Data incorreta",
       wrong_document: "Documento incorreto",
-      unknown_charge: "Cobrança desconhecida",
+      unknown_charge: "CobranÃ§a desconhecida",
       other: "Outro",
     };
     return map[value || ""] || value || "-";
@@ -345,19 +345,19 @@ export default function PortalFaturasPage() {
 
   const translateEventType = useCallback((value: string) => {
     const map: Record<string, string> = {
-      charge_created: "Cobrança criada",
+      charge_created: "CobranÃ§a criada",
       payment_reported: "Pagamento informado",
       payment_receipt_attached: "Comprovante anexado",
-      dispute_opened: "Contestação aberta",
-      dispute_comment: "Comentário da contestação",
-      finance_comment: "Comentário do financeiro",
+      dispute_opened: "ContestaÃ§Ã£o aberta",
+      dispute_comment: "ComentÃ¡rio da contestaÃ§Ã£o",
+      finance_comment: "ComentÃ¡rio do financeiro",
       payment_confirmed: "Pagamento confirmado",
       payment_rejected: "Pagamento rejeitado",
-      charge_adjusted: "Cobrança ajustada",
-      charge_cancelled: "Cobrança cancelada",
+      charge_adjusted: "CobranÃ§a ajustada",
+      charge_cancelled: "CobranÃ§a cancelada",
       status_changed: "Status alterado",
-      resolution_added: "Resolução registrada",
-      attachment_added: "Anexo incluído",
+      resolution_added: "ResoluÃ§Ã£o registrada",
+      attachment_added: "Anexo incluÃ­do",
     };
     return map[value] || value;
   }, []);
@@ -366,8 +366,8 @@ export default function PortalFaturasPage() {
     const map: Record<string, string> = {
       pix: "PIX",
       boleto: "Boleto",
-      transferencia: "Transferência",
-      cartao: "Cartão",
+      transferencia: "TransferÃªncia",
+      cartao: "CartÃ£o",
       outro: "Outro",
     };
     return map[value || ""] || value || "-";
@@ -377,7 +377,7 @@ export default function PortalFaturasPage() {
     const map: Record<string, string> = {
       valor: "Valor",
       forma_pagamento: "Forma de pagamento",
-      referencia: "Referência",
+      referencia: "ReferÃªncia",
       categoria: "Categoria",
       motivo: "Motivo",
       tipo_pagamento: "Tipo de pagamento",
@@ -412,7 +412,7 @@ export default function PortalFaturasPage() {
     [quoteSingular, serviceOrderSingular]
   );
 
-  // ── Fetch principal ───────────────────────────────────────────────────────
+  // â”€â”€ Fetch principal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const fetchTransactions = useCallback(async () => {
     if (!resolvedClientId) {
       setTransactions([]);
@@ -434,11 +434,11 @@ export default function PortalFaturasPage() {
       .order("created_at", { ascending: true });
 
     if (error) {
-      console.error("Erro ao carregar cobranças:", error);
+      console.error("Erro ao carregar cobranÃ§as:", error);
       setTransactions([]);
       setLoading(false);
       showToast(
-        "Não foi possível carregar as cobranças. Tente novamente.",
+        "NÃ£o foi possÃ­vel carregar as cobranÃ§as. Tente novamente.",
         "error"
       );
       return;
@@ -447,7 +447,7 @@ export default function PortalFaturasPage() {
     const rows = dedupeTransactions((data || []) as FinancialTransaction[]);
     setTransactions(rows);
 
-    // Recalcula notificações excluindo IDs já vistos nesta sessão
+    // Recalcula notificaÃ§Ãµes excluindo IDs jÃ¡ vistos nesta sessÃ£o
     const unread = rows.filter(
       (t) =>
         t.finance_last_action_at &&
@@ -479,7 +479,7 @@ export default function PortalFaturasPage() {
     ]);
 
     if (eventsResult.error) {
-      console.error("Erro ao carregar histórico:", eventsResult.error);
+      console.error("Erro ao carregar histÃ³rico:", eventsResult.error);
       setEvents([]);
     } else {
       setEvents((eventsResult.data || []) as FinancialEvent[]);
@@ -496,7 +496,7 @@ export default function PortalFaturasPage() {
     setDetailLoading(false);
   }, []);
 
-  // ── Marcar como lida ──────────────────────────────────────────────────────
+  // â”€â”€ Marcar como lida â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const markTransactionAsRead = useCallback(
     async (transactionId: string) => {
       if (readTransactionIdsRef.current.has(transactionId)) return;
@@ -539,7 +539,7 @@ export default function PortalFaturasPage() {
     };
   }, []);
 
-  // ── Realtime: atualização em tempo real do portal do cliente ──────────────
+  // â”€â”€ Realtime: atualizaÃ§Ã£o em tempo real do portal do cliente â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     if (!resolvedClientId) return;
 
@@ -565,7 +565,7 @@ export default function PortalFaturasPage() {
           table: "financial_transaction_events",
         },
         (payload) => {
-          // Atualiza detalhes apenas se o evento pertence à fatura selecionada
+          // Atualiza detalhes apenas se o evento pertence Ã  fatura selecionada
           setSelectedId((currentSelectedId) => {
             if (
               currentSelectedId &&
@@ -605,16 +605,16 @@ export default function PortalFaturasPage() {
     };
   }, [resolvedClientId, fetchTransactions, fetchDetails]);
 
-  // ── Título dinâmico ───────────────────────────────────────────────────────
+  // â”€â”€ TÃ­tulo dinÃ¢mico â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     if (unreadNotifications > 0) {
-      document.title = `(${unreadNotifications}) Atualizações em ${invoicePlural} | ${brandName}`;
+      document.title = `(${unreadNotifications}) AtualizaÃ§Ãµes em ${invoicePlural} | ${brandName}`;
     } else {
       document.title = `${invoicePlural} | ${brandName}`;
     }
   }, [unreadNotifications, invoicePlural, brandName]);
 
-  // ── Grupos ────────────────────────────────────────────────────────────────
+  // â”€â”€ Grupos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const groupedInvoices = useMemo<InvoiceGroup[]>(() => {
     const map = new Map<string, InvoiceGroup>();
     for (const item of transactions) {
@@ -676,7 +676,7 @@ export default function PortalFaturasPage() {
     }
   }, [groupedInvoices, selectedId]);
 
-  // Ao trocar de fatura: busca detalhes, limpa formulários, marca como lida
+  // Ao trocar de fatura: busca detalhes, limpa formulÃ¡rios, marca como lida
   useEffect(() => {
     if (selectedId) {
       void fetchDetails(selectedId);
@@ -693,7 +693,7 @@ export default function PortalFaturasPage() {
     }
   }, [selectedId, fetchDetails, markTransactionAsRead]);
 
-  // ── Signed URLs via ref — sem loop ────────────────────────────────────────
+  // â”€â”€ Signed URLs via ref â€” sem loop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     if (attachments.length === 0) return;
 
@@ -724,7 +724,7 @@ export default function PortalFaturasPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attachments]);
 
-  // ── Derivados ─────────────────────────────────────────────────────────────
+  // â”€â”€ Derivados â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const selectedTransaction = useMemo(
     () => transactions.find((item) => item.id === selectedId) || null,
     [transactions, selectedId]
@@ -807,13 +807,13 @@ export default function PortalFaturasPage() {
     if (isDisputed)
       return (
         <span className="inline-flex rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-semibold text-orange-300">
-          Contestação
+          ContestaÃ§Ã£o
         </span>
       );
     if (isAwaiting)
       return (
         <span className="inline-flex rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300">
-          Em análise
+          Em anÃ¡lise
         </span>
       );
     if (isOverdue)
@@ -829,7 +829,7 @@ export default function PortalFaturasPage() {
     );
   }, []);
 
-  // ── File handler centralizado ─────────────────────────────────────────────
+  // â”€â”€ File handler centralizado â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleFileChange = (
     file: File | null,
     setter: React.Dispatch<React.SetStateAction<File | null>>
@@ -847,7 +847,7 @@ export default function PortalFaturasPage() {
     setter(file);
   };
 
-  // ── Handler: Notificar Pagamento ──────────────────────────────────────────
+  // â”€â”€ Handler: Notificar Pagamento â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleReportPayment = async () => {
     if (!selectedTransaction || submitting) return;
 
@@ -879,8 +879,8 @@ export default function PortalFaturasPage() {
           visibility: "shared",
           event_type: "payment_reported",
           title: isPartialPayment
-            ? "Notificação de Pagamento Parcial Realizado"
-            : "Notificação de Pagamento Realizado",
+            ? "NotificaÃ§Ã£o de Pagamento Parcial Realizado"
+            : "NotificaÃ§Ã£o de Pagamento Realizado",
           message: paymentForm.message.trim(),
           metadata: {
             valor: amountNum,
@@ -965,18 +965,18 @@ export default function PortalFaturasPage() {
 
       if (isPartialPayment) {
         showToast(
-          `Pagamento parcial de ${currency(amountNum)} registrado. O financeiro analisará o valor informado.`,
+          `Pagamento parcial de ${currency(amountNum)} registrado. O financeiro analisarÃ¡ o valor informado.`,
           "success"
         );
       } else {
-        showToast("Notificação de pagamento enviada com sucesso.", "success");
+        showToast("NotificaÃ§Ã£o de pagamento enviada com sucesso.", "success");
       }
 
       setOpenActionPanel(null);
       setPaymentForm({ amount: "", method: "pix", reference: "", message: "" });
       setPaymentFile(null);
-      // O Realtime já vai atualizar automaticamente,
-      // mas chamamos fetch para garantir consistência imediata
+      // O Realtime jÃ¡ vai atualizar automaticamente,
+      // mas chamamos fetch para garantir consistÃªncia imediata
       await fetchTransactions();
       if (selectedTransaction.id)
         await fetchDetails(selectedTransaction.id);
@@ -989,16 +989,16 @@ export default function PortalFaturasPage() {
     }
   };
 
-  // ── Handler: Registrar Contestação ───────────────────────────────────────
+  // â”€â”€ Handler: Registrar ContestaÃ§Ã£o â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleOpenDispute = async () => {
     if (!selectedTransaction || submitting) return;
 
     if (!disputeForm.reason.trim()) {
-      showToast("Preencha o motivo resumido da contestação.", "error");
+      showToast("Preencha o motivo resumido da contestaÃ§Ã£o.", "error");
       return;
     }
     if (!disputeForm.message.trim()) {
-      showToast("Preencha o detalhamento da contestação.", "error");
+      showToast("Preencha o detalhamento da contestaÃ§Ã£o.", "error");
       return;
     }
 
@@ -1014,7 +1014,7 @@ export default function PortalFaturasPage() {
           author_type: "client",
           visibility: "shared",
           event_type: "dispute_opened",
-          title: "Abertura de Contestação Formal",
+          title: "Abertura de ContestaÃ§Ã£o Formal",
           message: disputeForm.message.trim(),
           metadata: {
             categoria: disputeForm.category,
@@ -1041,7 +1041,7 @@ export default function PortalFaturasPage() {
 
         if (uploadError) {
           showToast(
-            `Contestação registrada, mas upload da evidência falhou: ${uploadError.message}`,
+            `ContestaÃ§Ã£o registrada, mas upload da evidÃªncia falhou: ${uploadError.message}`,
             "error"
           );
         } else {
@@ -1062,7 +1062,7 @@ export default function PortalFaturasPage() {
 
           if (attachError) {
             showToast(
-              `Evidência enviada, mas erro ao registrar o anexo: ${attachError.message}`,
+              `EvidÃªncia enviada, mas erro ao registrar o anexo: ${attachError.message}`,
               "error"
             );
           }
@@ -1083,14 +1083,14 @@ export default function PortalFaturasPage() {
 
       if (updateError) {
         showToast(
-          `Contestação registrada, mas erro ao atualizar o status: ${updateError.message}`,
+          `ContestaÃ§Ã£o registrada, mas erro ao atualizar o status: ${updateError.message}`,
           "error"
         );
         setSubmitting(false);
         return;
       }
 
-      showToast("Contestação formal registrada com sucesso.", "success");
+      showToast("ContestaÃ§Ã£o formal registrada com sucesso.", "success");
       setOpenActionPanel(null);
       setDisputeForm({
         category: "amount_divergence",
@@ -1126,7 +1126,7 @@ export default function PortalFaturasPage() {
       setSelectedId(selectedGroup.items[selectedIndexInGroup + 1].id);
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   return (
     <main className="min-h-screen bg-[#0b0d12] px-4 py-5 text-white sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-7xl">
@@ -1169,8 +1169,8 @@ export default function PortalFaturasPage() {
                         <Bell size={14} />
                         {unreadNotifications}{" "}
                         {unreadNotifications === 1
-                          ? "Atualização"
-                          : "Atualizações"}
+                          ? "AtualizaÃ§Ã£o"
+                          : "AtualizaÃ§Ãµes"}
                       </div>
                     )}
                   </div>
@@ -1178,8 +1178,8 @@ export default function PortalFaturasPage() {
                     {invoicePlural}
                   </h1>
                   <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-300 sm:text-base">
-                    Gestão financeira centralizada. Acompanhe liquidações, anexe
-                    comprovantes oficiais e registre contestações formais pelo
+                    GestÃ£o financeira centralizada. Acompanhe liquidaÃ§Ãµes, anexe
+                    comprovantes oficiais e registre contestaÃ§Ãµes formais pelo
                     portal do {clientSingular.toLowerCase()}.
                   </p>
                 </div>
@@ -1225,10 +1225,10 @@ export default function PortalFaturasPage() {
             <section className="rounded-[28px] border border-white/10 bg-white/[0.04] p-10 text-center shadow-[0_20px_70px_rgba(0,0,0,0.35)]">
               <FileText className="mx-auto mb-4 text-zinc-500" size={44} />
               <h2 className="text-xl font-semibold text-white">
-                Nenhuma cobrança encontrada
+                Nenhuma cobranÃ§a encontrada
               </h2>
               <p className="mt-2 text-sm text-zinc-400">
-                Não há registros financeiros vinculados ao seu cadastro.
+                NÃ£o hÃ¡ registros financeiros vinculados ao seu cadastro.
               </p>
             </section>
           ) : (
@@ -1237,10 +1237,10 @@ export default function PortalFaturasPage() {
               <aside className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.04] shadow-[0_20px_70px_rgba(0,0,0,0.35)]">
                 <div className="border-b border-white/10 px-5 py-4">
                   <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-zinc-200">
-                    Cobranças
+                    CobranÃ§as
                   </h2>
                   <p className="mt-1 text-xs text-zinc-500">
-                    {summary.totalGroups} Grupos · {summary.totalCount} Itens
+                    {summary.totalGroups} Grupos Â· {summary.totalCount} Itens
                   </p>
                 </div>
                 <div className="custom-scrollbar max-h-[78vh] overflow-y-auto">
@@ -1367,11 +1367,11 @@ export default function PortalFaturasPage() {
                 </div>
               </aside>
 
-              {/* Área de Detalhes */}
+              {/* Ãrea de Detalhes */}
               <section className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.04] shadow-[0_20px_70px_rgba(0,0,0,0.35)]">
                 {!selectedTransaction ? (
                   <div className="p-8 text-sm italic text-zinc-400">
-                    Selecione uma cobrança para visualizar os detalhes.
+                    Selecione uma cobranÃ§a para visualizar os detalhes.
                   </div>
                 ) : (
                   <div className="flex h-full flex-col">
@@ -1427,7 +1427,7 @@ export default function PortalFaturasPage() {
                             }
                             className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold transition hover:bg-white/10 disabled:opacity-40"
                           >
-                            Próxima <ChevronRight size={16} />
+                            PrÃ³xima <ChevronRight size={16} />
                           </button>
                         </div>
                       )}
@@ -1438,7 +1438,7 @@ export default function PortalFaturasPage() {
                         {/* Resumo */}
                         <section className="rounded-[24px] border border-white/10 bg-black/15 p-5">
                           <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-zinc-200">
-                            Resumo da Cobrança
+                            Resumo da CobranÃ§a
                           </h3>
                           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                             <div>
@@ -1465,13 +1465,13 @@ export default function PortalFaturasPage() {
                               selectedTransaction.dispute_status !== "none" && (
                                 <div>
                                   <p className="text-[11px] uppercase tracking-widest text-zinc-500">
-                                    Status da Contestação
+                                    Status da ContestaÃ§Ã£o
                                   </p>
                                   <p className="mt-1 text-sm font-medium text-orange-300">
                                     {translateDisputeCategory(
                                       selectedTransaction.dispute_category
                                     )}{" "}
-                                    —{" "}
+                                    â€”{" "}
                                     {selectedTransaction.dispute_status}
                                   </p>
                                 </div>
@@ -1500,7 +1500,7 @@ export default function PortalFaturasPage() {
                               )}
                             <div className="md:col-span-2">
                               <p className="text-[11px] uppercase tracking-widest text-zinc-500">
-                                Observações do Financeiro
+                                ObservaÃ§Ãµes do Financeiro
                               </p>
                               <p className="mt-1 text-sm leading-relaxed text-white">
                                 {selectedTransaction.resolution_notes ||
@@ -1511,11 +1511,11 @@ export default function PortalFaturasPage() {
                           </div>
                         </section>
 
-                        {/* Histórico */}
+                        {/* HistÃ³rico */}
                         <section className="rounded-[24px] border border-white/10 bg-black/15 p-5">
                           <div className="mb-4 flex items-center justify-between">
                             <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-zinc-200">
-                              Histórico de Interações
+                              HistÃ³rico de InteraÃ§Ãµes
                             </h3>
                             {detailLoading && (
                               <Loader2
@@ -1527,7 +1527,7 @@ export default function PortalFaturasPage() {
                           <div className="space-y-3">
                             {events.length === 0 ? (
                               <p className="text-sm italic text-zinc-500">
-                                Nenhuma interação registrada.
+                                Nenhuma interaÃ§Ã£o registrada.
                               </p>
                             ) : (
                               events.map((ev) => (
@@ -1595,7 +1595,7 @@ export default function PortalFaturasPage() {
                           <div className="mt-4 space-y-3">
                             {attachments.length === 0 ? (
                               <p className="text-sm italic text-zinc-500">
-                                Nenhum anexo disponível.
+                                Nenhum anexo disponÃ­vel.
                               </p>
                             ) : (
                               attachments.map((file) => (
@@ -1608,7 +1608,7 @@ export default function PortalFaturasPage() {
                                       {file.file_name}
                                     </p>
                                     <p className="text-[10px] font-bold uppercase text-zinc-600">
-                                      {file.attachment_type} ·{" "}
+                                      {file.attachment_type} Â·{" "}
                                       {formatDateTime(file.created_at)}
                                     </p>
                                   </div>
@@ -1637,7 +1637,7 @@ export default function PortalFaturasPage() {
                         </section>
                       </div>
 
-                      {/* Painéis de Ação */}
+                      {/* PainÃ©is de AÃ§Ã£o */}
                       <aside className="space-y-4">
                         {/* Notificar Pagamento */}
                         <div
@@ -1664,7 +1664,7 @@ export default function PortalFaturasPage() {
                                   Notificar Pagamento
                                 </h3>
                                 <p className="text-[11px] text-zinc-500">
-                                  Informar liquidação desta parcela
+                                  Informar liquidaÃ§Ã£o desta parcela
                                 </p>
                               </div>
                             </div>
@@ -1707,10 +1707,10 @@ export default function PortalFaturasPage() {
                                       selectedTransaction.amount || 0
                                     ) && (
                                     <p className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] font-bold text-amber-400">
-                                      ⚠ Valor inferior ao devido (
+                                      âš  Valor inferior ao devido (
                                       {currency(selectedTransaction.amount)}).
-                                      Será registrado como pagamento parcial e
-                                      encaminhado ao financeiro para análise.
+                                      SerÃ¡ registrado como pagamento parcial e
+                                      encaminhado ao financeiro para anÃ¡lise.
                                     </p>
                                   )}
                               </div>
@@ -1732,16 +1732,16 @@ export default function PortalFaturasPage() {
                                   <option value="pix">PIX</option>
                                   <option value="boleto">Boleto</option>
                                   <option value="transferencia">
-                                    Transferência
+                                    TransferÃªncia
                                   </option>
-                                  <option value="cartao">Cartão</option>
+                                  <option value="cartao">CartÃ£o</option>
                                   <option value="outro">Outro</option>
                                 </select>
                               </div>
 
                               <div className="space-y-1.5">
                                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                                  Código de Referência / Autenticação{" "}
+                                  CÃ³digo de ReferÃªncia / AutenticaÃ§Ã£o{" "}
                                   <span className="normal-case text-zinc-600">
                                     (opcional)
                                   </span>
@@ -1755,14 +1755,14 @@ export default function PortalFaturasPage() {
                                       reference: e.target.value,
                                     }))
                                   }
-                                  placeholder="Ex: código E2E, NSU, ID da transação"
+                                  placeholder="Ex: cÃ³digo E2E, NSU, ID da transaÃ§Ã£o"
                                   className="w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm font-bold outline-none focus:border-emerald-500/50"
                                 />
                               </div>
 
                               <div className="space-y-1.5">
                                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                                  Descrição do Pagamento Realizado
+                                  DescriÃ§Ã£o do Pagamento Realizado
                                 </label>
                                 <textarea
                                   value={paymentForm.message}
@@ -1798,7 +1798,7 @@ export default function PortalFaturasPage() {
                                   />
                                 </label>
                                 <p className="text-[10px] text-zinc-600">
-                                  PDF, JPG, PNG ou WEBP · Máximo 5MB
+                                  PDF, JPG, PNG ou WEBP Â· MÃ¡ximo 5MB
                                 </p>
                               </div>
 
@@ -1813,14 +1813,14 @@ export default function PortalFaturasPage() {
                                     size={16}
                                   />
                                 ) : (
-                                  "Confirmar Notificação de Pagamento"
+                                  "Confirmar NotificaÃ§Ã£o de Pagamento"
                                 )}
                               </button>
                             </div>
                           )}
                         </div>
 
-                        {/* Contestação Formal */}
+                        {/* ContestaÃ§Ã£o Formal */}
                         <div
                           className={`rounded-[24px] border transition ${
                             openActionPanel === "dispute"
@@ -1842,10 +1842,10 @@ export default function PortalFaturasPage() {
                               </div>
                               <div className="text-left">
                                 <h3 className="text-sm font-semibold uppercase tracking-widest text-white">
-                                  Registrar Contestação Formal
+                                  Registrar ContestaÃ§Ã£o Formal
                                 </h3>
                                 <p className="text-[11px] text-zinc-500">
-                                  Divergência de valores, datas ou serviços
+                                  DivergÃªncia de valores, datas ou serviÃ§os
                                 </p>
                               </div>
                             </div>
@@ -1863,7 +1863,7 @@ export default function PortalFaturasPage() {
                             <div className="animate-in fade-in slide-in-from-top-2 space-y-4 p-5 pt-0">
                               <div className="space-y-1.5">
                                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                                  Categoria da Contestação
+                                  Categoria da ContestaÃ§Ã£o
                                 </label>
                                 <select
                                   value={disputeForm.category}
@@ -1879,10 +1879,10 @@ export default function PortalFaturasPage() {
                                     Valor divergente
                                   </option>
                                   <option value="duplicate_charge">
-                                    Cobrança duplicada
+                                    CobranÃ§a duplicada
                                   </option>
                                   <option value="service_not_delivered">
-                                    Serviço não entregue
+                                    ServiÃ§o nÃ£o entregue
                                   </option>
                                   <option value="wrong_due_date">
                                     Data incorreta
@@ -1891,7 +1891,7 @@ export default function PortalFaturasPage() {
                                     Documento incorreto
                                   </option>
                                   <option value="unknown_charge">
-                                    Cobrança desconhecida
+                                    CobranÃ§a desconhecida
                                   </option>
                                   <option value="other">Outro</option>
                                 </select>
@@ -1917,7 +1917,7 @@ export default function PortalFaturasPage() {
 
                               <div className="space-y-1.5">
                                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                                  Detalhamento da Contestação
+                                  Detalhamento da ContestaÃ§Ã£o
                                 </label>
                                 <textarea
                                   value={disputeForm.message}
@@ -1927,7 +1927,7 @@ export default function PortalFaturasPage() {
                                       message: e.target.value,
                                     }))
                                   }
-                                  placeholder="Descreva detalhadamente a divergência identificada..."
+                                  placeholder="Descreva detalhadamente a divergÃªncia identificada..."
                                   className="h-24 w-full resize-none rounded-xl border border-white/10 bg-black/20 p-3 text-sm font-medium outline-none focus:border-orange-500/50"
                                 />
                               </div>
@@ -1938,7 +1938,7 @@ export default function PortalFaturasPage() {
                                   <span className="truncate text-xs font-bold text-zinc-400">
                                     {disputeFile
                                       ? disputeFile.name
-                                      : "Anexar Evidência Documental"}
+                                      : "Anexar EvidÃªncia Documental"}
                                   </span>
                                   <input
                                     type="file"
@@ -1953,7 +1953,7 @@ export default function PortalFaturasPage() {
                                   />
                                 </label>
                                 <p className="text-[10px] text-zinc-600">
-                                  PDF, JPG, PNG ou WEBP · Máximo 5MB
+                                  PDF, JPG, PNG ou WEBP Â· MÃ¡ximo 5MB
                                 </p>
                               </div>
 
@@ -1968,7 +1968,7 @@ export default function PortalFaturasPage() {
                                     size={16}
                                   />
                                 ) : (
-                                  "Abrir Contestação Formal"
+                                  "Abrir ContestaÃ§Ã£o Formal"
                                 )}
                               </button>
                             </div>
