@@ -119,6 +119,13 @@ const ALLOWED_MIME_TYPES = [
 ];
 const ALLOWED_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png", ".webp"];
 
+// FIX: categorias de disputa que afetam o grupo inteiro (não só a parcela)
+const GROUP_DISPUTE_CATEGORIES = [
+  "service_not_delivered",
+  "duplicate_charge",
+  "unknown_charge",
+];
+
 function normalizeText(value: string | null | undefined) {
   return (value || "")
     .normalize("NFD")
@@ -129,7 +136,7 @@ function normalizeText(value: string | null | undefined) {
 
 function removeInstallmentSuffix(value: string | null | undefined) {
   return (value || "")
-    .replace(/[-â€“â€”]?\s*parcela\s*\d+\s*\/\s*\d+/i, "")
+    .replace(/[-–—]?\s*parcela\s*\d+\s*\/\s*\d+/i, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -209,7 +216,7 @@ function validateFile(file: File): string | null {
   const mimeOk = ALLOWED_MIME_TYPES.includes(file.type);
   const extOk = ALLOWED_EXTENSIONS.includes(ext);
   if (!mimeOk && !extOk) {
-    return `Formato nÃ£o permitido. Utilize PDF, JPG, JPEG, PNG ou WEBP.`;
+    return "Formato não permitido. Utilize PDF, JPG, JPEG, PNG ou WEBP.";
   }
   return null;
 }
@@ -228,13 +235,11 @@ export default function PortalFaturasPage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
   const [disputeFile, setDisputeFile] = useState<File | null>(null);
-  // Signed URLs gerenciadas via ref para evitar loop
   const signedUrlsRef = useRef<Record<string, string>>({});
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [openActionPanel, setOpenActionPanel] = useState<ActionPanelKey>(null);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
-  // Controla quais IDs jÃ¡ foram marcados como lidos nesta sessÃ£o
   const readTransactionIdsRef = useRef<Set<string>>(new Set());
 
   const [paymentForm, setPaymentForm] = useState({
@@ -256,9 +261,9 @@ export default function PortalFaturasPage() {
   const invoiceSingular = labels?.entity_invoice_singular || "Fatura";
   const invoicePlural = labels?.entity_invoice_plural || "Faturas";
   const clientSingular = labels?.entity_client_singular || "Cliente";
-  const quoteSingular = labels?.entity_quote_singular || "OrÃ§amento";
+  const quoteSingular = labels?.entity_quote_singular || "Orçamento";
   const serviceOrderSingular =
-    labels?.entity_service_order_singular || "Ordem de ServiÃ§o";
+    labels?.entity_service_order_singular || "Ordem de Serviço";
   const brandName = companyProfile?.company_name || "ARXUM Systems";
   const brandColor = companyProfile?.primary_color || "#138946";
   const currencyCode = systemPreferences?.currency_code || "BRL";
@@ -321,7 +326,7 @@ export default function PortalFaturasPage() {
       open: "Em aberto",
       awaiting_client: "Aguardando cliente",
       awaiting_finance: "Aguardando financeiro",
-      under_review: "Em anÃ¡lise",
+      under_review: "Em análise",
       confirmed: "Confirmado",
       disputed: "Contestado",
       resolved: "Resolvido",
@@ -333,11 +338,11 @@ export default function PortalFaturasPage() {
   const translateDisputeCategory = useCallback((value: string | null) => {
     const map: Record<string, string> = {
       amount_divergence: "Valor divergente",
-      duplicate_charge: "CobranÃ§a duplicada",
-      service_not_delivered: "ServiÃ§o nÃ£o entregue",
+      duplicate_charge: "Cobrança duplicada",
+      service_not_delivered: "Serviço não entregue",
       wrong_due_date: "Data incorreta",
       wrong_document: "Documento incorreto",
-      unknown_charge: "CobranÃ§a desconhecida",
+      unknown_charge: "Cobrança desconhecida",
       other: "Outro",
     };
     return map[value || ""] || value || "-";
@@ -345,19 +350,19 @@ export default function PortalFaturasPage() {
 
   const translateEventType = useCallback((value: string) => {
     const map: Record<string, string> = {
-      charge_created: "CobranÃ§a criada",
+      charge_created: "Cobrança criada",
       payment_reported: "Pagamento informado",
       payment_receipt_attached: "Comprovante anexado",
-      dispute_opened: "ContestaÃ§Ã£o aberta",
-      dispute_comment: "ComentÃ¡rio da contestaÃ§Ã£o",
-      finance_comment: "ComentÃ¡rio do financeiro",
+      dispute_opened: "Contestação aberta",
+      dispute_comment: "Comentário da contestação",
+      finance_comment: "Comentário do financeiro",
       payment_confirmed: "Pagamento confirmado",
       payment_rejected: "Pagamento rejeitado",
-      charge_adjusted: "CobranÃ§a ajustada",
-      charge_cancelled: "CobranÃ§a cancelada",
+      charge_adjusted: "Cobrança ajustada",
+      charge_cancelled: "Cobrança cancelada",
       status_changed: "Status alterado",
-      resolution_added: "ResoluÃ§Ã£o registrada",
-      attachment_added: "Anexo incluÃ­do",
+      resolution_added: "Resolução registrada",
+      attachment_added: "Anexo incluído",
     };
     return map[value] || value;
   }, []);
@@ -366,8 +371,8 @@ export default function PortalFaturasPage() {
     const map: Record<string, string> = {
       pix: "PIX",
       boleto: "Boleto",
-      transferencia: "TransferÃªncia",
-      cartao: "CartÃ£o",
+      transferencia: "Transferência",
+      cartao: "Cartão",
       outro: "Outro",
     };
     return map[value || ""] || value || "-";
@@ -377,7 +382,7 @@ export default function PortalFaturasPage() {
     const map: Record<string, string> = {
       valor: "Valor",
       forma_pagamento: "Forma de pagamento",
-      referencia: "ReferÃªncia",
+      referencia: "Referência",
       categoria: "Categoria",
       motivo: "Motivo",
       tipo_pagamento: "Tipo de pagamento",
@@ -412,7 +417,7 @@ export default function PortalFaturasPage() {
     [quoteSingular, serviceOrderSingular]
   );
 
-  // â”€â”€ Fetch principal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Fetch principal ───────────────────────────────────────────────────────
   const fetchTransactions = useCallback(async () => {
     if (!resolvedClientId) {
       setTransactions([]);
@@ -434,11 +439,11 @@ export default function PortalFaturasPage() {
       .order("created_at", { ascending: true });
 
     if (error) {
-      console.error("Erro ao carregar cobranÃ§as:", error);
+      console.error("Erro ao carregar cobranças:", error);
       setTransactions([]);
       setLoading(false);
       showToast(
-        "NÃ£o foi possÃ­vel carregar as cobranÃ§as. Tente novamente.",
+        "Não foi possível carregar as cobranças. Tente novamente.",
         "error"
       );
       return;
@@ -447,7 +452,6 @@ export default function PortalFaturasPage() {
     const rows = dedupeTransactions((data || []) as FinancialTransaction[]);
     setTransactions(rows);
 
-    // Recalcula notificaÃ§Ãµes excluindo IDs jÃ¡ vistos nesta sessÃ£o
     const unread = rows.filter(
       (t) =>
         t.finance_last_action_at &&
@@ -479,7 +483,7 @@ export default function PortalFaturasPage() {
     ]);
 
     if (eventsResult.error) {
-      console.error("Erro ao carregar histÃ³rico:", eventsResult.error);
+      console.error("Erro ao carregar histórico:", eventsResult.error);
       setEvents([]);
     } else {
       setEvents((eventsResult.data || []) as FinancialEvent[]);
@@ -496,7 +500,7 @@ export default function PortalFaturasPage() {
     setDetailLoading(false);
   }, []);
 
-  // â”€â”€ Marcar como lida â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Marcar como lida ──────────────────────────────────────────────────────
   const markTransactionAsRead = useCallback(
     async (transactionId: string) => {
       if (readTransactionIdsRef.current.has(transactionId)) return;
@@ -513,11 +517,8 @@ export default function PortalFaturasPage() {
       if (!hasUnreadUpdate) return;
 
       readTransactionIdsRef.current.add(transactionId);
-
-      // Decrementa o contador imediatamente, sem esperar o banco
       setUnreadNotifications((prev) => Math.max(0, prev - 1));
 
-      // Persiste em background
       supabase
         .from("financial_transactions")
         .update({ customer_last_action_at: new Date().toISOString() })
@@ -539,7 +540,7 @@ export default function PortalFaturasPage() {
     };
   }, []);
 
-  // â”€â”€ Realtime: atualizaÃ§Ã£o em tempo real do portal do cliente â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Realtime ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!resolvedClientId) return;
 
@@ -565,7 +566,6 @@ export default function PortalFaturasPage() {
           table: "financial_transaction_events",
         },
         (payload) => {
-          // Atualiza detalhes apenas se o evento pertence Ã  fatura selecionada
           setSelectedId((currentSelectedId) => {
             if (
               currentSelectedId &&
@@ -605,16 +605,16 @@ export default function PortalFaturasPage() {
     };
   }, [resolvedClientId, fetchTransactions, fetchDetails]);
 
-  // â”€â”€ TÃ­tulo dinÃ¢mico â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Título dinâmico ───────────────────────────────────────────────────────
   useEffect(() => {
     if (unreadNotifications > 0) {
-      document.title = `(${unreadNotifications}) AtualizaÃ§Ãµes em ${invoicePlural} | ${brandName}`;
+      document.title = `(${unreadNotifications}) Atualizações em ${invoicePlural} | ${brandName}`;
     } else {
       document.title = `${invoicePlural} | ${brandName}`;
     }
   }, [unreadNotifications, invoicePlural, brandName]);
 
-  // â”€â”€ Grupos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Grupos ────────────────────────────────────────────────────────────────
   const groupedInvoices = useMemo<InvoiceGroup[]>(() => {
     const map = new Map<string, InvoiceGroup>();
     for (const item of transactions) {
@@ -676,7 +676,7 @@ export default function PortalFaturasPage() {
     }
   }, [groupedInvoices, selectedId]);
 
-  // Ao trocar de fatura: busca detalhes, limpa formulÃ¡rios, marca como lida
+  // Ao trocar de fatura: busca detalhes, limpa formulários, marca como lida
   useEffect(() => {
     if (selectedId) {
       void fetchDetails(selectedId);
@@ -693,7 +693,7 @@ export default function PortalFaturasPage() {
     }
   }, [selectedId, fetchDetails, markTransactionAsRead]);
 
-  // â”€â”€ Signed URLs via ref â€” sem loop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Signed URLs via ref — sem loop ────────────────────────────────────────
   useEffect(() => {
     if (attachments.length === 0) return;
 
@@ -724,7 +724,7 @@ export default function PortalFaturasPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attachments]);
 
-  // â”€â”€ Derivados â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Derivados ─────────────────────────────────────────────────────────────
   const selectedTransaction = useMemo(
     () => transactions.find((item) => item.id === selectedId) || null,
     [transactions, selectedId]
@@ -783,6 +783,34 @@ export default function PortalFaturasPage() {
     };
   }, [groupedInvoices.length, transactions]);
 
+  // FIX: guards para painéis de ação — evita ações duplicadas em
+  // transações que já estão sendo processadas pelo financeiro.
+  const canReportPayment = useMemo(() => {
+    if (!selectedTransaction) return false;
+    const isPaid =
+      selectedTransaction.status === "paid" ||
+      selectedTransaction.status === "received" ||
+      selectedTransaction.workflow_status === "confirmed";
+    const isBeingProcessed =
+      selectedTransaction.workflow_status === "awaiting_finance" ||
+      selectedTransaction.workflow_status === "under_review";
+    return !isPaid && !isBeingProcessed;
+  }, [selectedTransaction]);
+
+  const canOpenDispute = useMemo(() => {
+    if (!selectedTransaction) return false;
+    const isPaid =
+      selectedTransaction.status === "paid" ||
+      selectedTransaction.status === "received" ||
+      selectedTransaction.workflow_status === "confirmed";
+    const alreadyDisputed =
+      selectedTransaction.dispute_status === "open" ||
+      (!!selectedTransaction.dispute_status &&
+        selectedTransaction.dispute_status !== "none" &&
+        selectedTransaction.dispute_status !== "resolved");
+    return !isPaid && !alreadyDisputed;
+  }, [selectedTransaction]);
+
   const getStatusBadge = useCallback((item: FinancialTransaction) => {
     const isPaid =
       item.status === "paid" ||
@@ -807,13 +835,13 @@ export default function PortalFaturasPage() {
     if (isDisputed)
       return (
         <span className="inline-flex rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-semibold text-orange-300">
-          ContestaÃ§Ã£o
+          Contestação
         </span>
       );
     if (isAwaiting)
       return (
         <span className="inline-flex rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300">
-          Em anÃ¡lise
+          Em análise
         </span>
       );
     if (isOverdue)
@@ -829,7 +857,7 @@ export default function PortalFaturasPage() {
     );
   }, []);
 
-  // â”€â”€ File handler centralizado â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── File handler centralizado ─────────────────────────────────────────────
   const handleFileChange = (
     file: File | null,
     setter: React.Dispatch<React.SetStateAction<File | null>>
@@ -847,9 +875,18 @@ export default function PortalFaturasPage() {
     setter(file);
   };
 
-  // â”€â”€ Handler: Notificar Pagamento â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Handler: Notificar Pagamento ──────────────────────────────────────────
   const handleReportPayment = async () => {
     if (!selectedTransaction || submitting) return;
+
+    // FIX: bloqueia se a transação já está sendo processada
+    if (!canReportPayment) {
+      showToast(
+        "Esta cobrança já está sendo processada pelo financeiro.",
+        "error"
+      );
+      return;
+    }
 
     const amountNum = parseCurrencyToNumber(paymentForm.amount);
     if (amountNum <= 0) {
@@ -879,8 +916,8 @@ export default function PortalFaturasPage() {
           visibility: "shared",
           event_type: "payment_reported",
           title: isPartialPayment
-            ? "NotificaÃ§Ã£o de Pagamento Parcial Realizado"
-            : "NotificaÃ§Ã£o de Pagamento Realizado",
+            ? "Notificação de Pagamento Parcial Realizado"
+            : "Notificação de Pagamento Realizado",
           message: paymentForm.message.trim(),
           metadata: {
             valor: amountNum,
@@ -940,6 +977,9 @@ export default function PortalFaturasPage() {
         }
       }
 
+      // FIX: removido "dispute_status: partial_payment" — esse valor não existe
+      // no enum e causava pagamentos parciais aparecerem como contestações
+      // na fila do financeiro. workflow_status: "awaiting_finance" é suficiente.
       const { error: updateError } = await supabase
         .from("financial_transactions")
         .update({
@@ -950,7 +990,6 @@ export default function PortalFaturasPage() {
           payment_reported_at: nowIso,
           customer_last_action_at: nowIso,
           last_interaction_at: nowIso,
-          ...(isPartialPayment && { dispute_status: "partial_payment" }),
         })
         .eq("id", selectedTransaction.id);
 
@@ -965,18 +1004,16 @@ export default function PortalFaturasPage() {
 
       if (isPartialPayment) {
         showToast(
-          `Pagamento parcial de ${currency(amountNum)} registrado. O financeiro analisarÃ¡ o valor informado.`,
+          `Pagamento parcial de ${currency(amountNum)} registrado. O financeiro analisará o valor informado.`,
           "success"
         );
       } else {
-        showToast("NotificaÃ§Ã£o de pagamento enviada com sucesso.", "success");
+        showToast("Notificação de pagamento enviada com sucesso.", "success");
       }
 
       setOpenActionPanel(null);
       setPaymentForm({ amount: "", method: "pix", reference: "", message: "" });
       setPaymentFile(null);
-      // O Realtime jÃ¡ vai atualizar automaticamente,
-      // mas chamamos fetch para garantir consistÃªncia imediata
       await fetchTransactions();
       if (selectedTransaction.id)
         await fetchDetails(selectedTransaction.id);
@@ -989,16 +1026,25 @@ export default function PortalFaturasPage() {
     }
   };
 
-  // â”€â”€ Handler: Registrar ContestaÃ§Ã£o â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Handler: Registrar Contestação ────────────────────────────────────────
   const handleOpenDispute = async () => {
     if (!selectedTransaction || submitting) return;
 
+    // FIX: bloqueia se já existe contestação ativa
+    if (!canOpenDispute) {
+      showToast(
+        "Esta cobrança já possui uma contestação em andamento.",
+        "error"
+      );
+      return;
+    }
+
     if (!disputeForm.reason.trim()) {
-      showToast("Preencha o motivo resumido da contestaÃ§Ã£o.", "error");
+      showToast("Preencha o motivo resumido da contestação.", "error");
       return;
     }
     if (!disputeForm.message.trim()) {
-      showToast("Preencha o detalhamento da contestaÃ§Ã£o.", "error");
+      showToast("Preencha o detalhamento da contestação.", "error");
       return;
     }
 
@@ -1014,7 +1060,7 @@ export default function PortalFaturasPage() {
           author_type: "client",
           visibility: "shared",
           event_type: "dispute_opened",
-          title: "Abertura de ContestaÃ§Ã£o Formal",
+          title: "Abertura de Contestação Formal",
           message: disputeForm.message.trim(),
           metadata: {
             categoria: disputeForm.category,
@@ -1041,7 +1087,7 @@ export default function PortalFaturasPage() {
 
         if (uploadError) {
           showToast(
-            `ContestaÃ§Ã£o registrada, mas upload da evidÃªncia falhou: ${uploadError.message}`,
+            `Contestação registrada, mas upload da evidência falhou: ${uploadError.message}`,
             "error"
           );
         } else {
@@ -1062,35 +1108,68 @@ export default function PortalFaturasPage() {
 
           if (attachError) {
             showToast(
-              `EvidÃªncia enviada, mas erro ao registrar o anexo: ${attachError.message}`,
+              `Evidência enviada, mas erro ao registrar o anexo: ${attachError.message}`,
               "error"
             );
           }
         }
       }
 
-      const { error: updateError } = await supabase
-        .from("financial_transactions")
-        .update({
-          workflow_status: "disputed",
-          dispute_status: "open",
-          dispute_category: disputeForm.category,
-          dispute_reason: disputeForm.reason.trim(),
-          customer_last_action_at: nowIso,
-          last_interaction_at: nowIso,
-        })
-        .eq("id", selectedTransaction.id);
+      // FIX: para categorias que afetam o grupo inteiro (ex: serviço não entregue),
+      // aplica a contestação em todas as parcelas abertas do grupo.
+      // Para categorias de parcela específica (ex: valor divergente), afeta apenas a selecionada.
+      const isGroupDispute = GROUP_DISPUTE_CATEGORIES.includes(
+        disputeForm.category
+      );
+
+      const transactionIdsToUpdate = isGroupDispute
+        ? selectedGroupItems
+            .filter(
+              (i) =>
+                i.status !== "paid" &&
+                i.status !== "received" &&
+                i.workflow_status !== "confirmed" &&
+                // Não sobrescreve contestações já abertas em outras parcelas
+                (!i.dispute_status ||
+                  i.dispute_status === "none" ||
+                  i.dispute_status === "resolved")
+            )
+            .map((i) => i.id)
+        : [selectedTransaction.id];
+
+      // Atualiza todas as transações do escopo definido
+      const updatePromises = transactionIdsToUpdate.map((txId) =>
+        supabase
+          .from("financial_transactions")
+          .update({
+            workflow_status: "disputed",
+            dispute_status: "open",
+            dispute_category: disputeForm.category,
+            dispute_reason: disputeForm.reason.trim(),
+            customer_last_action_at: nowIso,
+            last_interaction_at: nowIso,
+          })
+          .eq("id", txId)
+      );
+
+      const results = await Promise.all(updatePromises);
+      const updateError = results.find((r) => r.error)?.error;
 
       if (updateError) {
         showToast(
-          `ContestaÃ§Ã£o registrada, mas erro ao atualizar o status: ${updateError.message}`,
+          `Contestação registrada, mas erro ao atualizar o status: ${updateError.message}`,
           "error"
         );
         setSubmitting(false);
         return;
       }
 
-      showToast("ContestaÃ§Ã£o formal registrada com sucesso.", "success");
+      const scopeMsg =
+        isGroupDispute && transactionIdsToUpdate.length > 1
+          ? ` (${transactionIdsToUpdate.length} parcelas afetadas)`
+          : "";
+
+      showToast(`Contestação formal registrada com sucesso${scopeMsg}.`, "success");
       setOpenActionPanel(null);
       setDisputeForm({
         category: "amount_divergence",
@@ -1126,7 +1205,7 @@ export default function PortalFaturasPage() {
       setSelectedId(selectedGroup.items[selectedIndexInGroup + 1].id);
   };
 
-  // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <main className="min-h-screen bg-[#0b0d12] px-4 py-5 text-white sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-7xl">
@@ -1169,8 +1248,8 @@ export default function PortalFaturasPage() {
                         <Bell size={14} />
                         {unreadNotifications}{" "}
                         {unreadNotifications === 1
-                          ? "AtualizaÃ§Ã£o"
-                          : "AtualizaÃ§Ãµes"}
+                          ? "Atualização"
+                          : "Atualizações"}
                       </div>
                     )}
                   </div>
@@ -1178,8 +1257,8 @@ export default function PortalFaturasPage() {
                     {invoicePlural}
                   </h1>
                   <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-300 sm:text-base">
-                    GestÃ£o financeira centralizada. Acompanhe liquidaÃ§Ãµes, anexe
-                    comprovantes oficiais e registre contestaÃ§Ãµes formais pelo
+                    Gestão financeira centralizada. Acompanhe liquidações, anexe
+                    comprovantes oficiais e registre contestações formais pelo
                     portal do {clientSingular.toLowerCase()}.
                   </p>
                 </div>
@@ -1225,10 +1304,10 @@ export default function PortalFaturasPage() {
             <section className="rounded-[28px] border border-white/10 bg-white/[0.04] p-10 text-center shadow-[0_20px_70px_rgba(0,0,0,0.35)]">
               <FileText className="mx-auto mb-4 text-zinc-500" size={44} />
               <h2 className="text-xl font-semibold text-white">
-                Nenhuma cobranÃ§a encontrada
+                Nenhuma cobrança encontrada
               </h2>
               <p className="mt-2 text-sm text-zinc-400">
-                NÃ£o hÃ¡ registros financeiros vinculados ao seu cadastro.
+                Não há registros financeiros vinculados ao seu cadastro.
               </p>
             </section>
           ) : (
@@ -1237,10 +1316,10 @@ export default function PortalFaturasPage() {
               <aside className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.04] shadow-[0_20px_70px_rgba(0,0,0,0.35)]">
                 <div className="border-b border-white/10 px-5 py-4">
                   <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-zinc-200">
-                    CobranÃ§as
+                    Cobranças
                   </h2>
                   <p className="mt-1 text-xs text-zinc-500">
-                    {summary.totalGroups} Grupos Â· {summary.totalCount} Itens
+                    {summary.totalGroups} Grupos · {summary.totalCount} Itens
                   </p>
                 </div>
                 <div className="custom-scrollbar max-h-[78vh] overflow-y-auto">
@@ -1367,11 +1446,11 @@ export default function PortalFaturasPage() {
                 </div>
               </aside>
 
-              {/* Ãrea de Detalhes */}
+              {/* Área de Detalhes */}
               <section className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.04] shadow-[0_20px_70px_rgba(0,0,0,0.35)]">
                 {!selectedTransaction ? (
                   <div className="p-8 text-sm italic text-zinc-400">
-                    Selecione uma cobranÃ§a para visualizar os detalhes.
+                    Selecione uma cobrança para visualizar os detalhes.
                   </div>
                 ) : (
                   <div className="flex h-full flex-col">
@@ -1427,7 +1506,7 @@ export default function PortalFaturasPage() {
                             }
                             className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold transition hover:bg-white/10 disabled:opacity-40"
                           >
-                            PrÃ³xima <ChevronRight size={16} />
+                            Próxima <ChevronRight size={16} />
                           </button>
                         </div>
                       )}
@@ -1438,7 +1517,7 @@ export default function PortalFaturasPage() {
                         {/* Resumo */}
                         <section className="rounded-[24px] border border-white/10 bg-black/15 p-5">
                           <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-zinc-200">
-                            Resumo da CobranÃ§a
+                            Resumo da Cobrança
                           </h3>
                           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                             <div>
@@ -1465,13 +1544,13 @@ export default function PortalFaturasPage() {
                               selectedTransaction.dispute_status !== "none" && (
                                 <div>
                                   <p className="text-[11px] uppercase tracking-widest text-zinc-500">
-                                    Status da ContestaÃ§Ã£o
+                                    Status da Contestação
                                   </p>
                                   <p className="mt-1 text-sm font-medium text-orange-300">
                                     {translateDisputeCategory(
                                       selectedTransaction.dispute_category
                                     )}{" "}
-                                    â€”{" "}
+                                    —{" "}
                                     {selectedTransaction.dispute_status}
                                   </p>
                                 </div>
@@ -1500,7 +1579,7 @@ export default function PortalFaturasPage() {
                               )}
                             <div className="md:col-span-2">
                               <p className="text-[11px] uppercase tracking-widest text-zinc-500">
-                                ObservaÃ§Ãµes do Financeiro
+                                Observações do Financeiro
                               </p>
                               <p className="mt-1 text-sm leading-relaxed text-white">
                                 {selectedTransaction.resolution_notes ||
@@ -1511,11 +1590,11 @@ export default function PortalFaturasPage() {
                           </div>
                         </section>
 
-                        {/* HistÃ³rico */}
+                        {/* Histórico */}
                         <section className="rounded-[24px] border border-white/10 bg-black/15 p-5">
                           <div className="mb-4 flex items-center justify-between">
                             <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-zinc-200">
-                              HistÃ³rico de InteraÃ§Ãµes
+                              Histórico de Interações
                             </h3>
                             {detailLoading && (
                               <Loader2
@@ -1527,7 +1606,7 @@ export default function PortalFaturasPage() {
                           <div className="space-y-3">
                             {events.length === 0 ? (
                               <p className="text-sm italic text-zinc-500">
-                                Nenhuma interaÃ§Ã£o registrada.
+                                Nenhuma interação registrada.
                               </p>
                             ) : (
                               events.map((ev) => (
@@ -1595,7 +1674,7 @@ export default function PortalFaturasPage() {
                           <div className="mt-4 space-y-3">
                             {attachments.length === 0 ? (
                               <p className="text-sm italic text-zinc-500">
-                                Nenhum anexo disponÃ­vel.
+                                Nenhum anexo disponível.
                               </p>
                             ) : (
                               attachments.map((file) => (
@@ -1608,7 +1687,7 @@ export default function PortalFaturasPage() {
                                       {file.file_name}
                                     </p>
                                     <p className="text-[10px] font-bold uppercase text-zinc-600">
-                                      {file.attachment_type} Â·{" "}
+                                      {file.attachment_type} ·{" "}
                                       {formatDateTime(file.created_at)}
                                     </p>
                                   </div>
@@ -1637,23 +1716,27 @@ export default function PortalFaturasPage() {
                         </section>
                       </div>
 
-                      {/* PainÃ©is de AÃ§Ã£o */}
+                      {/* Painéis de Ação */}
                       <aside className="space-y-4">
                         {/* Notificar Pagamento */}
                         <div
                           className={`rounded-[24px] border transition ${
                             openActionPanel === "payment"
                               ? "border-emerald-500/30 bg-emerald-500/10"
-                              : "border-white/10 bg-white/[0.04]"
+                              : canReportPayment
+                              ? "border-white/10 bg-white/[0.04]"
+                              : "border-white/5 bg-white/[0.02] opacity-50"
                           }`}
                         >
                           <button
-                            onClick={() =>
+                            onClick={() => {
+                              if (!canReportPayment) return;
                               setOpenActionPanel((p) =>
                                 p === "payment" ? null : "payment"
-                              )
-                            }
-                            className="flex w-full items-center justify-between p-4"
+                              );
+                            }}
+                            disabled={!canReportPayment}
+                            className="flex w-full items-center justify-between p-4 disabled:cursor-not-allowed"
                           >
                             <div className="flex items-center gap-3">
                               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-300">
@@ -1664,7 +1747,9 @@ export default function PortalFaturasPage() {
                                   Notificar Pagamento
                                 </h3>
                                 <p className="text-[11px] text-zinc-500">
-                                  Informar liquidaÃ§Ã£o desta parcela
+                                  {canReportPayment
+                                    ? "Informar liquidação desta parcela"
+                                    : "Indisponível — em análise pelo financeiro"}
                                 </p>
                               </div>
                             </div>
@@ -1678,7 +1763,7 @@ export default function PortalFaturasPage() {
                             />
                           </button>
 
-                          {openActionPanel === "payment" && (
+                          {openActionPanel === "payment" && canReportPayment && (
                             <div className="animate-in fade-in slide-in-from-top-2 space-y-4 p-5 pt-0">
                               <div className="space-y-1.5">
                                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
@@ -1707,10 +1792,10 @@ export default function PortalFaturasPage() {
                                       selectedTransaction.amount || 0
                                     ) && (
                                     <p className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] font-bold text-amber-400">
-                                      âš  Valor inferior ao devido (
+                                      ⚠ Valor inferior ao devido (
                                       {currency(selectedTransaction.amount)}).
-                                      SerÃ¡ registrado como pagamento parcial e
-                                      encaminhado ao financeiro para anÃ¡lise.
+                                      Será registrado como pagamento parcial e
+                                      encaminhado ao financeiro para análise.
                                     </p>
                                   )}
                               </div>
@@ -1732,16 +1817,16 @@ export default function PortalFaturasPage() {
                                   <option value="pix">PIX</option>
                                   <option value="boleto">Boleto</option>
                                   <option value="transferencia">
-                                    TransferÃªncia
+                                    Transferência
                                   </option>
-                                  <option value="cartao">CartÃ£o</option>
+                                  <option value="cartao">Cartão</option>
                                   <option value="outro">Outro</option>
                                 </select>
                               </div>
 
                               <div className="space-y-1.5">
                                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                                  CÃ³digo de ReferÃªncia / AutenticaÃ§Ã£o{" "}
+                                  Código de Referência / Autenticação{" "}
                                   <span className="normal-case text-zinc-600">
                                     (opcional)
                                   </span>
@@ -1755,14 +1840,14 @@ export default function PortalFaturasPage() {
                                       reference: e.target.value,
                                     }))
                                   }
-                                  placeholder="Ex: cÃ³digo E2E, NSU, ID da transaÃ§Ã£o"
+                                  placeholder="Ex: código E2E, NSU, ID da transação"
                                   className="w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm font-bold outline-none focus:border-emerald-500/50"
                                 />
                               </div>
 
                               <div className="space-y-1.5">
                                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                                  DescriÃ§Ã£o do Pagamento Realizado
+                                  Descrição do Pagamento Realizado
                                 </label>
                                 <textarea
                                   value={paymentForm.message}
@@ -1798,7 +1883,7 @@ export default function PortalFaturasPage() {
                                   />
                                 </label>
                                 <p className="text-[10px] text-zinc-600">
-                                  PDF, JPG, PNG ou WEBP Â· MÃ¡ximo 5MB
+                                  PDF, JPG, PNG ou WEBP · Máximo 5MB
                                 </p>
                               </div>
 
@@ -1813,28 +1898,32 @@ export default function PortalFaturasPage() {
                                     size={16}
                                   />
                                 ) : (
-                                  "Confirmar NotificaÃ§Ã£o de Pagamento"
+                                  "Confirmar Notificação de Pagamento"
                                 )}
                               </button>
                             </div>
                           )}
                         </div>
 
-                        {/* ContestaÃ§Ã£o Formal */}
+                        {/* Contestação Formal */}
                         <div
                           className={`rounded-[24px] border transition ${
                             openActionPanel === "dispute"
                               ? "border-orange-500/30 bg-orange-500/10"
-                              : "border-white/10 bg-white/[0.04]"
+                              : canOpenDispute
+                              ? "border-white/10 bg-white/[0.04]"
+                              : "border-white/5 bg-white/[0.02] opacity-50"
                           }`}
                         >
                           <button
-                            onClick={() =>
+                            onClick={() => {
+                              if (!canOpenDispute) return;
                               setOpenActionPanel((p) =>
                                 p === "dispute" ? null : "dispute"
-                              )
-                            }
-                            className="flex w-full items-center justify-between p-4"
+                              );
+                            }}
+                            disabled={!canOpenDispute}
+                            className="flex w-full items-center justify-between p-4 disabled:cursor-not-allowed"
                           >
                             <div className="flex items-center gap-3">
                               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-300">
@@ -1842,10 +1931,12 @@ export default function PortalFaturasPage() {
                               </div>
                               <div className="text-left">
                                 <h3 className="text-sm font-semibold uppercase tracking-widest text-white">
-                                  Registrar ContestaÃ§Ã£o Formal
+                                  Registrar Contestação Formal
                                 </h3>
                                 <p className="text-[11px] text-zinc-500">
-                                  DivergÃªncia de valores, datas ou serviÃ§os
+                                  {canOpenDispute
+                                    ? "Divergência de valores, datas ou serviços"
+                                    : "Contestação já registrada ou cobrança paga"}
                                 </p>
                               </div>
                             </div>
@@ -1859,11 +1950,11 @@ export default function PortalFaturasPage() {
                             />
                           </button>
 
-                          {openActionPanel === "dispute" && (
+                          {openActionPanel === "dispute" && canOpenDispute && (
                             <div className="animate-in fade-in slide-in-from-top-2 space-y-4 p-5 pt-0">
                               <div className="space-y-1.5">
                                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                                  Categoria da ContestaÃ§Ã£o
+                                  Categoria da Contestação
                                 </label>
                                 <select
                                   value={disputeForm.category}
@@ -1879,10 +1970,10 @@ export default function PortalFaturasPage() {
                                     Valor divergente
                                   </option>
                                   <option value="duplicate_charge">
-                                    CobranÃ§a duplicada
+                                    Cobrança duplicada
                                   </option>
                                   <option value="service_not_delivered">
-                                    ServiÃ§o nÃ£o entregue
+                                    Serviço não entregue
                                   </option>
                                   <option value="wrong_due_date">
                                     Data incorreta
@@ -1891,10 +1982,26 @@ export default function PortalFaturasPage() {
                                     Documento incorreto
                                   </option>
                                   <option value="unknown_charge">
-                                    CobranÃ§a desconhecida
+                                    Cobrança desconhecida
                                   </option>
                                   <option value="other">Outro</option>
                                 </select>
+                                {/* FIX: aviso quando a categoria afeta o grupo todo */}
+                                {GROUP_DISPUTE_CATEGORIES.includes(
+                                  disputeForm.category
+                                ) &&
+                                  selectedGroupItems.length > 1 && (
+                                    <p className="rounded-lg border border-orange-500/20 bg-orange-500/10 px-3 py-2 text-[11px] font-bold text-orange-400">
+                                      ⚠ Esta categoria afeta todas as{" "}
+                                      {selectedGroupItems.filter(
+                                        (i) =>
+                                          i.status !== "paid" &&
+                                          i.status !== "received" &&
+                                          i.workflow_status !== "confirmed"
+                                      ).length}{" "}
+                                      parcela(s) abertas deste grupo.
+                                    </p>
+                                  )}
                               </div>
 
                               <div className="space-y-1.5">
@@ -1917,7 +2024,7 @@ export default function PortalFaturasPage() {
 
                               <div className="space-y-1.5">
                                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                                  Detalhamento da ContestaÃ§Ã£o
+                                  Detalhamento da Contestação
                                 </label>
                                 <textarea
                                   value={disputeForm.message}
@@ -1927,7 +2034,7 @@ export default function PortalFaturasPage() {
                                       message: e.target.value,
                                     }))
                                   }
-                                  placeholder="Descreva detalhadamente a divergÃªncia identificada..."
+                                  placeholder="Descreva detalhadamente a divergência identificada..."
                                   className="h-24 w-full resize-none rounded-xl border border-white/10 bg-black/20 p-3 text-sm font-medium outline-none focus:border-orange-500/50"
                                 />
                               </div>
@@ -1938,7 +2045,7 @@ export default function PortalFaturasPage() {
                                   <span className="truncate text-xs font-bold text-zinc-400">
                                     {disputeFile
                                       ? disputeFile.name
-                                      : "Anexar EvidÃªncia Documental"}
+                                      : "Anexar Evidência Documental"}
                                   </span>
                                   <input
                                     type="file"
@@ -1953,7 +2060,7 @@ export default function PortalFaturasPage() {
                                   />
                                 </label>
                                 <p className="text-[10px] text-zinc-600">
-                                  PDF, JPG, PNG ou WEBP Â· MÃ¡ximo 5MB
+                                  PDF, JPG, PNG ou WEBP · Máximo 5MB
                                 </p>
                               </div>
 
@@ -1968,7 +2075,7 @@ export default function PortalFaturasPage() {
                                     size={16}
                                   />
                                 ) : (
-                                  "Abrir ContestaÃ§Ã£o Formal"
+                                  "Abrir Contestação Formal"
                                 )}
                               </button>
                             </div>
