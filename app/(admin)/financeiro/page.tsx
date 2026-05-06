@@ -391,7 +391,6 @@ export default function FinanceiroPage() {
 
   const [events, setEvents] = useState<FinancialEvent[]>([]);
   const [attachments, setAttachments] = useState<FinancialAttachment[]>([]);
-  // FIX: signed URLs managed via ref to avoid loop
   const signedUrlsRef = useRef<Record<string, string>>({});
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -691,7 +690,7 @@ export default function FinanceiroPage() {
     selectedTransaction?.id,
   ]);
 
-  // ── FIX: Signed URLs via ref — sem loop ───────────────────────────────────
+  // ── Signed URLs via ref — sem loop ────────────────────────────────────────
   useEffect(() => {
     if (attachments.length === 0) return;
 
@@ -723,15 +722,27 @@ export default function FinanceiroPage() {
   }, [attachments]);
 
   // ── Queue new-items tracking ──────────────────────────────────────────────
+  // FIX: deduplica por grupo (document_number || quote_id) para evitar que
+  // múltiplas parcelas do mesmo grupo apareçam como itens separados na fila.
   const clientActionQueue = useMemo(() => {
+    const seen = new Set<string>();
     return transactions
       .filter(
         (t) =>
           t.type === "income" &&
           (t.workflow_status === "awaiting_finance" ||
             t.workflow_status === "under_review" ||
-            (t.dispute_status && t.dispute_status !== "resolved"))
+            (t.dispute_status &&
+              t.dispute_status !== "resolved" &&
+              t.dispute_status !== "none"))
       )
+      .filter((t) => {
+        // Usa a chave de grupo mais específica disponível
+        const groupKey = t.document_number || t.quote_id || t.id;
+        if (seen.has(groupKey)) return false;
+        seen.add(groupKey);
+        return true;
+      })
       .sort((a, b) => {
         const dateA = new Date(
           a.last_interaction_at || a.payment_reported_at || a.due_date
@@ -911,7 +922,8 @@ export default function FinanceiroPage() {
         (t) =>
           t.type === "income" &&
           t.dispute_status &&
-          t.dispute_status !== "resolved"
+          t.dispute_status !== "resolved" &&
+          t.dispute_status !== "none"
       )
       .reduce((a, b) => a + Number(b.amount), 0);
 
@@ -1529,7 +1541,6 @@ export default function FinanceiroPage() {
     setIsSubmitting(false);
   };
 
-  // FIX: updateStatus now updates finance_last_action_at so client is notified
   const updateStatus = async (id: string, newStatus: string) => {
     const now = new Date().toISOString();
     const payload: Record<string, unknown> = {
@@ -1750,9 +1761,11 @@ export default function FinanceiroPage() {
             paymentInfo.scenario === "partial" ? null : now,
           finance_last_action_at: now,
           last_interaction_at: now,
+          // FIX: "partial_payment_registered" não existe no check constraint.
+          // Usa "charge_maintained" para pagamentos parciais (cobrança continua aberta).
           resolution_type:
             paymentInfo.scenario === "partial"
-              ? "partial_payment_registered"
+              ? "charge_maintained"
               : "payment_confirmed",
           resolution_notes:
             financeActionForm.resolutionNotes.trim() ||
@@ -1828,7 +1841,7 @@ export default function FinanceiroPage() {
     }
   };
 
-  // ── Auto-conciliation (distribute excess across open installments) ─────────
+  // ── Auto-conciliation ─────────────────────────────────────────────────────
   const handleAutoDistribute = async () => {
     if (!selectedTransaction || !selectedPaymentInfo) return;
     if (selectedPaymentInfo.scenario !== "over") return;
@@ -2196,7 +2209,9 @@ export default function FinanceiroPage() {
                   {
                     clientActionQueue.filter(
                       (t) =>
-                        t.dispute_status && t.dispute_status !== "resolved"
+                        t.dispute_status &&
+                        t.dispute_status !== "resolved" &&
+                        t.dispute_status !== "none"
                     ).length
                   }
                 </span>
@@ -2952,7 +2967,6 @@ export default function FinanceiroPage() {
             </div>
           )}
 
-          {/* ── DRE Tab ─────────────────────────────────────────────────── */}
           {activeTab === "dre" && (
             <div className="animate-in fade-in space-y-5">
               <div className="flex items-center justify-between">
@@ -3062,7 +3076,7 @@ export default function FinanceiroPage() {
         </>
       )}
 
-      {/* ── Create/Edit form (unchanged structure) ───────────────────────── */}
+      {/* ── Create/Edit form ─────────────────────────────────────────────── */}
       {view === "create" && (
         <div className="mx-auto max-w-5xl space-y-6">
           <button
@@ -4123,7 +4137,6 @@ export default function FinanceiroPage() {
                       </>
                     )}
 
-                    {/* Auto-conciliation button for overpayment */}
                     {selectedPaymentInfo.scenario === "over" &&
                       receivableForGroup.filter(
                         (r) =>
@@ -4183,7 +4196,8 @@ export default function FinanceiroPage() {
 
                 {selectedTransaction.type === "income" &&
                   selectedTransaction.dispute_status &&
-                  selectedTransaction.dispute_status !== "resolved" && (
+                  selectedTransaction.dispute_status !== "resolved" &&
+                  selectedTransaction.dispute_status !== "none" && (
                     <section className="space-y-3 rounded-xl border border-orange-500/20 bg-orange-500/5 p-4">
                       <h5 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
                         <AlertTriangle size={15} className="text-orange-400" />
