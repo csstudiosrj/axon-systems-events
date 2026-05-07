@@ -119,12 +119,16 @@ const ALLOWED_MIME_TYPES = [
 ];
 const ALLOWED_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png", ".webp"];
 
-// FIX: categorias de disputa que afetam o grupo inteiro (não só a parcela)
+// Categorias de disputa que afetam o grupo inteiro (não só a parcela)
 const GROUP_DISPUTE_CATEGORIES = [
   "service_not_delivered",
   "duplicate_charge",
   "unknown_charge",
 ];
+
+// FIX #2 (canOpenDispute / canReportPayment): estados de dispute_status que
+// indicam disputa ativa — centralizados aqui para evitar divergência entre guards.
+const ACTIVE_DISPUTE_STATUSES = new Set(["open", "pending", "under_review"]);
 
 function normalizeText(value: string | null | undefined) {
   return (value || "")
@@ -219,6 +223,15 @@ function validateFile(file: File): string | null {
     return "Formato não permitido. Utilize PDF, JPG, JPEG, PNG ou WEBP.";
   }
   return null;
+}
+
+// FIX #1: helper para verificar se dispute_status é "ativo" — centraliza a
+// lógica que antes estava espalhada e inconsistente em canOpenDispute,
+// getStatusBadge e na exibição do Resumo.
+function hasActiveDispute(item: FinancialTransaction): boolean {
+  if (!item.dispute_status) return false;
+  if (item.dispute_status === "none" || item.dispute_status === "resolved" || item.dispute_status === "closed") return false;
+  return ACTIVE_DISPUTE_STATUSES.has(item.dispute_status) || item.workflow_status === "disputed";
 }
 
 export default function PortalFaturasPage() {
@@ -333,6 +346,20 @@ export default function PortalFaturasPage() {
       cancelled: "Cancelado",
     };
     return map[status || ""] || status || "Em aberto";
+  }, []);
+
+  // FIX #1: translateDisputeStatus — antes ausente, causando exibição raw
+  // ("open", "resolved", "pending") no painel "Resumo da Cobrança".
+  const translateDisputeStatus = useCallback((value: string | null) => {
+    const map: Record<string, string> = {
+      open: "Aberta",
+      pending: "Pendente",
+      under_review: "Em análise",
+      resolved: "Resolvida",
+      closed: "Encerrada",
+      none: "Sem contestação",
+    };
+    return map[value || ""] || value || "-";
   }, []);
 
   const translateDisputeCategory = useCallback((value: string | null) => {
@@ -783,8 +810,9 @@ export default function PortalFaturasPage() {
     };
   }, [groupedInvoices.length, transactions]);
 
-  // FIX: guards para painéis de ação — evita ações duplicadas em
-  // transações que já estão sendo processadas pelo financeiro.
+  // FIX #2: canReportPayment — adicionado guard para workflow_status "disputed".
+  // Antes, uma transação contestada permitia o cliente notificar pagamento
+  // simultaneamente, gerando dois fluxos paralelos no financeiro.
   const canReportPayment = useMemo(() => {
     if (!selectedTransaction) return false;
     const isPaid =
@@ -794,20 +822,24 @@ export default function PortalFaturasPage() {
     const isBeingProcessed =
       selectedTransaction.workflow_status === "awaiting_finance" ||
       selectedTransaction.workflow_status === "under_review";
-    return !isPaid && !isBeingProcessed;
+    // FIX #2: bloqueia também quando a transação está contestada
+    const isDisputed = hasActiveDispute(selectedTransaction);
+    return !isPaid && !isBeingProcessed && !isDisputed;
   }, [selectedTransaction]);
 
+  // FIX #2: canOpenDispute — adicionado guard para workflow_status "disputed"
+  // independente do dispute_status. Antes, se o DB tivesse workflow_status =
+  // "disputed" mas dispute_status = null (inconsistência de dados), o cliente
+  // conseguia abrir uma segunda contestação em cima da existente.
   const canOpenDispute = useMemo(() => {
     if (!selectedTransaction) return false;
     const isPaid =
       selectedTransaction.status === "paid" ||
       selectedTransaction.status === "received" ||
       selectedTransaction.workflow_status === "confirmed";
-    const alreadyDisputed =
-      selectedTransaction.dispute_status === "open" ||
-      (!!selectedTransaction.dispute_status &&
-        selectedTransaction.dispute_status !== "none" &&
-        selectedTransaction.dispute_status !== "resolved");
+    // FIX #2: usa hasActiveDispute() que verifica tanto dispute_status
+    // quanto workflow_status, cobrindo casos de inconsistência de dados.
+    const alreadyDisputed = hasActiveDispute(selectedTransaction);
     return !isPaid && !alreadyDisputed;
   }, [selectedTransaction]);
 
@@ -816,10 +848,8 @@ export default function PortalFaturasPage() {
       item.status === "paid" ||
       item.status === "received" ||
       item.workflow_status === "confirmed";
-    const isDisputed =
-      !!item.dispute_status &&
-      item.dispute_status !== "none" &&
-      item.dispute_status !== "resolved";
+    // FIX #1: usa hasActiveDispute() — consistente com canOpenDispute
+    const isDisputed = hasActiveDispute(item);
     const isAwaiting =
       item.workflow_status === "awaiting_finance" ||
       item.workflow_status === "under_review";
@@ -879,10 +909,9 @@ export default function PortalFaturasPage() {
   const handleReportPayment = async () => {
     if (!selectedTransaction || submitting) return;
 
-    // FIX: bloqueia se a transação já está sendo processada
     if (!canReportPayment) {
       showToast(
-        "Esta cobrança já está sendo processada pelo financeiro.",
+        "Esta cobrança não pode receber notificação de pagamento no momento.",
         "error"
       );
       return;
@@ -898,6 +927,12 @@ export default function PortalFaturasPage() {
         "Preencha a mensagem descrevendo o pagamento realizado.",
         "error"
       );
+      return;
+    }
+
+    // FIX #4: null-check explícito em resolvedClientId antes de usar no path
+    if (!resolvedClientId) {
+      showToast("Sessão inválida. Recarregue a página e tente novamente.", "error");
       return;
     }
 
@@ -977,9 +1012,8 @@ export default function PortalFaturasPage() {
         }
       }
 
-      // FIX: removido "dispute_status: partial_payment" — esse valor não existe
-      // no enum e causava pagamentos parciais aparecerem como contestações
-      // na fila do financeiro. workflow_status: "awaiting_finance" é suficiente.
+      // dispute_status não é alterado aqui — pagamento parcial não é disputa.
+      // workflow_status: "awaiting_finance" é suficiente para a fila do financeiro.
       const { error: updateError } = await supabase
         .from("financial_transactions")
         .update({
@@ -1030,7 +1064,6 @@ export default function PortalFaturasPage() {
   const handleOpenDispute = async () => {
     if (!selectedTransaction || submitting) return;
 
-    // FIX: bloqueia se já existe contestação ativa
     if (!canOpenDispute) {
       showToast(
         "Esta cobrança já possui uma contestação em andamento.",
@@ -1045,6 +1078,12 @@ export default function PortalFaturasPage() {
     }
     if (!disputeForm.message.trim()) {
       showToast("Preencha o detalhamento da contestação.", "error");
+      return;
+    }
+
+    // FIX #4: null-check explícito em resolvedClientId antes de usar no path
+    if (!resolvedClientId) {
+      showToast("Sessão inválida. Recarregue a página e tente novamente.", "error");
       return;
     }
 
@@ -1115,9 +1154,10 @@ export default function PortalFaturasPage() {
         }
       }
 
-      // FIX: para categorias que afetam o grupo inteiro (ex: serviço não entregue),
+      // Para categorias que afetam o grupo inteiro (ex: serviço não entregue),
       // aplica a contestação em todas as parcelas abertas do grupo.
-      // Para categorias de parcela específica (ex: valor divergente), afeta apenas a selecionada.
+      // Para categorias de parcela específica (ex: valor divergente), afeta
+      // apenas a selecionada.
       const isGroupDispute = GROUP_DISPUTE_CATEGORIES.includes(
         disputeForm.category
       );
@@ -1130,14 +1170,11 @@ export default function PortalFaturasPage() {
                 i.status !== "received" &&
                 i.workflow_status !== "confirmed" &&
                 // Não sobrescreve contestações já abertas em outras parcelas
-                (!i.dispute_status ||
-                  i.dispute_status === "none" ||
-                  i.dispute_status === "resolved")
+                !hasActiveDispute(i)
             )
             .map((i) => i.id)
         : [selectedTransaction.id];
 
-      // Atualiza todas as transações do escopo definido
       const updatePromises = transactionIdsToUpdate.map((txId) =>
         supabase
           .from("financial_transactions")
@@ -1540,21 +1577,33 @@ export default function PortalFaturasPage() {
                                 )}
                               </p>
                             </div>
+
+                            {/* FIX #1: dispute_status agora é traduzido via
+                                translateDisputeStatus(). Antes aparecia raw:
+                                "open", "resolved", "pending". */}
                             {selectedTransaction.dispute_status &&
                               selectedTransaction.dispute_status !== "none" && (
                                 <div>
                                   <p className="text-[11px] uppercase tracking-widest text-zinc-500">
-                                    Status da Contestação
+                                    Contestação
                                   </p>
                                   <p className="mt-1 text-sm font-medium text-orange-300">
                                     {translateDisputeCategory(
                                       selectedTransaction.dispute_category
-                                    )}{" "}
-                                    —{" "}
-                                    {selectedTransaction.dispute_status}
+                                    )}
+                                    {" · "}
+                                    {translateDisputeStatus(
+                                      selectedTransaction.dispute_status
+                                    )}
                                   </p>
+                                  {selectedTransaction.dispute_reason && (
+                                    <p className="mt-1 text-xs text-zinc-400">
+                                      {selectedTransaction.dispute_reason}
+                                    </p>
+                                  )}
                                 </div>
                               )}
+
                             {selectedTransaction.payment_reported_amount &&
                               selectedTransaction.payment_reported_amount >
                                 0 && (
@@ -1749,6 +1798,8 @@ export default function PortalFaturasPage() {
                                 <p className="text-[11px] text-zinc-500">
                                   {canReportPayment
                                     ? "Informar liquidação desta parcela"
+                                    : hasActiveDispute(selectedTransaction)
+                                    ? "Indisponível — contestação em andamento"
                                     : "Indisponível — em análise pelo financeiro"}
                                 </p>
                               </div>
@@ -1986,7 +2037,6 @@ export default function PortalFaturasPage() {
                                   </option>
                                   <option value="other">Outro</option>
                                 </select>
-                                {/* FIX: aviso quando a categoria afeta o grupo todo */}
                                 {GROUP_DISPUTE_CATEGORIES.includes(
                                   disputeForm.category
                                 ) &&
