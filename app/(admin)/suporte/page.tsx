@@ -187,17 +187,34 @@ export default function SuportePage() {
   }, []);
 
   const fetchMessages = useCallback(async (ticketId: string) => {
-    const { data, error } = await supabase
+    const { data: messagesData, error: messagesError } = await supabase
       .from("ticket_messages")
       .select(
         `id, ticket_id, sender_id, message, created_at,
-         sender:profiles!ticket_messages_sender_id_fkey(full_name, role, email),
-         ticket_attachments(id, file_url, file_name, file_size)`
+         sender:profiles!ticket_messages_sender_id_fkey(full_name, role, email)`
       )
       .eq("ticket_id", ticketId)
       .order("created_at", { ascending: true });
 
-    if (!error) setMessages((data as TicketMessageRow[]) || []);
+    if (messagesError || !messagesData) return;
+
+    const messageIds = messagesData.map((m: any) => m.id);
+
+    const { data: attachmentsData } = messageIds.length
+      ? await supabase
+          .from("ticket_attachments")
+          .select("id, message_id, file_url, file_name, file_size")
+          .in("message_id", messageIds)
+      : { data: [] };
+
+    const merged = messagesData.map((msg: any) => ({
+      ...msg,
+      ticket_attachments: (attachmentsData || []).filter(
+        (att: any) => att.message_id === msg.id
+      ),
+    }));
+
+    setMessages(merged as TicketMessageRow[]);
   }, []);
 
   const openTicketDetails = useCallback(
