@@ -16,6 +16,7 @@ type HRTab = "colaboradores" | "ocorrencias" | "reembolsos" | "folha";
 
 interface Employee {
   id: string;
+  profile_id: string | null;  // vínculo com profiles.id para comissões
   full_name: string;
   role_label: string | null;
   contract_type: string | null;
@@ -124,6 +125,7 @@ const BRAZILIAN_BANKS = [
 ];
 
 const OCCURRENCE_TYPES = [
+  { value: "absence",             label: "Falta",           hasDiscount: true,  hasDays: true  },
   { value: "warning",             label: "Advertência",     hasDiscount: false, hasDays: false },
   { value: "suspension",          label: "Suspensão",       hasDiscount: true,  hasDays: true  },
   { value: "medical_certificate", label: "Atestado Médico", hasDiscount: false, hasDays: true  },
@@ -686,6 +688,7 @@ function EmpFormModal({ initial, onClose, onSaved }: { initial: Employee | null;
     bank_agency: (initial?.bank_info as Record<string,string>)?.agency ?? "",
     bank_account: (initial?.bank_info as Record<string,string>)?.account ?? "",
     status: initial?.status ?? "active",
+    profile_id: initial?.profile_id ?? "",
   });
   const s = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
 
@@ -702,6 +705,7 @@ function EmpFormModal({ initial, onClose, onSaved }: { initial: Employee | null;
       vr_value: parseFloat(f.vr_value) || 0, health_plan_value: parseFloat(f.health_plan_value) || 0,
       dental_plan_value: parseFloat(f.dental_plan_value) || 0, insurance_value: parseFloat(f.insurance_value) || 0,
       pix_key: f.pix_key || null, status: f.status,
+      profile_id: f.profile_id || null,
       bank_info: { code: f.bank_code, name: bankName, agency: f.bank_agency, account: f.bank_account },
     };
     const { error } = initial
@@ -732,6 +736,10 @@ function EmpFormModal({ initial, onClose, onSaved }: { initial: Employee | null;
             <Field label="Tipo de contrato"><Sel value={f.contract_type} onChange={e => s("contract_type", e.target.value)}>{CONTRACT_TYPES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</Sel></Field>
             <Field label="Data de admissão"><Input type="date" value={f.hiring_date} onChange={e => s("hiring_date", e.target.value)} /></Field>
             <Field label="Status"><Sel value={f.status} onChange={e => s("status", e.target.value)}><option value="active">Ativo</option><option value="inactive">Inativo</option></Sel></Field>
+            <Field label="Usuário do sistema (para comissões)">
+              <Input value={f.profile_id} onChange={e => s("profile_id", e.target.value)} placeholder="UUID do perfil em profiles" />
+              <p className="mt-1 text-[10px] text-[var(--color-text-secondary)]">Vincule ao profile_id do usuário para cálculo automático de comissões.</p>
+            </Field>
           </div>
         </section>
         <section>
@@ -959,16 +967,22 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
 
   const emp = employees.find(e => e.id === (payroll?.employee_id ?? f.employee_id));
 
-  // Busca orçamentos aprovados e ainda não comissionados
+  // Busca orçamentos aprovados e ainda não comissionados usando profile_id
   useEffect(() => {
     if (!f.employee_id) { setQuotes([]); return; }
+    const currentEmp = employees.find(e => e.id === f.employee_id);
+    const profileId  = currentEmp?.profile_id;
+    if (!profileId) {
+      setQuotes([]);
+      return;
+    }
     void supabase.from("quotes")
       .select("id,title,final_amount,status")
-      .eq("salesperson_id", f.employee_id)
+      .eq("salesperson_id", profileId)
       .eq("status", "approved")
       .is("commission_paid_at", null)
       .then(({ data }) => setQuotes((data ?? []) as Quote[]));
-  }, [f.employee_id]);
+  }, [f.employee_id, employees]);
 
   // Auto-preenche comissão
   useEffect(() => {
@@ -976,6 +990,23 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
     const total = quotes.reduce((sum, q) => sum + q.final_amount * ((emp.commission_rate ?? 0) / 100), 0);
     s("total_commissions", total.toFixed(2));
   }, [quotes, emp]);
+
+  // Busca faltas e suspensões do mês de competência para pré-preencher dias
+  useEffect(() => {
+    if (!f.employee_id || !f.reference_month || !f.reference_year) return;
+    const monthStart = `${f.reference_year}-${String(parseInt(f.reference_month)).padStart(2,"0")}-01`;
+    const monthEnd   = new Date(parseInt(f.reference_year), parseInt(f.reference_month), 0).toISOString().slice(0,10);
+    void supabase.from("hr_occurrences")
+      .select("type,days_count,occurrence_date")
+      .eq("employee_id", f.employee_id)
+      .in("type", ["absence","suspension"])
+      .gte("occurrence_date", monthStart)
+      .lte("occurrence_date", monthEnd)
+      .then(({ data }) => {
+        const totalDays = (data ?? []).reduce((sum, oc) => sum + (oc.days_count ?? 1), 0);
+        if (totalDays > 0) s("absence_days", String(totalDays));
+      });
+  }, [f.employee_id, f.reference_month, f.reference_year]);
 
   const salary      = emp?.base_salary ?? 0;
   const vtDiscount  = emp ? calcVTDiscount(salary, emp.vt_value) : 0;
