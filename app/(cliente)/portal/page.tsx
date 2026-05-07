@@ -30,25 +30,25 @@ interface Profile {
 
 interface KpiData {
   openTickets: number;
-  pendingInvoices: number;
-  activeInvoices: number;
+  pendingTransactions: number;
+  paidTransactions: number;
   pendingQuotes: number;
 }
 
 interface ActivityItem {
   id: string;
-  kind: "ticket" | "invoice" | "quote";
+  kind: "ticket" | "transaction" | "quote";
   title: string;
   status: string;
   date: string;
 }
 
 const MODULE_ACCESS: Record<string, Role[]> = {
-  orcamentos: ["client_gestor", "client_comercial"],
-  faturas:    ["client_gestor", "client_financeiro"],
-  suporte:    ["client_gestor", "client_comercial", "client_financeiro"],
-  academy:    ["client_gestor", "client_operador"],
-  ajuda:      ["client_gestor", "client_comercial", "client_financeiro", "client_operador"],
+  orcamentos:  ["client_gestor", "client_comercial"],
+  faturas:     ["client_gestor", "client_financeiro"],
+  suporte:     ["client_gestor", "client_comercial", "client_financeiro"],
+  academy:     ["client_gestor", "client_operador"],
+  ajuda:       ["client_gestor", "client_comercial", "client_financeiro", "client_operador"],
 };
 
 function canAccess(role: string | null, module: string): boolean {
@@ -63,11 +63,11 @@ const TICKET_LABELS: Record<string, string> = {
   closed:      "Fechado",
 };
 
-const INVOICE_LABELS: Record<string, string> = {
-  pending: "Pendente",
-  paid:    "Pago",
-  active:  "Ativo",
-  overdue: "Vencido",
+const TRANSACTION_LABELS: Record<string, string> = {
+  pending:   "Pendente",
+  paid:      "Pago",
+  overdue:   "Vencido",
+  cancelled: "Cancelado",
 };
 
 const QUOTE_LABELS: Record<string, string> = {
@@ -81,7 +81,7 @@ function statusColor(status: string): string {
   switch (status) {
     case "resolved": case "closed": case "paid": case "approved":
       return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
-    case "in_progress": case "active":
+    case "in_progress":
       return "bg-amber-500/10 text-amber-400 border-amber-500/20";
     case "overdue": case "rejected":
       return "bg-red-500/10 text-red-400 border-red-500/20";
@@ -101,7 +101,7 @@ export default function PortalHomePage() {
   const [loading, setLoading]   = useState(true);
   const [profile, setProfile]   = useState<Profile | null>(null);
   const [company, setCompany]   = useState<string | null>(null);
-  const [kpis, setKpis]         = useState<KpiData>({ openTickets: 0, pendingInvoices: 0, activeInvoices: 0, pendingQuotes: 0 });
+  const [kpis, setKpis]         = useState<KpiData>({ openTickets: 0, pendingTransactions: 0, paidTransactions: 0, pendingQuotes: 0 });
   const [activity, setActivity] = useState<ActivityItem[]>([]);
 
   useEffect(() => {
@@ -127,40 +127,48 @@ export default function PortalHomePage() {
             .single();
           setCompany(c?.company_name ?? null);
 
-          const [ticketsRes, invoicesRes, quotesRes] = await Promise.all([
-            supabase.from("tickets")
-              .select("id, status", { count: "exact" })
+          const [ticketsRes, transactionsRes, quotesRes] = await Promise.all([
+            supabase
+              .from("tickets")
+              .select("id, status", { count: "exact", head: true })
               .eq("client_id", p.client_id)
               .in("status", ["open", "in_progress"]),
-            supabase.from("invoices")
-              .select("id, status", { count: "exact" })
-              .eq("client_id", p.client_id),
-            supabase.from("quotes")
-              .select("id, status", { count: "exact" })
+            supabase
+              .from("financial_transactions")
+              .select("id, status")
+              .eq("client_id", p.client_id)
+              .eq("type", "receivable"),
+            supabase
+              .from("quotes")
+              .select("id, status", { count: "exact", head: true })
               .eq("client_id", p.client_id)
               .in("status", ["pending", "draft"]),
           ]);
 
-          const invoices = invoicesRes.data ?? [];
+          const transactions = transactionsRes.data ?? [];
           setKpis({
-            openTickets:     ticketsRes.count ?? 0,
-            pendingInvoices: invoices.filter((i: any) => i.status === "pending" || i.status === "overdue").length,
-            activeInvoices:  invoices.filter((i: any) => i.status === "paid"    || i.status === "active").length,
-            pendingQuotes:   quotesRes.count ?? 0,
+            openTickets:         ticketsRes.count ?? 0,
+            pendingTransactions: transactions.filter((t: any) => t.status === "pending" || t.status === "overdue").length,
+            paidTransactions:    transactions.filter((t: any) => t.status === "paid").length,
+            pendingQuotes:       quotesRes.count ?? 0,
           });
 
-          const [tFeed, iFeed, qFeed] = await Promise.all([
-            supabase.from("tickets")
+          const [tFeed, ftFeed, qFeed] = await Promise.all([
+            supabase
+              .from("tickets")
               .select("id, title, status, created_at")
               .eq("client_id", p.client_id)
               .order("created_at", { ascending: false })
               .limit(3),
-            supabase.from("invoices")
+            supabase
+              .from("financial_transactions")
               .select("id, description, status, created_at")
               .eq("client_id", p.client_id)
+              .eq("type", "receivable")
               .order("created_at", { ascending: false })
               .limit(3),
-            supabase.from("quotes")
+            supabase
+              .from("quotes")
               .select("id, title, status, created_at")
               .eq("client_id", p.client_id)
               .order("created_at", { ascending: false })
@@ -168,9 +176,9 @@ export default function PortalHomePage() {
           ]);
 
           const items: ActivityItem[] = [
-            ...(tFeed.data ?? []).map((r: any) => ({ id: `t-${r.id}`, kind: "ticket"  as const, title: r.title,              status: r.status, date: r.created_at })),
-            ...(iFeed.data ?? []).map((r: any) => ({ id: `i-${r.id}`, kind: "invoice" as const, title: r.description ?? "Fatura", status: r.status, date: r.created_at })),
-            ...(qFeed.data ?? []).map((r: any) => ({ id: `q-${r.id}`, kind: "quote"   as const, title: r.title,              status: r.status, date: r.created_at })),
+            ...(tFeed.data  ?? []).map((r: any) => ({ id: `t-${r.id}`,  kind: "ticket"      as const, title: r.title,                  status: r.status, date: r.created_at })),
+            ...(ftFeed.data ?? []).map((r: any) => ({ id: `f-${r.id}`,  kind: "transaction" as const, title: r.description ?? "Cobrança", status: r.status, date: r.created_at })),
+            ...(qFeed.data  ?? []).map((r: any) => ({ id: `q-${r.id}`,  kind: "quote"       as const, title: r.title,                  status: r.status, date: r.created_at })),
           ]
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
             .slice(0, 6);
@@ -195,40 +203,40 @@ export default function PortalHomePage() {
 
   const kpiCards = [
     {
-      label: "Chamados abertos",
-      value: kpis.openTickets,
-      icon:  <MessageSquare className="h-5 w-5" />,
-      accent: "border-amber-500/20 bg-amber-500/5",
-      iconBg: "text-amber-400 bg-amber-500/10",
-      show:  canAccess(role, "suporte"),
-      alert: kpis.openTickets > 0,
+      label:   "Chamados abertos",
+      value:   kpis.openTickets,
+      icon:    <MessageSquare className="h-5 w-5" />,
+      accent:  "border-amber-500/20 bg-amber-500/5",
+      iconBg:  "text-amber-400 bg-amber-500/10",
+      show:    canAccess(role, "suporte"),
+      alert:   kpis.openTickets > 0,
     },
     {
-      label: "Faturas pendentes",
-      value: kpis.pendingInvoices,
-      icon:  <AlertCircle className="h-5 w-5" />,
-      accent: "border-red-500/20 bg-red-500/5",
-      iconBg: "text-red-400 bg-red-500/10",
-      show:  canAccess(role, "faturas"),
-      alert: kpis.pendingInvoices > 0,
+      label:   "Cobranças pendentes",
+      value:   kpis.pendingTransactions,
+      icon:    <AlertCircle className="h-5 w-5" />,
+      accent:  "border-red-500/20 bg-red-500/5",
+      iconBg:  "text-red-400 bg-red-500/10",
+      show:    canAccess(role, "faturas"),
+      alert:   kpis.pendingTransactions > 0,
     },
     {
-      label: "Faturas ativas / pagas",
-      value: kpis.activeInvoices,
-      icon:  <CheckCircle2 className="h-5 w-5" />,
-      accent: "border-emerald-500/20 bg-emerald-500/5",
-      iconBg: "text-emerald-400 bg-emerald-500/10",
-      show:  canAccess(role, "faturas"),
-      alert: false,
+      label:   "Cobranças pagas",
+      value:   kpis.paidTransactions,
+      icon:    <CheckCircle2 className="h-5 w-5" />,
+      accent:  "border-emerald-500/20 bg-emerald-500/5",
+      iconBg:  "text-emerald-400 bg-emerald-500/10",
+      show:    canAccess(role, "faturas"),
+      alert:   false,
     },
     {
-      label: "Orçamentos pendentes",
-      value: kpis.pendingQuotes,
-      icon:  <TrendingUp className="h-5 w-5" />,
-      accent: "border-blue-500/20 bg-blue-500/5",
-      iconBg: "text-blue-400 bg-blue-500/10",
-      show:  canAccess(role, "orcamentos"),
-      alert: kpis.pendingQuotes > 0,
+      label:   "Orçamentos pendentes",
+      value:   kpis.pendingQuotes,
+      icon:    <TrendingUp className="h-5 w-5" />,
+      accent:  "border-blue-500/20 bg-blue-500/5",
+      iconBg:  "text-blue-400 bg-blue-500/10",
+      show:    canAccess(role, "orcamentos"),
+      alert:   kpis.pendingQuotes > 0,
     },
   ].filter((k) => k.show);
 
@@ -286,20 +294,20 @@ export default function PortalHomePage() {
   ].filter((m) => canAccess(role, m.key));
 
   function ActivityIcon({ kind }: { kind: ActivityItem["kind"] }) {
-    if (kind === "ticket")  return <MessageSquare className="h-4 w-4 text-amber-400" />;
-    if (kind === "invoice") return <Receipt        className="h-4 w-4 text-emerald-400" />;
+    if (kind === "ticket")      return <MessageSquare className="h-4 w-4 text-amber-400" />;
+    if (kind === "transaction") return <Receipt       className="h-4 w-4 text-emerald-400" />;
     return <BookOpen className="h-4 w-4 text-blue-400" />;
   }
 
   function kindLabel(kind: ActivityItem["kind"]) {
-    if (kind === "ticket")  return "Chamado";
-    if (kind === "invoice") return "Fatura";
+    if (kind === "ticket")      return "Chamado";
+    if (kind === "transaction") return "Cobrança";
     return "Orçamento";
   }
 
   function activityLabel(item: ActivityItem): string {
-    if (item.kind === "ticket")  return TICKET_LABELS[item.status]  ?? item.status;
-    if (item.kind === "invoice") return INVOICE_LABELS[item.status] ?? item.status;
+    if (item.kind === "ticket")      return TICKET_LABELS[item.status]      ?? item.status;
+    if (item.kind === "transaction") return TRANSACTION_LABELS[item.status] ?? item.status;
     return QUOTE_LABELS[item.status] ?? item.status;
   }
 
@@ -349,7 +357,8 @@ export default function PortalHomePage() {
               : "sm:grid-cols-2"
             }`}>
               {kpiCards.map((kpi) => (
-                <div key={kpi.label}
+                <div
+                  key={kpi.label}
                   className={`relative overflow-hidden rounded-2xl border p-5 transition-all ${
                     kpi.alert ? kpi.accent : "border-white/5 bg-[#1a1413]"
                   }`}>
@@ -376,7 +385,9 @@ export default function PortalHomePage() {
             </h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {modules.map((mod) => (
-                <Link key={mod.key} href={mod.href}
+                <Link
+                  key={mod.key}
+                  href={mod.href}
                   className={`group relative flex flex-col overflow-hidden rounded-2xl border border-white/5 bg-[#1a1413] p-6 transition-all duration-200 ${mod.accent}`}>
                   <div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-2xl ${mod.iconBg}`}>
                     {mod.icon}

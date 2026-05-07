@@ -48,6 +48,12 @@ interface ClientData {
   email: string | null;
   phone: string | null;
   address: string | null;
+  website: string | null;
+  number: string | null;
+  complement: string | null;
+  city: string | null;
+  state: string | null;
+  zip_code: string | null;
 }
 
 interface TeamMember {
@@ -67,10 +73,10 @@ interface IbgeCity  { id: number; nome: string; }
 // ─── Roles do portal do cliente ──────────────────────────────────────────────
 
 const ACCESS_ROLES = [
-  { value: "client_gestor",    label: "Gestor",    desc: "Acesso completo a todos os módulos" },
-  { value: "client_comercial", label: "Comercial", desc: "Orçamentos e suporte" },
-  { value: "client_financeiro",label: "Financeiro",desc: "Faturas, pagamentos e suporte" },
-  { value: "client_operador",  label: "Operador",  desc: "Academy — treinamentos da equipe" },
+  { value: "client_gestor",     label: "Gestor",     desc: "Acesso completo a todos os módulos" },
+  { value: "client_comercial",  label: "Comercial",  desc: "Orçamentos e suporte" },
+  { value: "client_financeiro", label: "Financeiro", desc: "Faturas, pagamentos e suporte" },
+  { value: "client_operador",   label: "Operador",   desc: "Academy — treinamentos da equipe" },
 ];
 
 // ─── Masks ────────────────────────────────────────────────────────────────────
@@ -78,8 +84,8 @@ const ACCESS_ROLES = [
 function maskPhone(v: string): string {
   const d = v.replace(/\D/g, "").slice(0, 11);
   if (d.length <= 10)
-    return d.replace(/^(\d{2})(\d{4})(\d{0,4})/, (_, a, b, c) => `(${a}) ${b}${c ? `-${c}` : ""}`).trim();
-  return d.replace(/^(\d{2})(\d{5})(\d{0,4})/, (_, a, b, c) => `(${a}) ${b}${c ? `-${c}` : ""}`).trim();
+    return d.replace(/^(\d{2})(\d{4})(\d{0,4})/, (_: string, a: string, b: string, c: string) => `(${a}) ${b}${c ? `-${c}` : ""}`).trim();
+  return d.replace(/^(\d{2})(\d{5})(\d{0,4})/, (_: string, a: string, b: string, c: string) => `(${a}) ${b}${c ? `-${c}` : ""}`).trim();
 }
 
 function maskCNPJ(v: string): string {
@@ -94,10 +100,6 @@ function maskCNPJ(v: string): string {
 function maskCEP(v: string): string {
   const d = v.replace(/\D/g, "").slice(0, 8);
   return d.replace(/^(\d{5})(\d)/, "$1-$2");
-}
-
-function maskSite(v: string): string {
-  return v.replace(/[^a-zA-Z0-9._~:/?#[\]@!$&'()*+,;=%-]/g, "");
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -126,10 +128,10 @@ export default function ConfiguracoesPage() {
   const [activeTab, setActiveTab] = useState<Tab>("perfil");
 
   // perfil
-  const [profile, setProfile]         = useState<UserProfile | null>(null);
-  const [fullName, setFullName]       = useState("");
-  const [userEmail, setUserEmail]     = useState("");
-  const [userPhone, setUserPhone]     = useState("");
+  const [profile, setProfile]           = useState<UserProfile | null>(null);
+  const [fullName, setFullName]         = useState("");
+  const [userEmail, setUserEmail]       = useState("");
+  const [userPhone, setUserPhone]       = useState("");
   const [userJobTitle, setUserJobTitle] = useState("");
 
   // senha
@@ -138,7 +140,7 @@ export default function ConfiguracoesPage() {
   const [showPassword, setShowPassword]       = useState(false);
   const [showConfirm, setShowConfirm]         = useState(false);
 
-  // empresa
+  // empresa — campos separados mapeados para as colunas reais do banco
   const [client, setClient]               = useState<ClientData | null>(null);
   const [companyName, setCompanyName]     = useState("");
   const [legalName, setLegalName]         = useState("");
@@ -158,12 +160,12 @@ export default function ConfiguracoesPage() {
   const [loadingCities, setLoadingCities] = useState(false);
 
   // equipe
-  const [teamMembers, setTeamMembers]           = useState<TeamMember[]>([]);
+  const [teamMembers, setTeamMembers]             = useState<TeamMember[]>([]);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
-  const [inviteEmail, setInviteEmail]           = useState("");
-  const [inviteName, setInviteName]             = useState("");
-  const [inviteAccessRole, setInviteAccessRole] = useState("client_operador");
-  const [confirmModal, setConfirmModal]         = useState<ConfirmDialog>({ isOpen: false, userId: "", userName: "" });
+  const [inviteEmail, setInviteEmail]             = useState("");
+  const [inviteName, setInviteName]               = useState("");
+  const [inviteAccessRole, setInviteAccessRole]   = useState("client_operador");
+  const [confirmModal, setConfirmModal]           = useState<ConfirmDialog>({ isOpen: false, userId: "", userName: "" });
 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
@@ -204,7 +206,7 @@ export default function ConfiguracoesPage() {
     setLoadingCities(true);
     fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${selectedState}/municipios?orderBy=nome`)
       .then((r) => r.json())
-      .then((data: IbgeCity[]) => { setCities(data); })
+      .then((data: IbgeCity[]) => setCities(data))
       .catch(() => {})
       .finally(() => setLoadingCities(false));
   }, [selectedState]);
@@ -273,7 +275,7 @@ export default function ConfiguracoesPage() {
         if (p.client_id) {
           const { data: c, error: cErr } = await supabase
             .from("clients")
-            .select("id, company_name, legal_name, document, contact_name, email, phone, address")
+            .select("id, company_name, legal_name, document, contact_name, email, phone, address, website, number, complement, city, state, zip_code")
             .eq("id", p.client_id)
             .single();
           if (cErr) throw cErr;
@@ -285,7 +287,13 @@ export default function ConfiguracoesPage() {
             setContactName(c.contact_name ?? "");
             setClientPhone(c.phone ? maskPhone(c.phone) : "");
             setClientEmail(c.email ?? "");
+            setClientSite(c.website ?? "");
             setStreet(c.address ?? "");
+            setNumber(c.number ?? "");
+            setComplement(c.complement ?? "");
+            setSelectedCity(c.city ?? "");
+            setSelectedState(c.state ?? "");
+            setCep(c.zip_code ? maskCEP(c.zip_code) : "");
           }
           await loadTeam(p.client_id, session.user.id);
         }
@@ -300,6 +308,7 @@ export default function ConfiguracoesPage() {
 
   // ─── Handlers ─────────────────────────────────────────────────────────────
 
+  // Avatar — path sem prefixo de pasta pois o bucket já se chama "avatars"
   const handleAvatarUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !profile?.id) return;
@@ -308,12 +317,14 @@ export default function ConfiguracoesPage() {
     try {
       const ext  = file.name.split(".").pop();
       const path = `${profile.id}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+      const { error: upErr } = await supabase.storage
+        .from("avatars")
+        .upload(path, file, { upsert: true });
       if (upErr) throw upErr;
       const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
       await supabase.from("profiles").update({ avatar_url: urlData.publicUrl }).eq("id", profile.id);
       setProfile((prev) => prev ? { ...prev, avatar_url: urlData.publicUrl } : prev);
-      addToast("success", "Foto atualizada", "Sua foto foi atualizada.");
+      addToast("success", "Foto atualizada", "Sua foto foi atualizada com sucesso.");
     } catch (err) {
       addToast("error", "Erro no upload", err instanceof Error ? err.message : "Tente novamente.");
     } finally { setUploadingAvatar(false); }
@@ -338,8 +349,6 @@ export default function ConfiguracoesPage() {
     if (!client?.id) return;
     setSavingCompany(true);
     try {
-      const fullAddress = [street.trim(), number.trim(), complement.trim(), selectedCity, selectedState]
-        .filter(Boolean).join(", ");
       const { error } = await supabase.from("clients").update({
         company_name: companyName.trim(),
         legal_name:   legalName.trim(),
@@ -347,14 +356,20 @@ export default function ConfiguracoesPage() {
         contact_name: contactName.trim(),
         phone:        clientPhone.replace(/\D/g, ""),
         email:        clientEmail.trim(),
-        address:      fullAddress,
+        website:      clientSite.trim(),
+        address:      street.trim(),
+        number:       number.trim(),
+        complement:   complement.trim(),
+        city:         selectedCity,
+        state:        selectedState,
+        zip_code:     cep.replace(/\D/g, ""),
       }).eq("id", client.id);
       if (error) throw error;
       addToast("success", "Empresa atualizada", "Os dados foram salvos.");
     } catch (err) {
       addToast("error", "Erro ao salvar", err instanceof Error ? err.message : "Tente novamente.");
     } finally { setSavingCompany(false); }
-  }, [client, companyName, legalName, cnpj, contactName, clientPhone, clientEmail, street, number, complement, selectedCity, selectedState, addToast]);
+  }, [client, companyName, legalName, cnpj, contactName, clientPhone, clientEmail, clientSite, street, number, complement, selectedCity, selectedState, cep, addToast]);
 
   const handleInviteUser = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -490,42 +505,22 @@ export default function ConfiguracoesPage() {
               <form onSubmit={(e) => void handleInviteUser(e)} className="space-y-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-zinc-200">Nome completo</label>
-                  <input
-                    type="text"
-                    value={inviteName}
-                    onChange={(e) => setInviteName(e.target.value)}
-                    placeholder="Ex: Maria Silva"
-                    className={BASE_INPUT}
-                  />
+                  <input type="text" value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Ex: Maria Silva" className={BASE_INPUT} />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-zinc-200">E-mail *</label>
-                  <input
-                    type="email"
-                    required
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="maria@suaempresa.com.br"
-                    className={BASE_INPUT}
-                  />
+                  <input type="email" required value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="maria@suaempresa.com.br" className={BASE_INPUT} />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-zinc-200">Nível de acesso *</label>
-                  <select
-                    value={inviteAccessRole}
-                    onChange={(e) => setInviteAccessRole(e.target.value)}
-                    className={cn(BASE_INPUT, "cursor-pointer")}>
+                  <select value={inviteAccessRole} onChange={(e) => setInviteAccessRole(e.target.value)} className={cn(BASE_INPUT, "cursor-pointer")}>
                     {ACCESS_ROLES.map((r) => (
-                      <option key={r.value} value={r.value}>
-                        {r.label} — {r.desc}
-                      </option>
+                      <option key={r.value} value={r.value}>{r.label} — {r.desc}</option>
                     ))}
                   </select>
                 </div>
                 <div className="flex justify-end border-t border-white/10 pt-4">
-                  <button
-                    type="submit"
-                    disabled={isProcessing}
+                  <button type="submit" disabled={isProcessing}
                     className="inline-flex items-center gap-2 rounded-2xl bg-[#138946] px-6 py-2.5 text-sm font-bold text-white transition hover:bg-[#0f723b] disabled:opacity-50">
                     {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
                     Enviar Convite
@@ -577,9 +572,7 @@ export default function ConfiguracoesPage() {
         {/* ── Tabs ────────────────────────────────────────────────────────── */}
         <div className="flex gap-2 overflow-x-auto rounded-2xl border border-white/10 bg-[#1a1413] p-1.5">
           {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
               className={cn(
                 "flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors",
                 activeTab === tab.key ? "bg-[#138946] text-white" : "text-zinc-400 hover:bg-white/5 hover:text-white"
@@ -621,14 +614,7 @@ export default function ConfiguracoesPage() {
                 <label className="text-sm font-medium text-zinc-200">Telefone / WhatsApp</label>
                 <div className="relative">
                   <Phone className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                  <input
-                    type="tel"
-                    value={userPhone}
-                    onChange={(e) => setUserPhone(maskPhone(e.target.value))}
-                    maxLength={15}
-                    placeholder="(00) 00000-0000"
-                    className={cn(BASE_INPUT, "pl-11")}
-                  />
+                  <input type="tel" value={userPhone} onChange={(e) => setUserPhone(maskPhone(e.target.value))} maxLength={15} placeholder="(00) 00000-0000" className={cn(BASE_INPUT, "pl-11")} />
                 </div>
               </div>
               <div className="space-y-2 sm:col-span-2">
@@ -681,14 +667,7 @@ export default function ConfiguracoesPage() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">CNPJ</label>
-                    <input
-                      type="text"
-                      value={cnpj}
-                      onChange={(e) => setCnpj(maskCNPJ(e.target.value))}
-                      maxLength={18}
-                      placeholder="00.000.000/0000-00"
-                      className={BASE_INPUT}
-                    />
+                    <input type="text" value={cnpj} onChange={(e) => setCnpj(maskCNPJ(e.target.value))} maxLength={18} placeholder="00.000.000/0000-00" className={BASE_INPUT} />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">Pessoa de contato</label>
@@ -698,14 +677,7 @@ export default function ConfiguracoesPage() {
                     <label className="text-sm font-medium text-zinc-200">Telefone</label>
                     <div className="relative">
                       <Phone className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                      <input
-                        type="tel"
-                        value={clientPhone}
-                        onChange={(e) => setClientPhone(maskPhone(e.target.value))}
-                        maxLength={15}
-                        placeholder="(00) 00000-0000"
-                        className={cn(BASE_INPUT, "pl-11")}
-                      />
+                      <input type="tel" value={clientPhone} onChange={(e) => setClientPhone(maskPhone(e.target.value))} maxLength={15} placeholder="(00) 00000-0000" className={cn(BASE_INPUT, "pl-11")} />
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -719,7 +691,7 @@ export default function ConfiguracoesPage() {
                     <label className="text-sm font-medium text-zinc-200">Site</label>
                     <div className="relative">
                       <Globe className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                      <input type="url" value={clientSite} onChange={(e) => setClientSite(maskSite(e.target.value))} placeholder="https://www.suaempresa.com.br" className={cn(BASE_INPUT, "pl-11")} />
+                      <input type="url" value={clientSite} onChange={(e) => setClientSite(e.target.value)} placeholder="https://www.suaempresa.com.br" className={cn(BASE_INPUT, "pl-11")} />
                     </div>
                   </div>
 
@@ -734,15 +706,7 @@ export default function ConfiguracoesPage() {
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">CEP</label>
                     <div className="relative">
-                      <input
-                        type="text"
-                        value={cep}
-                        onChange={(e) => setCep(maskCEP(e.target.value))}
-                        onBlur={() => void handleCepBlur()}
-                        maxLength={9}
-                        placeholder="00000-000"
-                        className={BASE_INPUT}
-                      />
+                      <input type="text" value={cep} onChange={(e) => setCep(maskCEP(e.target.value))} onBlur={() => void handleCepBlur()} maxLength={9} placeholder="00000-000" className={BASE_INPUT} />
                       {fetchingCep && <Loader2 className="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-zinc-500" />}
                     </div>
                     <p className="text-xs text-zinc-600">Ao sair do campo, o endereço é preenchido automaticamente.</p>
@@ -753,7 +717,7 @@ export default function ConfiguracoesPage() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">Número</label>
-                    <input type="text" value={number} onChange={(e) => setNumber(e.target.value.replace(/\D/g, ""))} placeholder="123" className={BASE_INPUT} />
+                    <input type="text" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="123" className={BASE_INPUT} />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">Complemento</label>
@@ -761,10 +725,7 @@ export default function ConfiguracoesPage() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">Estado</label>
-                    <select
-                      value={selectedState}
-                      onChange={(e) => { setSelectedState(e.target.value); setSelectedCity(""); }}
-                      className={cn(BASE_INPUT, "cursor-pointer")}>
+                    <select value={selectedState} onChange={(e) => { setSelectedState(e.target.value); setSelectedCity(""); }} className={cn(BASE_INPUT, "cursor-pointer")}>
                       <option value="">Selecione o estado</option>
                       {states.map((s) => <option key={s.id} value={s.sigla}>{s.sigla} — {s.nome}</option>)}
                     </select>
@@ -772,11 +733,7 @@ export default function ConfiguracoesPage() {
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">Cidade</label>
                     <div className="relative">
-                      <select
-                        value={selectedCity}
-                        onChange={(e) => setSelectedCity(e.target.value)}
-                        disabled={!selectedState || loadingCities}
-                        className={cn(BASE_INPUT, "cursor-pointer disabled:opacity-50")}>
+                      <select value={selectedCity} onChange={(e) => setSelectedCity(e.target.value)} disabled={!selectedState || loadingCities} className={cn(BASE_INPUT, "cursor-pointer disabled:opacity-50")}>
                         <option value="">{loadingCities ? "Carregando..." : "Selecione a cidade"}</option>
                         {cities.map((c) => <option key={c.id} value={c.nome}>{c.nome}</option>)}
                       </select>
@@ -810,13 +767,11 @@ export default function ConfiguracoesPage() {
                   <p className="mt-1 text-sm text-zinc-400">Usuários da sua empresa com acesso.</p>
                 </div>
               </div>
-              <button
-                onClick={() => setIsInviteModalOpen(true)}
+              <button onClick={() => setIsInviteModalOpen(true)}
                 className="inline-flex items-center gap-2 rounded-2xl bg-[#138946] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0f723b]">
                 <UserPlus className="h-4 w-4" /><span className="hidden sm:inline">Convidar</span>
               </button>
             </div>
-
             <div className="mt-6">
               {teamMembers.length === 0 ? (
                 <div className="rounded-2xl border border-white/5 bg-white/[0.02] px-5 py-10 text-center">
@@ -896,15 +851,8 @@ export default function ConfiguracoesPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-zinc-200">Nova senha</label>
                 <div className="relative">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Mínimo 6 caracteres"
-                    className={cn(BASE_INPUT, "pr-11")}
-                  />
-                  <button type="button" onClick={() => setShowPassword((v) => !v)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 transition hover:text-zinc-300">
+                  <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo 6 caracteres" className={cn(BASE_INPUT, "pr-11")} />
+                  <button type="button" onClick={() => setShowPassword((v) => !v)} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 transition hover:text-zinc-300">
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
@@ -912,22 +860,14 @@ export default function ConfiguracoesPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-zinc-200">Confirmar nova senha</label>
                 <div className="relative">
-                  <input
-                    type={showConfirm ? "text" : "password"}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Repita a nova senha"
-                    className={cn(BASE_INPUT, "pr-11")}
-                  />
-                  <button type="button" onClick={() => setShowConfirm((v) => !v)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 transition hover:text-zinc-300">
+                  <input type={showConfirm ? "text" : "password"} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Repita a nova senha" className={cn(BASE_INPUT, "pr-11")} />
+                  <button type="button" onClick={() => setShowConfirm((v) => !v)} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 transition hover:text-zinc-300">
                     {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
               </div>
               {password && confirmPassword && (
-                <div className={cn("flex items-center gap-2 text-xs font-medium",
-                  password === confirmPassword ? "text-emerald-400" : "text-red-400")}>
+                <div className={cn("flex items-center gap-2 text-xs font-medium", password === confirmPassword ? "text-emerald-400" : "text-red-400")}>
                   {password === confirmPassword
                     ? <><CheckCircle2 className="h-4 w-4" /> Senhas conferem</>
                     : <><AlertCircle  className="h-4 w-4" /> Senhas não conferem</>}
@@ -967,8 +907,7 @@ export default function ConfiguracoesPage() {
                   <p className="text-sm font-semibold text-white">{toast.title}</p>
                   <p className="mt-1 text-sm leading-5 text-zinc-400">{toast.message}</p>
                 </div>
-                <button type="button" onClick={() => removeToast(toast.id)}
-                  className="rounded-lg p-1 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-200">
+                <button type="button" onClick={() => removeToast(toast.id)} className="rounded-lg p-1 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-200">
                   <X className="h-4 w-4" />
                 </button>
               </div>
