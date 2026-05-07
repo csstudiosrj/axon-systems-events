@@ -32,7 +32,6 @@ interface UserProfile {
   full_name: string | null;
   email?: string | null;
   role?: string | null;
-  phone?: string | null;
   avatar_url?: string | null;
   client_id?: string | null;
 }
@@ -40,14 +39,11 @@ interface UserProfile {
 interface ClientData {
   id: string;
   company_name?: string | null;
-  legal_name?: string | null;
-  cnpj?: string | null;
-  phone?: string | null;
+  document?: string | null;
+  contact_name?: string | null;
   email?: string | null;
+  phone?: string | null;
   address?: string | null;
-  city?: string | null;
-  state?: string | null;
-  zip_code?: string | null;
 }
 
 interface TeamMember {
@@ -55,7 +51,6 @@ interface TeamMember {
   full_name: string | null;
   email: string | null;
   role: string | null;
-  phone?: string | null;
   avatar_url?: string | null;
 }
 
@@ -82,15 +77,11 @@ export default function PerfilPage() {
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
 
   const [client, setClient] = useState<ClientData | null>(null);
   const [clientPhone, setClientPhone] = useState("");
   const [clientEmail, setClientEmail] = useState("");
   const [clientAddress, setClientAddress] = useState("");
-  const [clientCity, setClientCity] = useState("");
-  const [clientState, setClientState] = useState("");
-  const [clientZip, setClientZip] = useState("");
 
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
 
@@ -103,7 +94,7 @@ export default function PerfilPage() {
     const name = profile?.full_name?.trim();
     if (name) {
       const parts = name.split(" ").filter(Boolean);
-      return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase();
+      return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase();
     }
     if (profile?.email) return profile.email.substring(0, 2).toUpperCase();
     return "US";
@@ -129,48 +120,43 @@ export default function PerfilPage() {
 
         const { data: p, error: pErr } = await supabase
           .from("profiles")
-          .select("id, full_name, role, phone, avatar_url, client_id")
+          .select("id, full_name, role, avatar_url, client_id")
           .eq("id", session.user.id)
           .single();
 
         if (pErr) throw pErr;
 
-        const profileData: UserProfile = {
-          ...p,
-          email: session.user.email ?? null,
-        };
-
-        setProfile(profileData);
+        setProfile({ ...p, email: session.user.email ?? null });
         setFullName(p.full_name ?? "");
-        setPhone(p.phone ?? "");
 
         if (p.client_id) {
-          const { data: c } = await supabase
+          const { data: c, error: cErr } = await supabase
             .from("clients")
-            .select("id, company_name, legal_name, cnpj, phone, email, address, city, state, zip_code")
+            .select("id, company_name, document, contact_name, email, phone, address")
             .eq("id", p.client_id)
             .single();
+
+          if (cErr) throw cErr;
 
           if (c) {
             setClient(c);
             setClientPhone(c.phone ?? "");
             setClientEmail(c.email ?? "");
             setClientAddress(c.address ?? "");
-            setClientCity(c.city ?? "");
-            setClientState(c.state ?? "");
-            setClientZip(c.zip_code ?? "");
           }
 
-          const { data: team } = await supabase
+          const { data: team, error: tErr } = await supabase
             .from("profiles")
-            .select("id, full_name, email, role, phone, avatar_url")
+            .select("id, full_name, email, role, avatar_url")
             .eq("client_id", p.client_id)
             .neq("id", session.user.id);
 
+          if (tErr) throw tErr;
           setTeamMembers((team ?? []) as TeamMember[]);
         }
       } catch (err) {
-        addToast("error", "Erro ao carregar", err instanceof Error ? err.message : "Tente novamente.");
+        const msg = err instanceof Error ? err.message : "Tente novamente.";
+        addToast("error", "Erro ao carregar", msg);
       } finally {
         setLoading(false);
       }
@@ -179,38 +165,41 @@ export default function PerfilPage() {
     void load();
   }, [addToast]);
 
-  const handleAvatarUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !profile?.id) return;
+  const handleAvatarUpload = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file || !profile?.id) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      addToast("error", "Arquivo muito grande", "A imagem deve ter no máximo 2MB.");
-      return;
-    }
+      if (file.size > 2 * 1024 * 1024) {
+        addToast("error", "Arquivo muito grande", "A imagem deve ter no máximo 2MB.");
+        return;
+      }
 
-    setUploadingAvatar(true);
-    try {
-      const ext = file.name.split(".").pop();
-      const path = `avatars/${profile.id}.${ext}`;
+      setUploadingAvatar(true);
+      try {
+        const ext = file.name.split(".").pop();
+        const path = `avatars/${profile.id}.${ext}`;
 
-      const { error: uploadErr } = await supabase.storage
-        .from("avatars")
-        .upload(path, file, { upsert: true });
+        const { error: uploadErr } = await supabase.storage
+          .from("avatars")
+          .upload(path, file, { upsert: true });
 
-      if (uploadErr) throw uploadErr;
+        if (uploadErr) throw uploadErr;
 
-      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
-      const avatarUrl = urlData.publicUrl;
+        const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
+        const avatarUrl = urlData.publicUrl;
 
-      await supabase.from("profiles").update({ avatar_url: avatarUrl }).eq("id", profile.id);
-      setProfile((prev) => prev ? { ...prev, avatar_url: avatarUrl } : prev);
-      addToast("success", "Foto atualizada", "Sua foto de perfil foi atualizada.");
-    } catch (err) {
-      addToast("error", "Erro no upload", err instanceof Error ? err.message : "Tente novamente.");
-    } finally {
-      setUploadingAvatar(false);
-    }
-  }, [profile, addToast]);
+        await supabase.from("profiles").update({ avatar_url: avatarUrl }).eq("id", profile.id);
+        setProfile((prev) => (prev ? { ...prev, avatar_url: avatarUrl } : prev));
+        addToast("success", "Foto atualizada", "Sua foto de perfil foi atualizada.");
+      } catch (err) {
+        addToast("error", "Erro no upload", err instanceof Error ? err.message : "Tente novamente.");
+      } finally {
+        setUploadingAvatar(false);
+      }
+    },
+    [profile, addToast]
+  );
 
   const handleSaveProfile = useCallback(async () => {
     if (!profile?.id) return;
@@ -218,17 +207,17 @@ export default function PerfilPage() {
     try {
       const { error } = await supabase
         .from("profiles")
-        .update({ full_name: fullName.trim(), phone: phone.trim() })
+        .update({ full_name: fullName.trim() })
         .eq("id", profile.id);
       if (error) throw error;
-      setProfile((prev) => prev ? { ...prev, full_name: fullName.trim(), phone: phone.trim() } : prev);
-      addToast("success", "Perfil atualizado", "Seus dados foram salvos com sucesso.");
+      setProfile((prev) => (prev ? { ...prev, full_name: fullName.trim() } : prev));
+      addToast("success", "Perfil atualizado", "Seu nome foi salvo com sucesso.");
     } catch (err) {
       addToast("error", "Erro ao salvar", err instanceof Error ? err.message : "Tente novamente.");
     } finally {
       setSavingProfile(false);
     }
-  }, [profile, fullName, phone, addToast]);
+  }, [profile, fullName, addToast]);
 
   const handleSaveCompany = useCallback(async () => {
     if (!client?.id) return;
@@ -240,9 +229,6 @@ export default function PerfilPage() {
           phone: clientPhone.trim(),
           email: clientEmail.trim(),
           address: clientAddress.trim(),
-          city: clientCity.trim(),
-          state: clientState.trim(),
-          zip_code: clientZip.trim(),
         })
         .eq("id", client.id);
       if (error) throw error;
@@ -252,7 +238,7 @@ export default function PerfilPage() {
     } finally {
       setSavingCompany(false);
     }
-  }, [client, clientPhone, clientEmail, clientAddress, clientCity, clientState, clientZip, addToast]);
+  }, [client, clientPhone, clientEmail, clientAddress, addToast]);
 
   const handleUpdatePassword = useCallback(async () => {
     if (!password || !confirmPassword) {
@@ -305,7 +291,7 @@ export default function PerfilPage() {
     <main className="min-h-screen bg-[#0d0807] text-white">
       <section className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
 
-        {/* Header */}
+        {/* ── Header ─────────────────────────────────────────────── */}
         <header className="overflow-hidden rounded-[28px] border border-white/10 bg-[#1a1413] shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
           <div className="relative p-6 sm:p-8">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(19,137,70,0.18),transparent_30%)]" />
@@ -325,7 +311,6 @@ export default function PerfilPage() {
                 </div>
               </div>
 
-              {/* Avatar */}
               <div className="flex items-center gap-4 rounded-3xl border border-white/10 bg-black/20 p-4 backdrop-blur">
                 <div className="relative">
                   {profile?.avatar_url ? (
@@ -362,7 +347,7 @@ export default function PerfilPage() {
                   <p className="text-sm font-semibold text-white">{profile?.full_name || "Usuário"}</p>
                   <p className="mt-0.5 text-xs text-zinc-500">{profile?.email || ""}</p>
                   {client && (
-                    <p className="mt-1 text-xs text-[#79d89f]">{client.company_name || client.legal_name}</p>
+                    <p className="mt-1 text-xs text-[#79d89f]">{client.company_name}</p>
                   )}
                 </div>
               </div>
@@ -370,7 +355,7 @@ export default function PerfilPage() {
           </div>
         </header>
 
-        {/* Tabs */}
+        {/* ── Tabs ───────────────────────────────────────────────── */}
         <div className="flex gap-2 overflow-x-auto rounded-2xl border border-white/10 bg-[#1a1413] p-1.5">
           {tabs.map((tab) => (
             <button
@@ -389,7 +374,7 @@ export default function PerfilPage() {
           ))}
         </div>
 
-        {/* Tab: Meus Dados */}
+        {/* ── Meus Dados ─────────────────────────────────────────── */}
         {activeTab === "perfil" && (
           <section className="rounded-[28px] border border-white/10 bg-[#1a1413] p-6">
             <div className="flex items-center gap-3 border-b border-white/10 pb-5">
@@ -398,7 +383,7 @@ export default function PerfilPage() {
               </div>
               <div>
                 <h2 className="text-xl font-semibold text-white">Dados pessoais</h2>
-                <p className="mt-1 text-sm text-zinc-400">Nome e telefone do seu usuário de acesso.</p>
+                <p className="mt-1 text-sm text-zinc-400">Informações do seu usuário de acesso.</p>
               </div>
             </div>
 
@@ -412,20 +397,6 @@ export default function PerfilPage() {
                   placeholder="Seu nome completo"
                   className={INPUT_CLASS}
                 />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-zinc-200">Telefone / WhatsApp</label>
-                <div className="relative">
-                  <Phone className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="(00) 00000-0000"
-                    className={cn(INPUT_CLASS, "pl-11")}
-                  />
-                </div>
               </div>
 
               <div className="space-y-2">
@@ -457,7 +428,7 @@ export default function PerfilPage() {
           </section>
         )}
 
-        {/* Tab: Empresa */}
+        {/* ── Empresa ────────────────────────────────────────────── */}
         {activeTab === "empresa" && (
           <section className="rounded-[28px] border border-white/10 bg-[#1a1413] p-6">
             <div className="flex items-center gap-3 border-b border-white/10 pb-5">
@@ -467,33 +438,51 @@ export default function PerfilPage() {
               <div>
                 <h2 className="text-xl font-semibold text-white">Dados da empresa</h2>
                 <p className="mt-1 text-sm text-zinc-400">
-                  CNPJ e razão social são somente leitura. Telefone, e-mail e endereço podem ser editados.
+                  Nome e documento são somente leitura. Telefone, e-mail e endereço podem ser editados.
                 </p>
               </div>
             </div>
 
             {!client ? (
-              <p className="mt-6 text-sm text-zinc-500">Nenhuma empresa vinculada a este perfil.</p>
+              <div className="mt-6 rounded-2xl border border-white/5 bg-white/[0.02] px-5 py-8 text-center">
+                <Building2 className="mx-auto mb-3 h-8 w-8 text-zinc-600" />
+                <p className="text-sm text-zinc-500">Nenhuma empresa vinculada a este perfil.</p>
+              </div>
             ) : (
               <>
                 <div className="mt-6 grid gap-5 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-zinc-200">Razão social</label>
-                    <input type="text" value={client.legal_name ?? client.company_name ?? ""} disabled className={INPUT_DISABLED_CLASS} />
+                    <label className="text-sm font-medium text-zinc-200">Nome da empresa</label>
+                    <input
+                      type="text"
+                      value={client.company_name ?? ""}
+                      disabled
+                      className={INPUT_DISABLED_CLASS}
+                    />
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-zinc-200">Nome fantasia</label>
-                    <input type="text" value={client.company_name ?? ""} disabled className={INPUT_DISABLED_CLASS} />
+                    <label className="text-sm font-medium text-zinc-200">CNPJ / Documento</label>
+                    <input
+                      type="text"
+                      value={client.document ?? ""}
+                      disabled
+                      className={INPUT_DISABLED_CLASS}
+                    />
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-zinc-200">CNPJ</label>
-                    <input type="text" value={client.cnpj ?? ""} disabled className={INPUT_DISABLED_CLASS} />
+                    <label className="text-sm font-medium text-zinc-200">Nome do contato</label>
+                    <input
+                      type="text"
+                      value={client.contact_name ?? ""}
+                      disabled
+                      className={INPUT_DISABLED_CLASS}
+                    />
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-zinc-200">Telefone da empresa</label>
+                    <label className="text-sm font-medium text-zinc-200">Telefone</label>
                     <div className="relative">
                       <Phone className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
                       <input
@@ -526,44 +515,9 @@ export default function PerfilPage() {
                       type="text"
                       value={clientAddress}
                       onChange={(e) => setClientAddress(e.target.value)}
-                      placeholder="Rua, número, complemento"
+                      placeholder="Rua, número, complemento, cidade, estado"
                       className={INPUT_CLASS}
                     />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-zinc-200">Cidade</label>
-                    <input
-                      type="text"
-                      value={clientCity}
-                      onChange={(e) => setClientCity(e.target.value)}
-                      placeholder="Cidade"
-                      className={INPUT_CLASS}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-zinc-200">Estado</label>
-                      <input
-                        type="text"
-                        value={clientState}
-                        onChange={(e) => setClientState(e.target.value)}
-                        placeholder="UF"
-                        maxLength={2}
-                        className={INPUT_CLASS}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-zinc-200">CEP</label>
-                      <input
-                        type="text"
-                        value={clientZip}
-                        onChange={(e) => setClientZip(e.target.value)}
-                        placeholder="00000-000"
-                        className={INPUT_CLASS}
-                      />
-                    </div>
                   </div>
                 </div>
 
@@ -583,7 +537,7 @@ export default function PerfilPage() {
           </section>
         )}
 
-        {/* Tab: Equipe no Portal */}
+        {/* ── Equipe no Portal ───────────────────────────────────── */}
         {activeTab === "equipe" && (
           <section className="rounded-[28px] border border-white/10 bg-[#1a1413] p-6">
             <div className="flex items-center gap-3 border-b border-white/10 pb-5">
@@ -606,9 +560,9 @@ export default function PerfilPage() {
                 </div>
               ) : (
                 teamMembers.map((member) => {
-                  const memberInitials = member.full_name
+                  const mi = member.full_name
                     ? member.full_name.split(" ").filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase()
-                    : member.email?.substring(0, 2).toUpperCase() ?? "??";
+                    : (member.email?.substring(0, 2).toUpperCase() ?? "??");
 
                   return (
                     <div
@@ -619,15 +573,17 @@ export default function PerfilPage() {
                         <img src={member.avatar_url} alt="" className="h-10 w-10 rounded-xl object-cover" />
                       ) : (
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-[#120e0d] text-xs font-bold text-[#79d89f]">
-                          {memberInitials}
+                          {mi}
                         </div>
                       )}
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-white">{member.full_name || "—"}</p>
                         <p className="truncate text-xs text-zinc-500">{member.email}</p>
                       </div>
-                      {member.phone && (
-                        <p className="hidden shrink-0 text-xs text-zinc-600 sm:block">{member.phone}</p>
+                      {member.role && (
+                        <span className="hidden shrink-0 rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-zinc-400 sm:block">
+                          {member.role}
+                        </span>
                       )}
                     </div>
                   );
@@ -637,7 +593,7 @@ export default function PerfilPage() {
           </section>
         )}
 
-        {/* Tab: Segurança */}
+        {/* ── Segurança ──────────────────────────────────────────── */}
         {activeTab === "seguranca" && (
           <section className="rounded-[28px] border border-white/10 bg-[#1a1413] p-6">
             <div className="flex items-center gap-3 border-b border-white/10 pb-5">
@@ -688,7 +644,7 @@ export default function PerfilPage() {
 
       </section>
 
-      {/* Toasts */}
+      {/* ── Toasts ─────────────────────────────────────────────────── */}
       <div className="pointer-events-none fixed right-4 top-4 z-50 flex w-full max-w-sm flex-col gap-3">
         {toasts.map((toast) => {
           const isSuccess = toast.type === "success";
@@ -704,13 +660,21 @@ export default function PerfilPage() {
               )}
             >
               <div className="flex items-start gap-3 p-4">
-                <div className={cn(
-                  "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl",
-                  isSuccess && "bg-emerald-500/15 text-emerald-400",
-                  isError && "bg-rose-500/15 text-rose-400",
-                  toast.type === "info" && "bg-white/10 text-zinc-200"
-                )}>
-                  {isSuccess ? <CheckCircle2 className="h-5 w-5" /> : isError ? <AlertCircle className="h-5 w-5" /> : <UserCircle2 className="h-5 w-5" />}
+                <div
+                  className={cn(
+                    "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl",
+                    isSuccess && "bg-emerald-500/15 text-emerald-400",
+                    isError && "bg-rose-500/15 text-rose-400",
+                    toast.type === "info" && "bg-white/10 text-zinc-200"
+                  )}
+                >
+                  {isSuccess ? (
+                    <CheckCircle2 className="h-5 w-5" />
+                  ) : isError ? (
+                    <AlertCircle className="h-5 w-5" />
+                  ) : (
+                    <UserCircle2 className="h-5 w-5" />
+                  )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-white">{toast.title}</p>
@@ -720,16 +684,19 @@ export default function PerfilPage() {
                   type="button"
                   onClick={() => removeToast(toast.id)}
                   className="rounded-lg p-1 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-200"
+                  aria-label="Fechar"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <div className={cn(
-                "h-1 w-full",
-                isSuccess && "bg-emerald-500/80",
-                isError && "bg-rose-500/80",
-                toast.type === "info" && "bg-[#138946]/80"
-              )} />
+              <div
+                className={cn(
+                  "h-1 w-full",
+                  isSuccess && "bg-emerald-500/80",
+                  isError && "bg-rose-500/80",
+                  toast.type === "info" && "bg-[#138946]/80"
+                )}
+              />
             </div>
           );
         })}
