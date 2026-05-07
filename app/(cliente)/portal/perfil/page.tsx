@@ -316,12 +316,12 @@ export default function ConfiguracoesPage() {
     setUploadingAvatar(true);
     try {
       const ext  = file.name.split(".").pop();
-      const path = `${profile.id}.${ext}`;
+      const path = `avatars/${profile.id}.${ext}`;
       const { error: upErr } = await supabase.storage
-        .from("avatars")
+        .from("files-main")
         .upload(path, file, { upsert: true });
       if (upErr) throw upErr;
-      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
+      const { data: urlData } = supabase.storage.from("files-main").getPublicUrl(path);
       await supabase.from("profiles").update({ avatar_url: urlData.publicUrl }).eq("id", profile.id);
       setProfile((prev) => prev ? { ...prev, avatar_url: urlData.publicUrl } : prev);
       addToast("success", "Foto atualizada", "Sua foto foi atualizada com sucesso.");
