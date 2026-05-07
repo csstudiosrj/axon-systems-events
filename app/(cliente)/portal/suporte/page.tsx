@@ -235,10 +235,7 @@ export default function ClientSupportPage() {
   const fetchMessages = useCallback(async (ticketId: string) => {
     const { data: messagesData, error: messagesError } = await supabase
       .from("ticket_messages")
-      .select(
-        `id, ticket_id, sender_id, message, created_at,
-         sender:profiles(full_name, role, email)`
-      )
+      .select("id, ticket_id, sender_id, message, created_at")
       .eq("ticket_id", ticketId)
       .order("created_at", { ascending: true });
 
@@ -247,27 +244,39 @@ export default function ClientSupportPage() {
       return;
     }
 
+    const senderIds = [...new Set(messagesData.map((m: any) => m.sender_id))];
     const messageIds = messagesData.map((m: any) => m.id);
 
-    const { data: attachmentsData } = messageIds.length
-      ? await supabase
-          .from("ticket_attachments")
-          .select("id, message_id, file_url, file_name, file_size")
-          .in("message_id", messageIds)
-      : { data: [] };
+    const [{ data: profilesData }, { data: attachmentsData }] = await Promise.all([
+      senderIds.length
+        ? supabase
+            .from("profiles")
+            .select("id, full_name, role, email")
+            .in("id", senderIds)
+        : Promise.resolve({ data: [] }),
+      messageIds.length
+        ? supabase
+            .from("ticket_attachments")
+            .select("id, message_id, file_url, file_name, file_size")
+            .in("message_id", messageIds)
+        : Promise.resolve({ data: [] }),
+    ]);
 
-    const merged = messagesData.map((msg: any) => ({
-      ...msg,
-      ticket_attachments: (attachmentsData || []).filter(
-        (att: any) => att.message_id === msg.id
-      ),
-      is_staff:
-        msg.sender?.role !== "client" && msg.sender?.role !== "student",
-      sender_name:
-        msg.sender?.full_name ||
-        msg.sender?.email?.split("@")[0] ||
-        "Usuário",
-    }));
+    const merged = messagesData.map((msg: any) => {
+      const profile = (profilesData || []).find((p: any) => p.id === msg.sender_id);
+      return {
+        ...msg,
+        sender: profile || null,
+        ticket_attachments: (attachmentsData || []).filter(
+          (att: any) => att.message_id === msg.id
+        ),
+        is_staff: profile?.role !== "client" && profile?.role !== "student",
+        sender_name:
+          profile?.full_name ||
+          profile?.email?.split("@")[0] ||
+          "Usuário",
+      };
+    });
 
     setMessages(merged as TicketMessageRow[]);
   }, []);
