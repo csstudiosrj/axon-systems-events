@@ -307,7 +307,7 @@ export default function ConfiguracoesPage() {
     setUploadingAvatar(true);
     try {
       const ext  = file.name.split(".").pop();
-      const path = `avatars/${profile.id}.${ext}`;
+      const path = `${profile.id}.${ext}`;
       const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
       if (upErr) throw upErr;
       const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
