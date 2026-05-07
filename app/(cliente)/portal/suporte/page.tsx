@@ -86,7 +86,7 @@ export default function ClientSupportPage() {
   const serviceOrderSingular = labels?.entity_service_order_singular || "Projeto";
   const supportMenuLabel = labels?.menu_support || "Suporte";
 
-  // ─── State ──────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [view, setView] = useState<"list" | "create">("list");
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -128,9 +128,9 @@ export default function ClientSupportPage() {
 
   const priorityLabels: Record<TicketPriority, string> = {
     low: "Baixa",
-    medium: "Média",
+    medium: "MÃ©dia",
     high: "Alta",
-    critical: "Crítica",
+    critical: "CrÃ­tica",
   };
 
   const getDepartmentLabel = (dept: Department) =>
@@ -166,7 +166,7 @@ export default function ClientSupportPage() {
     }
   };
 
-  // ─── Data fetching ───────────────────────────────────────────────────────────
+  // â”€â”€â”€ Data fetching â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const getCurrentUser = useCallback(async () => {
     const {
       data: { session },
@@ -223,7 +223,7 @@ export default function ClientSupportPage() {
           if (so?.id) {
             options.push({
               id: so.id,
-              label: quote.title || "Projeto sem título",
+              label: quote.title || "Projeto sem tÃ­tulo",
             });
           }
         }
@@ -233,30 +233,43 @@ export default function ClientSupportPage() {
   }, [resolvedClientId]);
 
   const fetchMessages = useCallback(async (ticketId: string) => {
-    const { data, error } = await supabase
+    const { data: messagesData, error: messagesError } = await supabase
       .from("ticket_messages")
       .select(
         `id, ticket_id, sender_id, message, created_at,
-         sender:profiles!ticket_messages_sender_id_fkey(full_name, role, email),
-         ticket_attachments(id, file_url, file_name, file_size)`
+         sender:profiles!ticket_messages_sender_id_fkey(full_name, role, email)`
       )
       .eq("ticket_id", ticketId)
       .order("created_at", { ascending: true });
 
-    if (!error && data) {
-      const mapped = (data as any[]).map((msg) => ({
-        ...msg,
-        is_staff:
-          msg.sender?.role !== "client" && msg.sender?.role !== "student",
-        sender_name:
-          msg.sender?.full_name ||
-          msg.sender?.email?.split("@")[0] ||
-          "Usuário",
-      }));
-      setMessages(mapped as TicketMessageRow[]);
-    } else {
+    if (messagesError || !messagesData) {
       setMessages([]);
+      return;
     }
+
+    const messageIds = messagesData.map((m: any) => m.id);
+
+    const { data: attachmentsData } = messageIds.length
+      ? await supabase
+          .from("ticket_attachments")
+          .select("id, message_id, file_url, file_name, file_size")
+          .in("message_id", messageIds)
+      : { data: [] };
+
+    const merged = messagesData.map((msg: any) => ({
+      ...msg,
+      ticket_attachments: (attachmentsData || []).filter(
+        (att: any) => att.message_id === msg.id
+      ),
+      is_staff:
+        msg.sender?.role !== "client" && msg.sender?.role !== "student",
+      sender_name:
+        msg.sender?.full_name ||
+        msg.sender?.email?.split("@")[0] ||
+        "UsuÃ¡rio",
+    }));
+
+    setMessages(merged as TicketMessageRow[]);
   }, []);
 
   const searchKnowledgeBase = useCallback(async (query: string) => {
@@ -298,7 +311,7 @@ export default function ClientSupportPage() {
     []
   );
 
-  // ─── Actions ─────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleCreateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !description || !serviceOrderId || !resolvedClientId) return;
@@ -404,7 +417,7 @@ export default function ClientSupportPage() {
     setIsSending(false);
   };
 
-  // ─── Effects ─────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Effects â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     getCurrentUser();
   }, [getCurrentUser]);
@@ -459,7 +472,7 @@ export default function ClientSupportPage() {
 
   if (!supportEnabled) return null;
 
-  // ─── Article reader overlay ──────────────────────────────────────────────────
+  // â”€â”€â”€ Article reader overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (openArticle) {
     return (
       <div className="flex-1 bg-background p-8">
@@ -503,7 +516,7 @@ export default function ClientSupportPage() {
                   onClick={() => setOpenArticle(null)}
                   className="flex items-center gap-2 rounded-lg border border-surface/50 bg-surface text-text-secondary py-2 px-5 text-sm font-medium hover:text-white transition-all"
                 >
-                  Não, continuar abrindo chamado
+                  NÃ£o, continuar abrindo chamado
                 </button>
               </div>
             </div>
@@ -513,7 +526,7 @@ export default function ClientSupportPage() {
     );
   }
 
-  // ─── Create view ─────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Create view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (view === "create") {
     return (
       <div className="flex-1 bg-background p-8">
@@ -532,7 +545,7 @@ export default function ClientSupportPage() {
                 Abrir Novo Chamado
               </h2>
               <p className="text-text-secondary mt-2">
-                Descreva o problema com o máximo de detalhes para agilizar o
+                Descreva o problema com o mÃ¡ximo de detalhes para agilizar o
                 atendimento.
               </p>
             </div>
@@ -588,7 +601,7 @@ export default function ClientSupportPage() {
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="block w-full rounded-lg border border-surface bg-background px-4 py-3 text-white focus:border-cs-gold focus:outline-none focus:ring-1 focus:ring-cs-gold transition-colors"
-                  placeholder="Descreva brevemente o que está acontecendo..."
+                  placeholder="Descreva brevemente o que estÃ¡ acontecendo..."
                 />
 
                 {/* KB suggestions dropdown */}
@@ -623,7 +636,7 @@ export default function ClientSupportPage() {
                     ))}
                     <div className="px-4 py-2 border-t border-surface/50">
                       <p className="text-[11px] text-text-secondary">
-                        Nenhum artigo resolveu? Continue preenchendo o formulário abaixo.
+                        Nenhum artigo resolveu? Continue preenchendo o formulÃ¡rio abaixo.
                       </p>
                     </div>
                   </div>
@@ -633,24 +646,24 @@ export default function ClientSupportPage() {
               {/* Priority */}
               <div>
                 <label className="block text-sm font-medium text-text-secondary mb-2">
-                  Nível de urgência *
+                  NÃ­vel de urgÃªncia *
                 </label>
                 <select
                   value={priority}
                   onChange={(e) => setPriority(e.target.value as TicketPriority)}
                   className="block w-full rounded-lg border border-surface bg-background px-4 py-3 text-white focus:border-cs-gold focus:outline-none focus:ring-1 focus:ring-cs-gold transition-colors"
                 >
-                  <option value="low">Baixa — pode aguardar</option>
-                  <option value="medium">Média — incomoda, mas não paralisa</option>
-                  <option value="high">Alta — prejudica o andamento</option>
-                  <option value="critical">Crítica — operação parada</option>
+                  <option value="low">Baixa â€” pode aguardar</option>
+                  <option value="medium">MÃ©dia â€” incomoda, mas nÃ£o paralisa</option>
+                  <option value="high">Alta â€” prejudica o andamento</option>
+                  <option value="critical">CrÃ­tica â€” operaÃ§Ã£o parada</option>
                 </select>
               </div>
 
               {/* Description */}
               <div>
                 <label className="block text-sm font-medium text-text-secondary mb-2">
-                  Descrição detalhada *
+                  DescriÃ§Ã£o detalhada *
                 </label>
                 <textarea
                   required
@@ -658,7 +671,7 @@ export default function ClientSupportPage() {
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="block w-full rounded-lg border border-surface bg-background px-4 py-3 text-white focus:border-cs-gold focus:outline-none focus:ring-1 focus:ring-cs-gold transition-colors resize-none"
-                  placeholder="Descreva o que está acontecendo, desde quando e quais passos você já tentou..."
+                  placeholder="Descreva o que estÃ¡ acontecendo, desde quando e quais passos vocÃª jÃ¡ tentou..."
                 />
               </div>
 
@@ -734,7 +747,7 @@ export default function ClientSupportPage() {
     );
   }
 
-  // ─── List view ───────────────────────────────────────────────────────────────
+  // â”€â”€â”€ List view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   return (
     <div className="flex-1 bg-background p-8">
       <div className="max-w-6xl mx-auto space-y-8">
@@ -783,7 +796,7 @@ export default function ClientSupportPage() {
 
             <h3 className="text-xl font-bold text-white">{currentTicket.title}</h3>
             <p className="text-sm text-text-secondary">
-              {currentTicket.description || "Sem descrição."}
+              {currentTicket.description || "Sem descriÃ§Ã£o."}
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-text-secondary">
@@ -792,7 +805,7 @@ export default function ClientSupportPage() {
                   {serviceOrderSingular}
                 </span>
                 <span className="text-white">
-                  {currentTicket.service_orders?.quotes?.title || "Não especificado"}
+                  {currentTicket.service_orders?.quotes?.title || "NÃ£o especificado"}
                 </span>
               </div>
               <div>
@@ -805,7 +818,7 @@ export default function ClientSupportPage() {
                         dateStyle: "short",
                         timeStyle: "short",
                       })
-                    : "Não definido"}
+                    : "NÃ£o definido"}
                 </span>
               </div>
             </div>
@@ -813,7 +826,7 @@ export default function ClientSupportPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-4 border-t border-surface/50">
               {/* Messages */}
               <div className="space-y-3">
-                <h4 className="text-sm font-bold text-white">Histórico</h4>
+                <h4 className="text-sm font-bold text-white">HistÃ³rico</h4>
                 <div className="max-h-80 overflow-y-auto space-y-4 pr-2 custom-scrollbar">
                   {messages.length === 0 ? (
                     <p className="text-sm text-text-secondary">
@@ -1011,7 +1024,7 @@ export default function ClientSupportPage() {
                     </p>
                   </div>
                   <p className="text-xs font-medium text-cs-gold truncate mt-2">
-                    {ticket.service_orders?.quotes?.title || "Projeto não especificado"}
+                    {ticket.service_orders?.quotes?.title || "Projeto nÃ£o especificado"}
                   </p>
                 </div>
               </button>
