@@ -64,6 +64,15 @@ interface ConfirmDialog { isOpen: boolean; userId: string; userName: string; }
 interface IbgeState { id: number; sigla: string; nome: string; }
 interface IbgeCity  { id: number; nome: string; }
 
+// ─── Roles do portal do cliente ──────────────────────────────────────────────
+
+const ACCESS_ROLES = [
+  { value: "client_gestor",    label: "Gestor",    desc: "Acesso completo a todos os módulos" },
+  { value: "client_comercial", label: "Comercial", desc: "Orçamentos e suporte" },
+  { value: "client_financeiro",label: "Financeiro",desc: "Faturas, pagamentos e suporte" },
+  { value: "client_operador",  label: "Operador",  desc: "Academy — treinamentos da equipe" },
+];
+
 // ─── Masks ────────────────────────────────────────────────────────────────────
 
 function maskPhone(v: string): string {
@@ -88,7 +97,6 @@ function maskCEP(v: string): string {
 }
 
 function maskSite(v: string): string {
-  // permite só url-safe chars
   return v.replace(/[^a-zA-Z0-9._~:/?#[\]@!$&'()*+,;=%-]/g, "");
 }
 
@@ -104,18 +112,9 @@ const DISABLED_INPUT =
 
 type Tab = "perfil" | "empresa" | "equipe" | "seguranca";
 
-const ACCESS_ROLES = [
-  { value: "client_gestor",    label: "Gestor",    desc: "Acesso completo a todos os módulos" },
-  { value: "client_comercial", label: "Comercial", desc: "Orçamentos e pedidos" },
-  { value: "client_financeiro",label: "Financeiro",desc: "Cobranças, pagamentos e comprovantes" },
-  { value: "client_rh",        label: "RH",        desc: "Documentos e gestão de pessoal" },
-  { value: "client_suporte",   label: "Suporte",   desc: "Apenas abertura de chamados" },
-];
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function PerfilPage() {
-  // loading
+export default function ConfiguracoesPage() {
   const [loading, setLoading]               = useState(true);
   const [savingProfile, setSavingProfile]   = useState(false);
   const [savingCompany, setSavingCompany]   = useState(false);
@@ -131,13 +130,13 @@ export default function PerfilPage() {
   const [fullName, setFullName]       = useState("");
   const [userEmail, setUserEmail]     = useState("");
   const [userPhone, setUserPhone]     = useState("");
-  const [userRole, setUserRole]       = useState(""); // cargo/função
+  const [userJobTitle, setUserJobTitle] = useState("");
 
   // senha
-  const [password, setPassword]           = useState("");
+  const [password, setPassword]               = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPassword, setShowPassword]   = useState(false);
-  const [showConfirm, setShowConfirm]     = useState(false);
+  const [showPassword, setShowPassword]       = useState(false);
+  const [showConfirm, setShowConfirm]         = useState(false);
 
   // empresa
   const [client, setClient]               = useState<ClientData | null>(null);
@@ -159,16 +158,16 @@ export default function PerfilPage() {
   const [loadingCities, setLoadingCities] = useState(false);
 
   // equipe
-  const [teamMembers, setTeamMembers]       = useState<TeamMember[]>([]);
+  const [teamMembers, setTeamMembers]           = useState<TeamMember[]>([]);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
-  const [inviteEmail, setInviteEmail]       = useState("");
-  const [inviteName, setInviteName]         = useState("");
-  const [inviteAccessRole, setInviteAccessRole] = useState("client_suporte");
-  const [confirmModal, setConfirmModal]     = useState<ConfirmDialog>({ isOpen: false, userId: "", userName: "" });
+  const [inviteEmail, setInviteEmail]           = useState("");
+  const [inviteName, setInviteName]             = useState("");
+  const [inviteAccessRole, setInviteAccessRole] = useState("client_operador");
+  const [confirmModal, setConfirmModal]         = useState<ConfirmDialog>({ isOpen: false, userId: "", userName: "" });
 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  // ─── Derived ────────────────────────────────────────────────────────────
+  // ─── Derived ──────────────────────────────────────────────────────────────
 
   const initials = useMemo(() => {
     const name = profile?.full_name?.trim();
@@ -179,7 +178,7 @@ export default function PerfilPage() {
     return profile?.email?.substring(0, 2).toUpperCase() ?? "US";
   }, [profile]);
 
-  // ─── Toasts ─────────────────────────────────────────────────────────────
+  // ─── Toasts ───────────────────────────────────────────────────────────────
 
   const addToast = useCallback((type: ToastType, title: string, message: string) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
@@ -189,7 +188,7 @@ export default function PerfilPage() {
 
   const removeToast = useCallback((id: number) => setToasts((c) => c.filter((t) => t.id !== id)), []);
 
-  // ─── IBGE: estados ───────────────────────────────────────────────────────
+  // ─── IBGE: estados ────────────────────────────────────────────────────────
 
   useEffect(() => {
     fetch("https://servicodados.ibge.gov.br/api/v1/localidades/estados?orderBy=nome")
@@ -210,24 +209,22 @@ export default function PerfilPage() {
       .finally(() => setLoadingCities(false));
   }, [selectedState]);
 
-  // ─── CEP lookup ──────────────────────────────────────────────────────────
+  // ─── CEP lookup ───────────────────────────────────────────────────────────
+
+  const pendingCityRef = useRef<string | null>(null);
 
   const handleCepBlur = useCallback(async () => {
     const raw = cep.replace(/\D/g, "");
     if (raw.length !== 8) return;
     setFetchingCep(true);
     try {
-      const res = await fetch(`https://viacep.com.br/ws/${raw}/json/`);
+      const res  = await fetch(`https://viacep.com.br/ws/${raw}/json/`);
       const data = await res.json();
       if (data.erro) { addToast("error", "CEP não encontrado", "Verifique o CEP e tente novamente."); return; }
       setStreet(data.logradouro ?? "");
       setComplement(data.complemento ?? "");
-      // tenta selecionar o estado pelo IBGE
-      const uf = data.uf as string;
-      setSelectedState(uf);
-      // cidade será selecionada após o useEffect carregar as cidades
-      // guardamos no ref para usar depois
-      pendingCityRef.current = data.localidade as string;
+      setSelectedState(data.uf ?? "");
+      pendingCityRef.current = data.localidade ?? null;
     } catch {
       addToast("error", "Erro ao buscar CEP", "Tente novamente.");
     } finally {
@@ -235,18 +232,15 @@ export default function PerfilPage() {
     }
   }, [cep, addToast]);
 
-  const pendingCityRef = useRef<string | null>(null);
-
-  // quando cidades carregam, seleciona a cidade pendente do CEP
   useEffect(() => {
     if (!pendingCityRef.current || cities.length === 0) return;
     const target = pendingCityRef.current.toLowerCase();
-    const match = cities.find((c) => c.nome.toLowerCase() === target);
+    const match  = cities.find((c) => c.nome.toLowerCase() === target);
     if (match) setSelectedCity(match.nome);
     pendingCityRef.current = null;
   }, [cities]);
 
-  // ─── Load team ───────────────────────────────────────────────────────────
+  // ─── Load team ────────────────────────────────────────────────────────────
 
   const loadTeam = useCallback(async (clientId: string, selfId: string) => {
     const { data } = await supabase
@@ -258,7 +252,7 @@ export default function PerfilPage() {
     setTeamMembers((data ?? []) as TeamMember[]);
   }, []);
 
-  // ─── Load data ───────────────────────────────────────────────────────────
+  // ─── Load data ────────────────────────────────────────────────────────────
 
   useEffect(() => {
     const load = async () => {
@@ -291,7 +285,6 @@ export default function PerfilPage() {
             setContactName(c.contact_name ?? "");
             setClientPhone(c.phone ? maskPhone(c.phone) : "");
             setClientEmail(c.email ?? "");
-            // address é string livre por ora; parse se vier separado
             setStreet(c.address ?? "");
           }
           await loadTeam(p.client_id, session.user.id);
@@ -305,7 +298,7 @@ export default function PerfilPage() {
     void load();
   }, [addToast, loadTeam]);
 
-  // ─── Handlers ────────────────────────────────────────────────────────────
+  // ─── Handlers ─────────────────────────────────────────────────────────────
 
   const handleAvatarUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -313,7 +306,7 @@ export default function PerfilPage() {
     if (file.size > 2 * 1024 * 1024) { addToast("error", "Arquivo muito grande", "Máximo 2MB."); return; }
     setUploadingAvatar(true);
     try {
-      const ext = file.name.split(".").pop();
+      const ext  = file.name.split(".").pop();
       const path = `avatars/${profile.id}.${ext}`;
       const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
       if (upErr) throw upErr;
@@ -372,12 +365,12 @@ export default function PerfilPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "invite",
-          email: inviteEmail,
-          fullName: inviteName,
-          role: inviteAccessRole,
-          clientId: profile?.client_id,
-          inviterId: profile?.id,
+          action:      "invite",
+          email:       inviteEmail,
+          fullName:    inviteName,
+          role:        inviteAccessRole,
+          clientId:    profile?.client_id,
+          inviterId:   profile?.id,
           inviterRole: profile?.role,
         }),
       });
@@ -385,7 +378,7 @@ export default function PerfilPage() {
       if (!res.ok) throw new Error(data.error || "Erro ao enviar convite.");
       addToast("success", "Convite enviado!", "O usuário receberá um e-mail para definir a senha.");
       setIsInviteModalOpen(false);
-      setInviteEmail(""); setInviteName(""); setInviteAccessRole("client_suporte");
+      setInviteEmail(""); setInviteName(""); setInviteAccessRole("client_operador");
       if (profile?.client_id && profile?.id) await loadTeam(profile.client_id, profile.id);
     } catch (err) {
       addToast("error", "Erro ao convidar", err instanceof Error ? err.message : "Tente novamente.");
@@ -410,8 +403,8 @@ export default function PerfilPage() {
 
   const handleUpdatePassword = useCallback(async () => {
     if (!password || !confirmPassword) { addToast("error", "Campos obrigatórios", "Preencha ambos os campos."); return; }
-    if (password.length < 6) { addToast("error", "Senha inválida", "Mínimo 6 caracteres."); return; }
-    if (password !== confirmPassword) { addToast("error", "Senhas diferentes", "A confirmação não confere."); return; }
+    if (password.length < 6)           { addToast("error", "Senha inválida",       "Mínimo 6 caracteres.");     return; }
+    if (password !== confirmPassword)  { addToast("error", "Senhas diferentes",    "A confirmação não confere."); return; }
     setSavingPassword(true);
     try {
       const { error } = await supabase.auth.updateUser({ password });
@@ -423,11 +416,13 @@ export default function PerfilPage() {
     } finally { setSavingPassword(false); }
   }, [password, confirmPassword, addToast]);
 
+  // ─── Tabs config ──────────────────────────────────────────────────────────
+
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
-    { key: "perfil",   label: "Meus Dados",      icon: <UserCircle2 className="h-4 w-4" /> },
-    { key: "empresa",  label: "Empresa",          icon: <Building2   className="h-4 w-4" /> },
-    { key: "equipe",   label: "Equipe no Portal", icon: <Users       className="h-4 w-4" /> },
-    { key: "seguranca",label: "Segurança",        icon: <KeyRound    className="h-4 w-4" /> },
+    { key: "perfil",    label: "Meus Dados",      icon: <UserCircle2 className="h-4 w-4" /> },
+    { key: "empresa",   label: "Empresa",          icon: <Building2   className="h-4 w-4" /> },
+    { key: "equipe",    label: "Equipe no Portal", icon: <Users       className="h-4 w-4" /> },
+    { key: "seguranca", label: "Segurança",        icon: <KeyRound    className="h-4 w-4" /> },
   ];
 
   const roleLabelMap = Object.fromEntries(ACCESS_ROLES.map((r) => [r.value, r.label]));
@@ -437,18 +432,16 @@ export default function PerfilPage() {
       <div className="flex min-h-screen items-center justify-center">
         <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#1a1413] px-5 py-4 text-sm text-zinc-300">
           <Loader2 className="h-5 w-5 animate-spin text-[#138946]" />
-          Carregando perfil...
+          Carregando...
         </div>
       </div>
     </main>
   );
 
-  // ─── Render ──────────────────────────────────────────────────────────────
-
   return (
     <main className="min-h-screen bg-[#0d0807] text-white">
 
-      {/* Modal: Revogar acesso */}
+      {/* ── Modal: Revogar acesso ──────────────────────────────────────────── */}
       {confirmModal.isOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#1a1413] p-6 text-center shadow-2xl">
@@ -460,11 +453,14 @@ export default function PerfilPage() {
               <strong className="text-white">{confirmModal.userName}</strong> perderá imediatamente o acesso ao portal.
             </p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmModal({ isOpen: false, userId: "", userName: "" })}
+              <button
+                onClick={() => setConfirmModal({ isOpen: false, userId: "", userName: "" })}
                 className="flex-1 rounded-xl border border-white/10 py-2.5 text-sm font-medium text-zinc-400 transition hover:bg-white/5 hover:text-white">
                 Cancelar
               </button>
-              <button onClick={() => void handleRevokeAccess()} disabled={isProcessing}
+              <button
+                onClick={() => void handleRevokeAccess()}
+                disabled={isProcessing}
                 className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-500 py-2.5 text-sm font-bold text-white transition hover:bg-red-600 disabled:opacity-50">
                 {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Sim, Revogar"}
               </button>
@@ -473,7 +469,7 @@ export default function PerfilPage() {
         </div>
       )}
 
-      {/* Modal: Convidar */}
+      {/* ── Modal: Convidar ───────────────────────────────────────────────── */}
       {isInviteModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-[#1a1413] shadow-2xl">
@@ -481,7 +477,9 @@ export default function PerfilPage() {
               <h2 className="flex items-center gap-2 text-base font-bold text-white">
                 <Mail className="h-5 w-5 text-[#138946]" /> Convidar para o Portal
               </h2>
-              <button onClick={() => setIsInviteModalOpen(false)} className="rounded-lg p-1 text-zinc-500 hover:bg-white/5 hover:text-white transition">
+              <button
+                onClick={() => setIsInviteModalOpen(false)}
+                className="rounded-lg p-1 text-zinc-500 hover:bg-white/5 hover:text-white transition">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -492,25 +490,42 @@ export default function PerfilPage() {
               <form onSubmit={(e) => void handleInviteUser(e)} className="space-y-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-zinc-200">Nome completo</label>
-                  <input type="text" value={inviteName} onChange={(e) => setInviteName(e.target.value)}
-                    placeholder="Ex: Maria Silva" className={BASE_INPUT} />
+                  <input
+                    type="text"
+                    value={inviteName}
+                    onChange={(e) => setInviteName(e.target.value)}
+                    placeholder="Ex: Maria Silva"
+                    className={BASE_INPUT}
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-zinc-200">E-mail *</label>
-                  <input type="email" required value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="maria@suaempresa.com.br" className={BASE_INPUT} />
+                  <input
+                    type="email"
+                    required
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="maria@suaempresa.com.br"
+                    className={BASE_INPUT}
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-zinc-200">Nível de acesso *</label>
-                  <select value={inviteAccessRole} onChange={(e) => setInviteAccessRole(e.target.value)}
+                  <select
+                    value={inviteAccessRole}
+                    onChange={(e) => setInviteAccessRole(e.target.value)}
                     className={cn(BASE_INPUT, "cursor-pointer")}>
                     {ACCESS_ROLES.map((r) => (
-                      <option key={r.value} value={r.value}>{r.label} — {r.desc}</option>
+                      <option key={r.value} value={r.value}>
+                        {r.label} — {r.desc}
+                      </option>
                     ))}
                   </select>
                 </div>
                 <div className="flex justify-end border-t border-white/10 pt-4">
-                  <button type="submit" disabled={isProcessing}
+                  <button
+                    type="submit"
+                    disabled={isProcessing}
                     className="inline-flex items-center gap-2 rounded-2xl bg-[#138946] px-6 py-2.5 text-sm font-bold text-white transition hover:bg-[#0f723b] disabled:opacity-50">
                     {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
                     Enviar Convite
@@ -524,14 +539,14 @@ export default function PerfilPage() {
 
       <section className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
 
-        {/* Header */}
+        {/* ── Header ──────────────────────────────────────────────────────── */}
         <header className="overflow-hidden rounded-[28px] border border-white/10 bg-[#1a1413]">
           <div className="relative p-6 sm:p-8">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(19,137,70,0.18),transparent_30%)]" />
             <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
               <div className="space-y-3">
                 <span className="inline-flex w-fit items-center gap-2 rounded-full border border-[#138946]/30 bg-[#138946]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#79d89f]">
-                  <Shield className="h-3.5 w-3.5" /> Meu Perfil
+                  <Shield className="h-3.5 w-3.5" /> Configurações
                 </span>
                 <div>
                   <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">Configurações da Conta</h1>
@@ -559,23 +574,32 @@ export default function PerfilPage() {
           </div>
         </header>
 
-        {/* Tabs */}
+        {/* ── Tabs ────────────────────────────────────────────────────────── */}
         <div className="flex gap-2 overflow-x-auto rounded-2xl border border-white/10 bg-[#1a1413] p-1.5">
           {tabs.map((tab) => (
-            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-              className={cn("flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors",
-                activeTab === tab.key ? "bg-[#138946] text-white" : "text-zinc-400 hover:bg-white/5 hover:text-white")}>
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={cn(
+                "flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors",
+                activeTab === tab.key ? "bg-[#138946] text-white" : "text-zinc-400 hover:bg-white/5 hover:text-white"
+              )}>
               {tab.icon}{tab.label}
             </button>
           ))}
         </div>
 
-        {/* ── Meus Dados ─────────────────────────────────────────────────────── */}
+        {/* ── Aba: Meus Dados ─────────────────────────────────────────────── */}
         {activeTab === "perfil" && (
           <section className="rounded-[28px] border border-white/10 bg-[#1a1413] p-6">
             <div className="flex items-center gap-3 border-b border-white/10 pb-5">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#138946]/20 bg-[#138946]/10 text-[#79d89f]"><UserCircle2 className="h-5 w-5" /></div>
-              <div><h2 className="text-xl font-semibold text-white">Dados pessoais</h2><p className="mt-1 text-sm text-zinc-400">Seus dados de contato e cargo.</p></div>
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#138946]/20 bg-[#138946]/10 text-[#79d89f]">
+                <UserCircle2 className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold text-white">Dados pessoais</h2>
+                <p className="mt-1 text-sm text-zinc-400">Seus dados de contato e cargo.</p>
+              </div>
             </div>
             <div className="mt-6 grid gap-5 sm:grid-cols-2">
               <div className="space-y-2">
@@ -584,7 +608,7 @@ export default function PerfilPage() {
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-zinc-200">Cargo / Função</label>
-                <input type="text" value={userRole} onChange={(e) => setUserRole(e.target.value)} placeholder="Ex: Gerente Financeiro" className={BASE_INPUT} />
+                <input type="text" value={userJobTitle} onChange={(e) => setUserJobTitle(e.target.value)} placeholder="Ex: Gerente Financeiro" className={BASE_INPUT} />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-zinc-200">E-mail de contato</label>
@@ -597,9 +621,14 @@ export default function PerfilPage() {
                 <label className="text-sm font-medium text-zinc-200">Telefone / WhatsApp</label>
                 <div className="relative">
                   <Phone className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                  <input type="tel" value={userPhone}
+                  <input
+                    type="tel"
+                    value={userPhone}
                     onChange={(e) => setUserPhone(maskPhone(e.target.value))}
-                    maxLength={15} placeholder="(00) 00000-0000" className={cn(BASE_INPUT, "pl-11")} />
+                    maxLength={15}
+                    placeholder="(00) 00000-0000"
+                    className={cn(BASE_INPUT, "pl-11")}
+                  />
                 </div>
               </div>
               <div className="space-y-2 sm:col-span-2">
@@ -621,12 +650,17 @@ export default function PerfilPage() {
           </section>
         )}
 
-        {/* ── Empresa ────────────────────────────────────────────────────────── */}
+        {/* ── Aba: Empresa ────────────────────────────────────────────────── */}
         {activeTab === "empresa" && (
           <section className="rounded-[28px] border border-white/10 bg-[#1a1413] p-6">
             <div className="flex items-center gap-3 border-b border-white/10 pb-5">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#138946]/20 bg-[#138946]/10 text-[#79d89f]"><Building2 className="h-5 w-5" /></div>
-              <div><h2 className="text-xl font-semibold text-white">Dados da empresa</h2><p className="mt-1 text-sm text-zinc-400">Todos os campos são editáveis.</p></div>
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#138946]/20 bg-[#138946]/10 text-[#79d89f]">
+                <Building2 className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold text-white">Dados da empresa</h2>
+                <p className="mt-1 text-sm text-zinc-400">Razão social, nome fantasia, endereço e contato.</p>
+              </div>
             </div>
 
             {!client ? (
@@ -637,35 +671,43 @@ export default function PerfilPage() {
             ) : (
               <>
                 <div className="mt-6 grid gap-5 sm:grid-cols-2">
-                  {/* Razão social */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">Razão social</label>
                     <input type="text" value={legalName} onChange={(e) => setLegalName(e.target.value)} placeholder="Razão social" className={BASE_INPUT} />
                   </div>
-                  {/* Nome fantasia */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">Nome fantasia</label>
                     <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Nome fantasia" className={BASE_INPUT} />
                   </div>
-                  {/* CNPJ */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">CNPJ</label>
-                    <input type="text" value={cnpj} onChange={(e) => setCnpj(maskCNPJ(e.target.value))} maxLength={18} placeholder="00.000.000/0000-00" className={BASE_INPUT} />
+                    <input
+                      type="text"
+                      value={cnpj}
+                      onChange={(e) => setCnpj(maskCNPJ(e.target.value))}
+                      maxLength={18}
+                      placeholder="00.000.000/0000-00"
+                      className={BASE_INPUT}
+                    />
                   </div>
-                  {/* Pessoa de contato */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">Pessoa de contato</label>
                     <input type="text" value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Nome do responsável" className={BASE_INPUT} />
                   </div>
-                  {/* Telefone empresa */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">Telefone</label>
                     <div className="relative">
                       <Phone className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-                      <input type="tel" value={clientPhone} onChange={(e) => setClientPhone(maskPhone(e.target.value))} maxLength={15} placeholder="(00) 00000-0000" className={cn(BASE_INPUT, "pl-11")} />
+                      <input
+                        type="tel"
+                        value={clientPhone}
+                        onChange={(e) => setClientPhone(maskPhone(e.target.value))}
+                        maxLength={15}
+                        placeholder="(00) 00000-0000"
+                        className={cn(BASE_INPUT, "pl-11")}
+                      />
                     </div>
                   </div>
-                  {/* E-mail empresa */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">E-mail da empresa</label>
                     <div className="relative">
@@ -673,7 +715,6 @@ export default function PerfilPage() {
                       <input type="email" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} placeholder="contato@empresa.com.br" className={cn(BASE_INPUT, "pl-11")} />
                     </div>
                   </div>
-                  {/* Site */}
                   <div className="space-y-2 sm:col-span-2">
                     <label className="text-sm font-medium text-zinc-200">Site</label>
                     <div className="relative">
@@ -682,7 +723,6 @@ export default function PerfilPage() {
                     </div>
                   </div>
 
-                  {/* Separador endereço */}
                   <div className="sm:col-span-2">
                     <div className="flex items-center gap-3">
                       <MapPin className="h-4 w-4 shrink-0 text-[#79d89f]" />
@@ -691,52 +731,50 @@ export default function PerfilPage() {
                     </div>
                   </div>
 
-                  {/* CEP */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">CEP</label>
                     <div className="relative">
-                      <input type="text" value={cep}
+                      <input
+                        type="text"
+                        value={cep}
                         onChange={(e) => setCep(maskCEP(e.target.value))}
                         onBlur={() => void handleCepBlur()}
-                        maxLength={9} placeholder="00000-000" className={BASE_INPUT} />
+                        maxLength={9}
+                        placeholder="00000-000"
+                        className={BASE_INPUT}
+                      />
                       {fetchingCep && <Loader2 className="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-zinc-500" />}
                     </div>
-                    <p className="text-xs text-zinc-600">Ao sair do campo, endereço é preenchido automaticamente.</p>
+                    <p className="text-xs text-zinc-600">Ao sair do campo, o endereço é preenchido automaticamente.</p>
                   </div>
-
-                  {/* Logradouro */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">Rua / Logradouro</label>
                     <input type="text" value={street} onChange={(e) => setStreet(e.target.value)} placeholder="Rua, Av., Alameda..." className={BASE_INPUT} />
                   </div>
-
-                  {/* Número */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">Número</label>
                     <input type="text" value={number} onChange={(e) => setNumber(e.target.value.replace(/\D/g, ""))} placeholder="123" className={BASE_INPUT} />
                   </div>
-
-                  {/* Complemento */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">Complemento</label>
                     <input type="text" value={complement} onChange={(e) => setComplement(e.target.value)} placeholder="Sala, andar, bloco..." className={BASE_INPUT} />
                   </div>
-
-                  {/* Estado — dropdown IBGE */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">Estado</label>
-                    <select value={selectedState} onChange={(e) => { setSelectedState(e.target.value); setSelectedCity(""); }}
+                    <select
+                      value={selectedState}
+                      onChange={(e) => { setSelectedState(e.target.value); setSelectedCity(""); }}
                       className={cn(BASE_INPUT, "cursor-pointer")}>
                       <option value="">Selecione o estado</option>
                       {states.map((s) => <option key={s.id} value={s.sigla}>{s.sigla} — {s.nome}</option>)}
                     </select>
                   </div>
-
-                  {/* Cidade — dropdown IBGE */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-200">Cidade</label>
                     <div className="relative">
-                      <select value={selectedCity} onChange={(e) => setSelectedCity(e.target.value)}
+                      <select
+                        value={selectedCity}
+                        onChange={(e) => setSelectedCity(e.target.value)}
                         disabled={!selectedState || loadingCities}
                         className={cn(BASE_INPUT, "cursor-pointer disabled:opacity-50")}>
                         <option value="">{loadingCities ? "Carregando..." : "Selecione a cidade"}</option>
@@ -759,15 +797,21 @@ export default function PerfilPage() {
           </section>
         )}
 
-        {/* ── Equipe ─────────────────────────────────────────────────────────── */}
+        {/* ── Aba: Equipe ─────────────────────────────────────────────────── */}
         {activeTab === "equipe" && (
           <section className="rounded-[28px] border border-white/10 bg-[#1a1413] p-6">
             <div className="flex items-center justify-between border-b border-white/10 pb-5">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#138946]/20 bg-[#138946]/10 text-[#79d89f]"><Users className="h-5 w-5" /></div>
-                <div><h2 className="text-xl font-semibold text-white">Equipe no portal</h2><p className="mt-1 text-sm text-zinc-400">Usuários da sua empresa com acesso.</p></div>
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#138946]/20 bg-[#138946]/10 text-[#79d89f]">
+                  <Users className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-semibold text-white">Equipe no portal</h2>
+                  <p className="mt-1 text-sm text-zinc-400">Usuários da sua empresa com acesso.</p>
+                </div>
               </div>
-              <button onClick={() => setIsInviteModalOpen(true)}
+              <button
+                onClick={() => setIsInviteModalOpen(true)}
                 className="inline-flex items-center gap-2 rounded-2xl bg-[#138946] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0f723b]">
                 <UserPlus className="h-4 w-4" /><span className="hidden sm:inline">Convidar</span>
               </button>
@@ -794,8 +838,8 @@ export default function PerfilPage() {
                     <tbody className="divide-y divide-white/5">
                       {teamMembers.map((member) => {
                         const mi = member.full_name
-                          ? member.full_name.split(" ").filter(Boolean).slice(0,2).map((p) => p[0]).join("").toUpperCase()
-                          : (member.email?.substring(0,2).toUpperCase() ?? "??");
+                          ? member.full_name.split(" ").filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase()
+                          : (member.email?.substring(0, 2).toUpperCase() ?? "??");
                         return (
                           <tr key={member.id} className="transition-colors hover:bg-white/[0.02]">
                             <td className="px-5 py-4">
@@ -819,7 +863,8 @@ export default function PerfilPage() {
                               {new Date(member.created_at).toLocaleDateString("pt-BR")}
                             </td>
                             <td className="px-5 py-4 text-right">
-                              <button onClick={() => setConfirmModal({ isOpen: true, userId: member.id, userName: member.full_name || member.email || "" })}
+                              <button
+                                onClick={() => setConfirmModal({ isOpen: true, userId: member.id, userName: member.full_name || member.email || "" })}
                                 className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs font-medium text-red-500 transition hover:border-red-500/30 hover:bg-red-500/10">
                                 <Trash2 className="h-3.5 w-3.5" /> Revogar
                               </button>
@@ -835,19 +880,29 @@ export default function PerfilPage() {
           </section>
         )}
 
-        {/* ── Segurança ──────────────────────────────────────────────────────── */}
+        {/* ── Aba: Segurança ──────────────────────────────────────────────── */}
         {activeTab === "seguranca" && (
           <section className="rounded-[28px] border border-white/10 bg-[#1a1413] p-6">
             <div className="flex items-center gap-3 border-b border-white/10 pb-5">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#138946]/20 bg-[#138946]/10 text-[#79d89f]"><KeyRound className="h-5 w-5" /></div>
-              <div><h2 className="text-xl font-semibold text-white">Segurança</h2><p className="mt-1 text-sm text-zinc-400">Redefina sua senha de acesso.</p></div>
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#138946]/20 bg-[#138946]/10 text-[#79d89f]">
+                <KeyRound className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold text-white">Segurança</h2>
+                <p className="mt-1 text-sm text-zinc-400">Redefina sua senha de acesso.</p>
+              </div>
             </div>
             <div className="mt-6 grid max-w-md gap-5">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-zinc-200">Nova senha</label>
                 <div className="relative">
-                  <input type={showPassword ? "text" : "password"} value={password}
-                    onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo 6 caracteres" className={cn(BASE_INPUT, "pr-11")} />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Mínimo 6 caracteres"
+                    className={cn(BASE_INPUT, "pr-11")}
+                  />
                   <button type="button" onClick={() => setShowPassword((v) => !v)}
                     className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 transition hover:text-zinc-300">
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -857,8 +912,13 @@ export default function PerfilPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-zinc-200">Confirmar nova senha</label>
                 <div className="relative">
-                  <input type={showConfirm ? "text" : "password"} value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Repita a nova senha" className={cn(BASE_INPUT, "pr-11")} />
+                  <input
+                    type={showConfirm ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Repita a nova senha"
+                    className={cn(BASE_INPUT, "pr-11")}
+                  />
                   <button type="button" onClick={() => setShowConfirm((v) => !v)}
                     className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 transition hover:text-zinc-300">
                     {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -884,7 +944,7 @@ export default function PerfilPage() {
 
       </section>
 
-      {/* Toasts */}
+      {/* ── Toasts ──────────────────────────────────────────────────────────── */}
       <div className="pointer-events-none fixed right-4 top-4 z-50 flex w-full max-w-sm flex-col gap-3">
         {toasts.map((toast) => {
           const isSuccess = toast.type === "success";
@@ -892,25 +952,35 @@ export default function PerfilPage() {
           return (
             <div key={toast.id} className={cn(
               "pointer-events-auto overflow-hidden rounded-2xl border bg-[#1a1413]/95 shadow-2xl backdrop-blur-xl",
-              isSuccess && "border-emerald-500/30", isError && "border-rose-500/30", toast.type === "info" && "border-white/10")}>
+              isSuccess && "border-emerald-500/30",
+              isError   && "border-rose-500/30",
+              toast.type === "info" && "border-white/10"
+            )}>
               <div className="flex items-start gap-3 p-4">
                 <div className={cn("mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl",
-                  isSuccess && "bg-emerald-500/15 text-emerald-400", isError && "bg-rose-500/15 text-rose-400", toast.type === "info" && "bg-white/10 text-zinc-200")}>
+                  isSuccess && "bg-emerald-500/15 text-emerald-400",
+                  isError   && "bg-rose-500/15 text-rose-400",
+                  toast.type === "info" && "bg-white/10 text-zinc-200")}>
                   {isSuccess ? <CheckCircle2 className="h-5 w-5" /> : isError ? <AlertCircle className="h-5 w-5" /> : <UserCircle2 className="h-5 w-5" />}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-white">{toast.title}</p>
                   <p className="mt-1 text-sm leading-5 text-zinc-400">{toast.message}</p>
                 </div>
-                <button type="button" onClick={() => removeToast(toast.id)} className="rounded-lg p-1 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-200">
+                <button type="button" onClick={() => removeToast(toast.id)}
+                  className="rounded-lg p-1 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-200">
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <div className={cn("h-1 w-full", isSuccess && "bg-emerald-500/80", isError && "bg-rose-500/80", toast.type === "info" && "bg-[#138946]/80")} />
+              <div className={cn("h-1 w-full",
+                isSuccess && "bg-emerald-500/80",
+                isError   && "bg-rose-500/80",
+                toast.type === "info" && "bg-[#138946]/80")} />
             </div>
           );
         })}
       </div>
+
     </main>
   );
 }
