@@ -15,6 +15,7 @@ import {
   User,
   Loader2,
 } from "lucide-react";
+import NotificationBell from "../components/NotificationBell";
 
 type ProfileRow = {
   id: string;
@@ -186,6 +187,8 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         </div>
 
         <div className="flex items-center gap-4 md:gap-6 shrink-0">
+          <NotificationBell userId={userProfile.id} />
+
           <Link
             href={userProfile.role === "client" ? "/portal/perfil" : "/portal/treinamentos"}
             className="flex items-center gap-3 min-w-0"
