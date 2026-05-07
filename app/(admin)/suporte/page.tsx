@@ -191,7 +191,7 @@ export default function SuportePage() {
       .from("ticket_messages")
       .select(
         `id, ticket_id, sender_id, message, created_at,
-         sender:profiles!ticket_messages_sender_id_fkey(full_name, role, email)`
+         sender:profiles(full_name, role, email)`
       )
       .eq("ticket_id", ticketId)
       .order("created_at", { ascending: true });
