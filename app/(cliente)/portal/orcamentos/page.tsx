@@ -40,7 +40,10 @@ type Quote = {
   total_equipment_cost: number | null;
   total_labor_cost: number | null;
   total_logistics_cost: number | null;
+  // notes: observações internas do admin (leitura para o cliente)
   notes: string | null;
+  // client_notes: resposta do cliente (escrita pelo portal, lida pelo admin)
+  // Requer coluna TEXT na tabela quotes — adicionar em migration se não existir.
   client_notes: string | null;
   created_at: string;
   salesperson?: { full_name: string; email: string } | null;
@@ -62,10 +65,13 @@ type ActionPanelKey = "approve" | "negotiate" | "postpone" | "reject" | null;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
+// Status em que o cliente pode tomar ação
 const ACTIONABLE_STATUSES = new Set(["pending_approval", "negotiating"]);
+
+// Statuses que o portal do cliente nunca deve exibir
 const HIDDEN_STATUSES = new Set(["draft"]);
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers (fora do componente — sem dependência de estado) ─────────────────
 
 function isActionableQuote(q: Quote | null): q is Quote {
   return !!q && ACTIONABLE_STATUSES.has(q.status);
@@ -85,6 +91,7 @@ export default function PortalOrcamentosPage() {
   const [toast, setToast] = useState<ToastState>({ type: "success", text: "" });
   const [openActionPanel, setOpenActionPanel] = useState<ActionPanelKey>(null);
 
+  // Form states para cada ação
   const [negotiateMessage, setNegotiateMessage] = useState("");
   const [postponeReason, setPostponeReason] = useState("");
   const [postponeDate, setPostponeDate] = useState("");
@@ -142,19 +149,23 @@ export default function PortalOrcamentosPage() {
       const map: Record<string, { label: string; colorClass: string }> = {
         pending_approval: {
           label: "Aguardando sua aprovação",
-          colorClass: "border-amber-500/20 bg-amber-500/10 text-amber-300",
+          colorClass:
+            "border-amber-500/20 bg-amber-500/10 text-amber-300",
         },
         negotiating: {
           label: "Em Negociação",
-          colorClass: "border-blue-500/20 bg-blue-500/10 text-blue-300",
+          colorClass:
+            "border-blue-500/20 bg-blue-500/10 text-blue-300",
         },
         approved: {
           label: "Aprovado",
-          colorClass: "border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
+          colorClass:
+            "border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
         },
         postponed: {
           label: "Adiado",
-          colorClass: "border-orange-500/20 bg-orange-500/10 text-orange-300",
+          colorClass:
+            "border-orange-500/20 bg-orange-500/10 text-orange-300",
         },
         rejected: {
           label: "Recusado",
@@ -162,7 +173,8 @@ export default function PortalOrcamentosPage() {
         },
         cancelled: {
           label: "Cancelado",
-          colorClass: "border-zinc-500/20 bg-zinc-500/10 text-zinc-400",
+          colorClass:
+            "border-zinc-500/20 bg-zinc-500/10 text-zinc-400",
         },
       };
       return (
@@ -248,12 +260,14 @@ export default function PortalOrcamentosPage() {
     };
   }, []);
 
+  // Auto-seleciona o primeiro orçamento
   useEffect(() => {
     if (quotes.length > 0 && !selectedId) {
       setSelectedId(quotes[0].id);
     }
   }, [quotes, selectedId]);
 
+  // Ao trocar de orçamento: busca itens, limpa painéis e formulários
   useEffect(() => {
     if (!selectedId) return;
     setItems([]);
@@ -265,6 +279,7 @@ export default function PortalOrcamentosPage() {
     void fetchItems(selectedId);
   }, [selectedId, fetchItems]);
 
+  // Realtime — escuta mudanças no orçamento enquanto admin responde
   useEffect(() => {
     if (!resolvedClientId) return;
 
@@ -287,6 +302,7 @@ export default function PortalOrcamentosPage() {
     };
   }, [resolvedClientId, fetchQuotes]);
 
+  // Título dinâmico com indicador de pendências
   useEffect(() => {
     const pending = quotes.filter((q) => q.status === "pending_approval").length;
     document.title =
@@ -297,9 +313,8 @@ export default function PortalOrcamentosPage() {
 
   // ─── Derivados ──────────────────────────────────────────────────────────────
 
-  // FIX: tipo explícito <Quote | null> evita inferência como `never` em strict mode
-  const selectedQuote = useMemo<Quote | null>(
-    () => quotes.find((q) => q.id === selectedId) ?? null,
+  const selectedQuote = useMemo(
+    () => quotes.find((q) => q.id === selectedId) || null,
     [quotes, selectedId]
   );
 
@@ -310,6 +325,7 @@ export default function PortalOrcamentosPage() {
     return { total: quotes.length, pending, negotiating, approved };
   }, [quotes]);
 
+  // Guards reutilizáveis
   const canApprove = useMemo(
     () => isActionableQuote(selectedQuote),
     [selectedQuote]
@@ -327,6 +343,7 @@ export default function PortalOrcamentosPage() {
     [selectedQuote]
   );
 
+  // Itens agrupados por categoria para a tabela de breakdown
   const groupedItems = useMemo(
     () => ({
       equipment: items.filter((i) => i.category === "equipment"),
@@ -336,8 +353,10 @@ export default function PortalOrcamentosPage() {
     [items]
   );
 
-  // ─── Handlers ───────────────────────────────────────────────────────────────
+  // ─── Handlers de Ação ───────────────────────────────────────────────────────
 
+  // Aprovar: status → "approved"
+  // O admin detecta a mudança e cria a OS automaticamente (arquivo 3).
   const handleApprove = async () => {
     if (!selectedQuote || submitting || !canApprove) return;
     setSubmitting(true);
@@ -363,6 +382,7 @@ export default function PortalOrcamentosPage() {
     }
   };
 
+  // Negociar: status → "negotiating" + client_notes com mensagem do cliente
   const handleNegotiate = async () => {
     if (!selectedQuote || submitting || !canNegotiate) return;
     if (!negotiateMessage.trim()) {
@@ -396,6 +416,7 @@ export default function PortalOrcamentosPage() {
     }
   };
 
+  // Adiar: status → "postponed" + client_notes com data sugerida e motivo
   const handlePostpone = async () => {
     if (!selectedQuote || submitting || !canPostpone) return;
     if (!postponeReason.trim()) {
@@ -439,6 +460,7 @@ export default function PortalOrcamentosPage() {
     }
   };
 
+  // Recusar: status → "rejected" + client_notes com motivo
   const handleReject = async () => {
     if (!selectedQuote || submitting || !canReject) return;
     if (!rejectReason.trim()) {
@@ -609,7 +631,8 @@ export default function PortalOrcamentosPage() {
                 <div className="custom-scrollbar max-h-[78vh] overflow-y-auto">
                   {quotes.map((quote) => {
                     const isActive = selectedId === quote.id;
-                    const isPending = quote.status === "pending_approval";
+                    const isPending =
+                      quote.status === "pending_approval";
                     const isNegotiating = quote.status === "negotiating";
                     return (
                       <button
@@ -632,7 +655,9 @@ export default function PortalOrcamentosPage() {
                               {(isPending || isNegotiating) && (
                                 <span
                                   className={`h-2 w-2 shrink-0 animate-pulse rounded-full ${
-                                    isPending ? "bg-amber-400" : "bg-blue-400"
+                                    isPending
+                                      ? "bg-amber-400"
+                                      : "bg-blue-400"
                                   }`}
                                 />
                               )}
@@ -711,7 +736,7 @@ export default function PortalOrcamentosPage() {
                       </div>
                     </div>
 
-                    {/* Grade interna */}
+                    {/* Grade interna: conteúdo + painéis */}
                     <div className="grid grid-cols-1 gap-6 p-6 sm:p-7 2xl:grid-cols-[minmax(0,1fr)_340px]">
                       {/* ── Coluna esquerda ── */}
                       <div className="space-y-6">
@@ -752,9 +777,14 @@ export default function PortalOrcamentosPage() {
                                 >
                                   <div
                                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
-                                    style={{ backgroundColor: `${brandColor}20` }}
+                                    style={{
+                                      backgroundColor: `${brandColor}20`,
+                                    }}
                                   >
-                                    <Calendar size={16} style={{ color: brandColor }} />
+                                    <Calendar
+                                      size={16}
+                                      style={{ color: brandColor }}
+                                    />
                                   </div>
                                   <div>
                                     <p
@@ -801,7 +831,10 @@ export default function PortalOrcamentosPage() {
                               Composição do Orçamento
                             </h3>
                             {itemsLoading && (
-                              <Loader2 className="animate-spin text-zinc-500" size={16} />
+                              <Loader2
+                                className="animate-spin text-zinc-500"
+                                size={16}
+                              />
                             )}
                           </div>
 
@@ -811,38 +844,62 @@ export default function PortalOrcamentosPage() {
                             </p>
                           ) : (
                             <div className="space-y-5">
+                              {/* Tabela de itens reutilizável por categoria */}
                               {(
                                 [
                                   {
                                     key: "equipment" as const,
                                     label: "Equipamentos",
-                                    icon: <Package size={13} className="text-emerald-400" />,
+                                    icon: (
+                                      <Package
+                                        size={13}
+                                        className="text-emerald-400"
+                                      />
+                                    ),
                                     labelColor: "text-emerald-400",
-                                    rowColor: "border-emerald-500/20 bg-emerald-500/5",
+                                    rowColor:
+                                      "border-emerald-500/20 bg-emerald-500/5",
                                     textColor: "text-emerald-300",
-                                    subtotalField: selectedQuote.total_equipment_cost,
+                                    subtotalField:
+                                      selectedQuote.total_equipment_cost,
                                   },
                                   {
                                     key: "labor" as const,
                                     label: "Equipe",
-                                    icon: <Users size={13} className="text-amber-400" />,
+                                    icon: (
+                                      <Users
+                                        size={13}
+                                        className="text-amber-400"
+                                      />
+                                    ),
                                     labelColor: "text-amber-400",
-                                    rowColor: "border-amber-500/20 bg-amber-500/5",
+                                    rowColor:
+                                      "border-amber-500/20 bg-amber-500/5",
                                     textColor: "text-amber-300",
-                                    subtotalField: selectedQuote.total_labor_cost,
+                                    subtotalField:
+                                      selectedQuote.total_labor_cost,
                                   },
                                   {
                                     key: "logistics" as const,
                                     label: "Logística",
-                                    icon: <Truck size={13} className="text-blue-400" />,
+                                    icon: (
+                                      <Truck
+                                        size={13}
+                                        className="text-blue-400"
+                                      />
+                                    ),
                                     labelColor: "text-blue-400",
-                                    rowColor: "border-blue-500/20 bg-blue-500/5",
+                                    rowColor:
+                                      "border-blue-500/20 bg-blue-500/5",
                                     textColor: "text-blue-300",
-                                    subtotalField: selectedQuote.total_logistics_cost,
+                                    subtotalField:
+                                      selectedQuote.total_logistics_cost,
                                   },
                                 ] as const
                               )
-                                .filter(({ key }) => groupedItems[key].length > 0)
+                                .filter(
+                                  ({ key }) => groupedItems[key].length > 0
+                                )
                                 .map(
                                   ({
                                     key,
@@ -854,9 +911,13 @@ export default function PortalOrcamentosPage() {
                                     subtotalField,
                                   }) => (
                                     <div key={key}>
-                                      <div className="mb-2 flex items-center gap-2">
+                                      <div
+                                        className={`mb-2 flex items-center gap-2`}
+                                      >
                                         {icon}
-                                        <p className={`text-[11px] font-black uppercase tracking-widest ${labelColor}`}>
+                                        <p
+                                          className={`text-[11px] font-black uppercase tracking-widest ${labelColor}`}
+                                        >
                                           {label}
                                         </p>
                                       </div>
@@ -898,18 +959,25 @@ export default function PortalOrcamentosPage() {
                                                 </td>
                                               </tr>
                                             ))}
-                                            <tr className={`border-t ${rowColor}`}>
+                                            {/* Linha de subtotal por categoria */}
+                                            <tr
+                                              className={`border-t ${rowColor}`}
+                                            >
                                               <td
                                                 colSpan={3}
                                                 className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest ${labelColor}`}
                                               >
                                                 Subtotal {label}
                                               </td>
-                                              <td className={`px-4 py-2 text-right text-sm font-bold ${textColor}`}>
+                                              <td
+                                                className={`px-4 py-2 text-right text-sm font-bold ${textColor}`}
+                                              >
                                                 {currency(
                                                   subtotalField ??
                                                     groupedItems[key].reduce(
-                                                      (acc, i) => acc + Number(i.total_price),
+                                                      (acc, i) =>
+                                                        acc +
+                                                        Number(i.total_price),
                                                       0
                                                     )
                                                 )}
@@ -928,24 +996,39 @@ export default function PortalOrcamentosPage() {
                                   {selectedQuote.total_equipment_cost != null && (
                                     <div className="flex justify-between text-sm text-zinc-400">
                                       <span>Equipamentos</span>
-                                      <span>{currency(selectedQuote.total_equipment_cost)}</span>
+                                      <span>
+                                        {currency(
+                                          selectedQuote.total_equipment_cost
+                                        )}
+                                      </span>
                                     </div>
                                   )}
                                   {selectedQuote.total_labor_cost != null && (
                                     <div className="flex justify-between text-sm text-zinc-400">
                                       <span>Equipe</span>
-                                      <span>{currency(selectedQuote.total_labor_cost)}</span>
+                                      <span>
+                                        {currency(
+                                          selectedQuote.total_labor_cost
+                                        )}
+                                      </span>
                                     </div>
                                   )}
-                                  {selectedQuote.total_logistics_cost != null && (
+                                  {selectedQuote.total_logistics_cost !=
+                                    null && (
                                     <div className="flex justify-between text-sm text-zinc-400">
                                       <span>Logística</span>
-                                      <span>{currency(selectedQuote.total_logistics_cost)}</span>
+                                      <span>
+                                        {currency(
+                                          selectedQuote.total_logistics_cost
+                                        )}
+                                      </span>
                                     </div>
                                   )}
                                   <div className="flex justify-between border-t border-white/10 pt-2.5 text-base font-bold text-white">
                                     <span>Total</span>
-                                    <span>{currency(selectedQuote.final_amount)}</span>
+                                    <span>
+                                      {currency(selectedQuote.final_amount)}
+                                    </span>
                                   </div>
                                 </div>
                               </div>
@@ -953,7 +1036,7 @@ export default function PortalOrcamentosPage() {
                           )}
                         </section>
 
-                        {/* Observações do responsável */}
+                        {/* Observações do responsável (admin → cliente) */}
                         {selectedQuote.notes && (
                           <section className="rounded-[24px] border border-blue-500/10 bg-blue-500/5 p-5">
                             <h3 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-blue-300">
@@ -965,10 +1048,9 @@ export default function PortalOrcamentosPage() {
                           </section>
                         )}
 
-                        {/* Feedback do cliente */}
+                        {/* Feedback enviado pelo cliente (visível após ação) */}
                         {selectedQuote.client_notes &&
-                          selectedQuote.status !== "pending_approval" &&
-                          selectedQuote.status !== "negotiating" && (
+                          !isActionableQuote(selectedQuote) && (
                             <section className="rounded-[24px] border border-white/10 bg-black/15 p-5">
                               <h3 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-zinc-200">
                                 Seu Retorno Registrado
@@ -982,7 +1064,8 @@ export default function PortalOrcamentosPage() {
 
                       {/* ── Coluna direita: Painéis de Ação ── */}
                       <aside className="space-y-4">
-                        {(selectedQuote.status !== "pending_approval" && selectedQuote.status !== "negotiating") ? (
+                        {/* Estado não-acionável */}
+                        {!isActionableQuote(selectedQuote) ? (
                           <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-6 text-center">
                             <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
                               {selectedQuote.status === "approved"
@@ -1035,7 +1118,9 @@ export default function PortalOrcamentosPage() {
                                 <ChevronDown
                                   size={18}
                                   className={`text-zinc-500 transition ${
-                                    openActionPanel === "approve" ? "rotate-180" : ""
+                                    openActionPanel === "approve"
+                                      ? "rotate-180"
+                                      : ""
                                   }`}
                                 />
                               </button>
@@ -1062,7 +1147,10 @@ export default function PortalOrcamentosPage() {
                                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 p-4 text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-900/20 transition hover:bg-emerald-500 disabled:opacity-50"
                                   >
                                     {submitting ? (
-                                      <Loader2 className="animate-spin" size={16} />
+                                      <Loader2
+                                        className="animate-spin"
+                                        size={16}
+                                      />
                                     ) : (
                                       <>
                                         <CheckCircle2 size={16} />
@@ -1099,14 +1187,17 @@ export default function PortalOrcamentosPage() {
                                       Propor Negociação
                                     </h3>
                                     <p className="text-[11px] text-zinc-500">
-                                      Sugerir ajustes de escopo, valores ou condições
+                                      Sugerir ajustes de escopo, valores ou
+                                      condições
                                     </p>
                                   </div>
                                 </div>
                                 <ChevronDown
                                   size={18}
                                   className={`text-zinc-500 transition ${
-                                    openActionPanel === "negotiate" ? "rotate-180" : ""
+                                    openActionPanel === "negotiate"
+                                      ? "rotate-180"
+                                      : ""
                                   }`}
                                 />
                               </button>
@@ -1130,7 +1221,9 @@ export default function PortalOrcamentosPage() {
                                     </label>
                                     <textarea
                                       value={negotiateMessage}
-                                      onChange={(e) => setNegotiateMessage(e.target.value)}
+                                      onChange={(e) =>
+                                        setNegotiateMessage(e.target.value)
+                                      }
                                       placeholder="Descreva os ajustes que gostaria de discutir: valores, itens, datas, condições de pagamento..."
                                       className="h-28 w-full resize-none rounded-xl border border-white/10 bg-black/20 p-3 text-sm font-medium outline-none focus:border-blue-500/50"
                                     />
@@ -1141,7 +1234,10 @@ export default function PortalOrcamentosPage() {
                                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 p-4 text-xs font-black uppercase tracking-widest shadow-lg shadow-blue-900/20 transition hover:bg-blue-500 disabled:opacity-50"
                                   >
                                     {submitting ? (
-                                      <Loader2 className="animate-spin" size={16} />
+                                      <Loader2
+                                        className="animate-spin"
+                                        size={16}
+                                      />
                                     ) : (
                                       <>
                                         <MessageSquare size={16} />
@@ -1185,7 +1281,9 @@ export default function PortalOrcamentosPage() {
                                 <ChevronDown
                                   size={18}
                                   className={`text-zinc-500 transition ${
-                                    openActionPanel === "postpone" ? "rotate-180" : ""
+                                    openActionPanel === "postpone"
+                                      ? "rotate-180"
+                                      : ""
                                   }`}
                                 />
                               </button>
@@ -1202,7 +1300,9 @@ export default function PortalOrcamentosPage() {
                                     <input
                                       type="date"
                                       value={postponeDate}
-                                      onChange={(e) => setPostponeDate(e.target.value)}
+                                      onChange={(e) =>
+                                        setPostponeDate(e.target.value)
+                                      }
                                       style={{ colorScheme: "dark" }}
                                       className="w-full rounded-xl border border-white/10 bg-black/20 p-3 text-sm font-bold outline-none focus:border-orange-500/50"
                                     />
@@ -1213,7 +1313,9 @@ export default function PortalOrcamentosPage() {
                                     </label>
                                     <textarea
                                       value={postponeReason}
-                                      onChange={(e) => setPostponeReason(e.target.value)}
+                                      onChange={(e) =>
+                                        setPostponeReason(e.target.value)
+                                      }
                                       placeholder="Descreva o motivo do adiamento..."
                                       className="h-24 w-full resize-none rounded-xl border border-white/10 bg-black/20 p-3 text-sm font-medium outline-none focus:border-orange-500/50"
                                     />
@@ -1224,7 +1326,10 @@ export default function PortalOrcamentosPage() {
                                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-600 p-4 text-xs font-black uppercase tracking-widest shadow-lg shadow-orange-900/20 transition hover:bg-orange-500 disabled:opacity-50"
                                   >
                                     {submitting ? (
-                                      <Loader2 className="animate-spin" size={16} />
+                                      <Loader2
+                                        className="animate-spin"
+                                        size={16}
+                                      />
                                     ) : (
                                       <>
                                         <Timer size={16} />
@@ -1268,7 +1373,9 @@ export default function PortalOrcamentosPage() {
                                 <ChevronDown
                                   size={18}
                                   className={`text-zinc-500 transition ${
-                                    openActionPanel === "reject" ? "rotate-180" : ""
+                                    openActionPanel === "reject"
+                                      ? "rotate-180"
+                                      : ""
                                   }`}
                                 />
                               </button>
@@ -1288,7 +1395,9 @@ export default function PortalOrcamentosPage() {
                                     </label>
                                     <textarea
                                       value={rejectReason}
-                                      onChange={(e) => setRejectReason(e.target.value)}
+                                      onChange={(e) =>
+                                        setRejectReason(e.target.value)
+                                      }
                                       placeholder="Descreva o motivo da recusa. Seu feedback nos ajuda a melhorar..."
                                       className="h-24 w-full resize-none rounded-xl border border-white/10 bg-black/20 p-3 text-sm font-medium outline-none focus:border-red-500/50"
                                     />
@@ -1299,7 +1408,10 @@ export default function PortalOrcamentosPage() {
                                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-red-600 p-4 text-xs font-black uppercase tracking-widest shadow-lg shadow-red-900/20 transition hover:bg-red-500 disabled:opacity-50"
                                   >
                                     {submitting ? (
-                                      <Loader2 className="animate-spin" size={16} />
+                                      <Loader2
+                                        className="animate-spin"
+                                        size={16}
+                                      />
                                     ) : (
                                       <>
                                         <ThumbsDown size={16} />
