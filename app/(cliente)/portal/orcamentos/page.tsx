@@ -967,7 +967,8 @@ export default function PortalOrcamentosPage() {
 
                         {/* Feedback do cliente */}
                         {selectedQuote.client_notes &&
-                          !isActionableQuote(selectedQuote) && (
+                          selectedQuote.status !== "pending_approval" &&
+                          selectedQuote.status !== "negotiating" && (
                             <section className="rounded-[24px] border border-white/10 bg-black/15 p-5">
                               <h3 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-zinc-200">
                                 Seu Retorno Registrado
@@ -981,7 +982,7 @@ export default function PortalOrcamentosPage() {
 
                       {/* ── Coluna direita: Painéis de Ação ── */}
                       <aside className="space-y-4">
-                        {!isActionableQuote(selectedQuote) ? (
+                        {(selectedQuote.status !== "pending_approval" && selectedQuote.status !== "negotiating") ? (
                           <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-6 text-center">
                             <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
                               {selectedQuote.status === "approved"
