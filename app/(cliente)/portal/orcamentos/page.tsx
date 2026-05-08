@@ -73,7 +73,9 @@ const HIDDEN_STATUSES = new Set(["draft"]);
 
 // ─── Helpers (fora do componente — sem dependência de estado) ─────────────────
 
-function isActionableQuote(q: Quote | null): q is Quote {
+// Retorna boolean simples — type predicate causaria narrowing para `never`
+// na negação (!isActionableQuote), já que TypeScript infere o oposto de Quote.
+function isActionableQuote(q: Quote | null): boolean {
   return !!q && ACTIONABLE_STATUSES.has(q.status);
 }
 
