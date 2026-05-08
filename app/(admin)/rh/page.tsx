@@ -96,6 +96,13 @@ interface Quote {
   commission_reserved_payroll_id: string | null;
 }
 
+// Perfil do sistema — usado no dropdown de vínculo de comissão
+interface SystemProfile {
+  id: string;
+  full_name: string;
+  email: string;
+}
+
 interface Toast { message: string; type: "success" | "error" | "warning" }
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
@@ -166,7 +173,6 @@ function calcIRRF(b: number) {
   return +(b * 0.275 - 896.00).toFixed(2);
 }
 
-// VT: empregado paga 6% do salário, limitado ao valor do benefício
 function calcVTDiscount(salary: number, vt: number) {
   return +Math.min(salary * 0.06, vt).toFixed(2);
 }
@@ -674,6 +680,9 @@ function EmpDetailModal({ emp, onClose, onEdit }: { emp: Employee; onClose: () =
 
 function EmpFormModal({ initial, onClose, onSaved }: { initial: Employee | null; onClose: () => void; onSaved: () => void }) {
   const [saving, setSaving] = useState(false);
+  // FIX #3: dropdown de profiles para vínculo de comissão
+  const [profiles, setProfiles] = useState<SystemProfile[]>([]);
+
   const [f, setF] = useState({
     full_name: initial?.full_name ?? "", document_cpf: initial?.document_cpf ?? "",
     document_rg: initial?.document_rg ?? "", birth_date: initial?.birth_date ?? "",
@@ -693,6 +702,15 @@ function EmpFormModal({ initial, onClose, onSaved }: { initial: Employee | null;
     profile_id: initial?.profile_id ?? "",
   });
   const s = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
+
+  // FIX #3: busca perfis disponíveis para o dropdown de vínculo de comissão
+  useEffect(() => {
+    void supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .order("full_name")
+      .then(({ data }) => setProfiles((data ?? []) as SystemProfile[]));
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true);
@@ -731,6 +749,7 @@ function EmpFormModal({ initial, onClose, onSaved }: { initial: Employee | null;
             <Field label="Telefone"><Input value={f.phone} onChange={e => s("phone", fPhone(e.target.value))} placeholder="(21) 99999-9999" /></Field>
           </div>
         </section>
+
         <section>
           <p className="mb-3 text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Vínculo</p>
           <div className="grid gap-4 md:grid-cols-2">
@@ -738,12 +757,29 @@ function EmpFormModal({ initial, onClose, onSaved }: { initial: Employee | null;
             <Field label="Tipo de contrato"><Sel value={f.contract_type} onChange={e => s("contract_type", e.target.value)}>{CONTRACT_TYPES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</Sel></Field>
             <Field label="Data de admissão"><Input type="date" value={f.hiring_date} onChange={e => s("hiring_date", e.target.value)} /></Field>
             <Field label="Status"><Sel value={f.status} onChange={e => s("status", e.target.value)}><option value="active">Ativo</option><option value="inactive">Inativo</option></Sel></Field>
-            <Field label="Usuário do sistema (para comissões)">
-              <Input value={f.profile_id} onChange={e => s("profile_id", e.target.value)} placeholder="UUID do perfil em profiles" />
-              <p className="mt-1 text-[10px] text-[var(--color-text-secondary)]">Vincule ao profile_id do usuário para cálculo automático de comissões.</p>
-            </Field>
+
+            {/* FIX #3: dropdown de profiles em vez de input de UUID livre.
+                Vincula o colaborador a um usuário do sistema para que o
+                cálculo de comissões use profile_id = quotes.salesperson_id. */}
+            <div className="md:col-span-2">
+              <Field label="Usuário do sistema (para comissão automática)">
+                <Sel value={f.profile_id} onChange={e => s("profile_id", e.target.value)}>
+                  <option value="">Nenhum — sem comissão automática</option>
+                  {profiles.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.full_name || p.email}
+                    </option>
+                  ))}
+                </Sel>
+                <p className="mt-1 text-[10px] text-[var(--color-text-secondary)]">
+                  Vincula ao usuário que assina orçamentos como responsável comercial.
+                  Orçamentos aprovados por esse usuário serão incluídos na folha.
+                </p>
+              </Field>
+            </div>
           </div>
         </section>
+
         <section>
           <p className="mb-3 text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Remuneração e benefícios</p>
           <div className="grid gap-4 md:grid-cols-3">
@@ -760,6 +796,7 @@ function EmpFormModal({ initial, onClose, onSaved }: { initial: Employee | null;
             <Field label="Seguro de vida (R$)"><Input type="number" min="0" step="0.01" value={f.insurance_value} onChange={e => s("insurance_value", e.target.value)} /></Field>
           </div>
         </section>
+
         <section>
           <p className="mb-3 text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Dados bancários</p>
           <div className="grid gap-4 md:grid-cols-2">
@@ -769,6 +806,7 @@ function EmpFormModal({ initial, onClose, onSaved }: { initial: Employee | null;
             <Field label="Chave PIX"><Input value={f.pix_key} onChange={e => s("pix_key", e.target.value)} /></Field>
           </div>
         </section>
+
         <div className="flex justify-end gap-3 border-t border-white/10 pt-5">
           <button type="button" onClick={onClose} className="rounded-lg border border-white/10 px-5 py-2.5 text-sm text-[var(--color-text-secondary)] transition hover:text-white">Cancelar</button>
           <button type="submit" disabled={saving} className="flex items-center gap-2 rounded-lg bg-[var(--color-cs-green)] px-6 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-50">
@@ -829,7 +867,6 @@ function OccModal({ occurrence, employees, onClose, onSaved, showToast }: {
       attachment_url: f.attachment_url || null,
     }]);
     if (error) { showToast(error.message, "error"); setSaving(false); return; }
-    // Gera transação financeira para suspensão
     if (occType?.hasDiscount && emp) {
       const days = parseInt(f.days_count) || 1;
       const discount = +((emp.base_salary / 30) * days).toFixed(2);
@@ -969,29 +1006,48 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
 
   const emp = employees.find(e => e.id === (payroll?.employee_id ?? f.employee_id));
 
-  // Busca orçamentos aprovados, não pagos e não reservados por outra folha
+  // FIX #1 + #2: busca orçamentos usando profile_id do colaborador.
+  // Inclui tanto orçamentos não reservados (para novas folhas) quanto os já
+  // reservados para esta folha específica (para edição/view de folha existente).
+  // Antes, o filtro .is("commission_reserved_at", null) excluía os orçamentos
+  // reservados, deixando `quotes` vazio ao fechar a folha e zerando as comissões.
   useEffect(() => {
     if (!f.employee_id) { setQuotes([]); return; }
     const currentEmp = employees.find(e => e.id === f.employee_id);
     const profileId  = currentEmp?.profile_id;
-    if (!profileId) { setQuotes([]); return; }
-    void supabase.from("quotes")
-      .select("id,title,final_amount,status,commission_reserved_at,commission_reserved_payroll_id")
-      .eq("salesperson_id", profileId)
-      .eq("status", "approved")
-      .is("commission_paid_at", null)
-      .is("commission_reserved_at", null)
-      .then(({ data }) => setQuotes((data ?? []) as Quote[]));
-  }, [f.employee_id, employees]);
 
-  // Auto-preenche comissão
+    // Sem vínculo de profile_id: não há como calcular comissões automaticamente
+    if (!profileId) { setQuotes([]); return; }
+
+    const baseQuery = supabase
+      .from("quotes")
+      .select("id,title,final_amount,status,commission_reserved_at,commission_reserved_payroll_id")
+      .eq("salesperson_id", profileId)   // salesperson_id referencia profiles.id
+      .eq("status", "approved")
+      .is("commission_paid_at", null);
+
+    // FIX #2: quando há folha existente, inclui orçamentos reservados para ela
+    // usando .or() — evita que `quotes` fique vazio no fechamento.
+    const fetcher = payroll?.id
+      ? baseQuery.or(
+          `commission_reserved_at.is.null,commission_reserved_payroll_id.eq.${payroll.id}`
+        )
+      : baseQuery.is("commission_reserved_at", null);
+
+    void fetcher.then(({ data }) => setQuotes((data ?? []) as Quote[]));
+  }, [f.employee_id, employees, payroll?.id]);
+
+  // Auto-preenche comissão com base nos orçamentos encontrados
   useEffect(() => {
     if (!emp || quotes.length === 0) return;
-    const total = quotes.reduce((sum, q) => sum + q.final_amount * ((emp.commission_rate ?? 0) / 100), 0);
+    const total = quotes.reduce(
+      (sum, q) => sum + q.final_amount * ((emp.commission_rate ?? 0) / 100),
+      0
+    );
     s("total_commissions", total.toFixed(2));
   }, [quotes, emp]);
 
-  // Busca faltas e suspensões do mês de competência para pré-preencher dias
+  // Pré-preenche dias de falta com base nas ocorrências do mês
   useEffect(() => {
     if (!f.employee_id || !f.reference_month || !f.reference_year) return;
     const monthStart = `${f.reference_year}-${String(parseInt(f.reference_month)).padStart(2,"0")}-01`;
@@ -1022,10 +1078,12 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); if (!emp) return; setSaving(true);
-    // Verifica duplicata
     const { data: ex } = await supabase.from("hr_payrolls").select("id")
-      .eq("employee_id", f.employee_id).eq("reference_month", parseInt(f.reference_month)).eq("reference_year", parseInt(f.reference_year))
-      .neq("id", payroll?.id ?? "00000000-0000-0000-0000-000000000000").maybeSingle();
+      .eq("employee_id", f.employee_id)
+      .eq("reference_month", parseInt(f.reference_month))
+      .eq("reference_year", parseInt(f.reference_year))
+      .neq("id", payroll?.id ?? "00000000-0000-0000-0000-000000000000")
+      .maybeSingle();
     if (ex) { showToast(`Já existe folha para ${mName(parseInt(f.reference_month))}/${f.reference_year} deste colaborador.`, "warning"); setSaving(false); return; }
 
     const payload = {
@@ -1048,14 +1106,16 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
 
     // Reserva os orçamentos para esta folha — impede duplicação em folhas futuras
     if (quotes.length > 0 && payrollId) {
-      const now = new Date().toISOString();
+      const reserveNow = new Date().toISOString();
       await Promise.all(
-        quotes.map(q =>
-          supabase.from("quotes").update({
-            commission_reserved_at:         now,
-            commission_reserved_payroll_id: payrollId,
-          }).eq("id", q.id)
-        )
+        quotes
+          .filter(q => !q.commission_reserved_at) // só reserva os ainda não reservados
+          .map(q =>
+            supabase.from("quotes").update({
+              commission_reserved_at:         reserveNow,
+              commission_reserved_payroll_id: payrollId,
+            }).eq("id", q.id)
+          )
       );
     }
 
@@ -1063,13 +1123,19 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
     onSaved();
   }
 
+  // FIX #1: closePayroll busca os orçamentos reservados diretamente do banco,
+  // não usa o state `quotes`. Antes, `quotes` estava vazio no fechamento porque
+  // o useEffect filtrava commission_reserved_at = null (orçamentos reservados
+  // têm commission_reserved_at preenchido), logo as comissões nunca eram pagas.
   async function closePayroll() {
-    if (!payroll) return; setClosing(true);
-    const now = new Date().toISOString();
+    if (!payroll) return;
+    setClosing(true);
+    const closeNow = new Date().toISOString();
 
     // 1. Fecha a folha
-    const { error: e1 } = await supabase.from("hr_payrolls")
-      .update({ status: "closed", confirmed_at: now })
+    const { error: e1 } = await supabase
+      .from("hr_payrolls")
+      .update({ status: "closed", confirmed_at: closeNow })
       .eq("id", payroll.id);
     if (e1) { showToast(e1.message, "error"); setClosing(false); return; }
 
@@ -1080,17 +1146,24 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
       due_date: new Date(payroll.reference_year, payroll.reference_month - 1, 5).toISOString().split("T")[0],
     }]);
 
-    // 3. Liquida definitivamente cada orçamento reservado — trilha de auditoria completa
-    if (quotes.length > 0) {
-      const commissionedEmp = employees.find(e => e.id === payroll.employee_id);
-      const rate = (commissionedEmp?.commission_rate ?? 0) / 100;
+    // FIX #1: busca orçamentos reservados para ESTA folha direto do banco
+    const commissionedEmp = employees.find(e => e.id === payroll.employee_id);
+    const rate = (commissionedEmp?.commission_rate ?? 0) / 100;
+
+    const { data: reservedQuotes } = await supabase
+      .from("quotes")
+      .select("id, final_amount")
+      .eq("commission_reserved_payroll_id", payroll.id)
+      .is("commission_paid_at", null);
+
+    if (reservedQuotes && reservedQuotes.length > 0) {
       await Promise.all(
-        quotes.map(q =>
+        reservedQuotes.map(q =>
           supabase.from("quotes").update({
-            commission_paid_at:             now,
+            commission_paid_at:             closeNow,
             commission_payroll_id:          payroll.id,
             commission_amount:              +(q.final_amount * rate).toFixed(2),
-            // Limpa a reserva — agora está oficialmente pago
+            // Limpa a reserva — comissão oficialmente paga
             commission_reserved_at:         null,
             commission_reserved_payroll_id: null,
           }).eq("id", q.id)
@@ -1098,8 +1171,15 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
       );
     }
 
-    showToast("Folha fechada e comissões registradas.", "success");
-    setClosing(false); onSaved();
+    const commCount = reservedQuotes?.length ?? 0;
+    showToast(
+      commCount > 0
+        ? `Folha fechada — ${commCount} comissão(ões) liquidada(s).`
+        : "Folha fechada.",
+      "success"
+    );
+    setClosing(false);
+    onSaved();
   }
 
   function handlePrint() {
@@ -1212,14 +1292,20 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
           <Field label="Mês *"><Sel value={f.reference_month} onChange={e => s("reference_month", e.target.value)}>{MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}</Sel></Field>
           <Field label="Ano *"><Input type="number" value={f.reference_year} onChange={e => s("reference_year", e.target.value)} /></Field>
         </div>
+
         <div className="grid gap-4 md:grid-cols-3">
           <div>
             <Field label="Comissões (R$)">
               <Input type="number" min="0" step="0.01" value={f.total_commissions} onChange={e => s("total_commissions", e.target.value)} />
             </Field>
+            {emp && !emp.profile_id && (
+              <p className="mt-1.5 flex items-center gap-1 text-[10px] text-amber-400">
+                <Info size={11} /> Sem vínculo de usuário — comissão não será calculada automaticamente.
+              </p>
+            )}
             {quotes.length > 0 && (
               <div className="mt-2 rounded-lg border border-white/5 bg-black/20 p-2 space-y-1">
-                <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">{quotes.length} orçamento(s) aprovado(s)</p>
+                <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">{quotes.length} orçamento(s)</p>
                 {quotes.map(q => (
                   <div key={q.id} className="flex justify-between text-[10px]">
                     <span className="truncate text-[var(--color-text-secondary)]">{q.title}</span>
