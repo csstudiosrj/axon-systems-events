@@ -1761,11 +1761,12 @@ export default function FinanceiroPage() {
             paymentInfo.scenario === "partial" ? null : now,
           finance_last_action_at: now,
           last_interaction_at: now,
-          // FIX: "partial_payment_registered" não existe no check constraint.
-          // Usa "charge_maintained" para pagamentos parciais (cobrança continua aberta).
+          // Valores aceitos pelo constraint: payment_confirmed, charge_corrected,
+          // charge_cancelled, dispute_rejected, written_off
+          // Para pagamento parcial: dispute_rejected mantém a cobrança aberta
           resolution_type:
             paymentInfo.scenario === "partial"
-              ? "charge_maintained"
+              ? "dispute_rejected"
               : "payment_confirmed",
           resolution_notes:
             financeActionForm.resolutionNotes.trim() ||
@@ -1965,7 +1966,7 @@ export default function FinanceiroPage() {
           workflow_status: "open",
           finance_last_action_at: now,
           last_interaction_at: now,
-          resolution_type: "payment_rejected",
+          resolution_type: "dispute_rejected",
           resolution_notes:
             financeActionForm.resolutionNotes.trim() ||
             financeActionForm.comment.trim(),
@@ -2028,6 +2029,8 @@ export default function FinanceiroPage() {
           ? "cancelled"
           : financeActionForm.resolutionType === "payment_confirmed"
           ? "confirmed"
+          : financeActionForm.resolutionType === "charge_corrected"
+          ? "open"
           : "resolved";
 
       const { error } = await supabase
@@ -4017,14 +4020,17 @@ export default function FinanceiroPage() {
                         <option value="payment_confirmed">
                           Pagamento confirmado
                         </option>
-                        <option value="charge_adjusted">
-                          Cobrança ajustada
+                        <option value="charge_corrected">
+                          Cobrança corrigida
                         </option>
-                        <option value="charge_maintained">
-                          Cobrança mantida
+                        <option value="dispute_rejected">
+                          Cobrança mantida (contestação rejeitada)
                         </option>
                         <option value="charge_cancelled">
                           Cobrança cancelada
+                        </option>
+                        <option value="written_off">
+                          Baixa por perda
                         </option>
                       </select>
                     </div>
