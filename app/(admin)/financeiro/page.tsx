@@ -453,6 +453,7 @@ export default function FinanceiroPage() {
     comment: "",
     resolutionType: "payment_confirmed",
     resolutionNotes: "",
+    partialDueDate: "",
   });
   const [financeAttachmentFile, setFinanceAttachmentFile] =
     useState<File | null>(null);
@@ -1718,17 +1719,66 @@ export default function FinanceiroPage() {
   // ── Finance actions ───────────────────────────────────────────────────────
   const handleConfirmPayment = async () => {
     if (!selectedTransaction) return;
+    const paymentInfo = getPaymentDifference(selectedTransaction);
+
+    // Pagamento parcial exige data de vencimento para a nova cobrança de saldo
+    // (só quando não há parcelas abertas no grupo para absorver o saldo)
+    const openInstallmentsInGroup = receivableForGroup.filter(
+      (r) => r.id !== selectedTransaction.id && r.status === "pending"
+    );
+    const needsDueDate =
+      paymentInfo.scenario === "partial" && openInstallmentsInGroup.length === 0;
+
+    if (needsDueDate && !financeActionForm.partialDueDate) {
+      showToast(
+        "Informe a data de vencimento para a nova cobrança de saldo.",
+        "warning"
+      );
+      return;
+    }
+
     setActionSubmitting(true);
     try {
       const now = new Date().toISOString();
-      const paymentInfo = getPaymentDifference(selectedTransaction);
+      // Usa a data informada pelo cliente como data de pagamento
+      const paymentDateConfirmed =
+        selectedTransaction.payment_reported_at
+          ? new Date(selectedTransaction.payment_reported_at)
+              .toISOString()
+              .split("T")[0]
+          : new Date().toISOString().split("T")[0];
 
+      // ── Busca dados do vendedor para comissão proporcional ────────────────
+      let salespersonId: string | null = null;
+      let commissionPct: number | null = null;
+      if (selectedTransaction.quote_id) {
+        const { data: quoteData } = await supabase
+          .from("quotes")
+          .select("salesperson_id")
+          .eq("id", selectedTransaction.quote_id)
+          .single();
+        if (quoteData?.salesperson_id) {
+          salespersonId = quoteData.salesperson_id;
+          const { data: sellerData } = await supabase
+            .from("profiles")
+            .select("commission_percentage")
+            .eq("id", quoteData.salesperson_id)
+            .single();
+          commissionPct = sellerData?.commission_percentage ?? null;
+        }
+      }
+
+      // ── Registra evento de confirmação ────────────────────────────────────
       const eventId = await registerFinanceEvent(
         selectedTransaction.id,
         "payment_confirmed",
-        "Pagamento confirmado pelo financeiro",
+        paymentInfo.scenario === "partial"
+          ? "Pagamento parcial confirmado pelo financeiro"
+          : "Pagamento confirmado pelo financeiro",
         financeActionForm.comment.trim() ||
-          "Pagamento conferido e confirmado pelo financeiro.",
+          (paymentInfo.scenario === "partial"
+            ? `Pagamento parcial de ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(paymentInfo.reported)} confirmado. Saldo de ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Math.abs(paymentInfo.difference))} encaminhado para nova cobrança.`
+            : "Pagamento conferido e confirmado pelo financeiro."),
         {
           valor_previsto: paymentInfo.expected,
           valor_informado: paymentInfo.reported,
@@ -1747,33 +1797,27 @@ export default function FinanceiroPage() {
         "finance_confirmation"
       );
 
-      const { error } = await supabase
+      // ── Dá baixa na transação original pelo valor informado ───────────────
+      const { error: updateError } = await supabase
         .from("financial_transactions")
         .update({
-          status: paymentInfo.scenario === "partial" ? "pending" : "paid",
-          workflow_status:
-            paymentInfo.scenario === "partial" ? "under_review" : "confirmed",
-          payment_date:
-            paymentInfo.scenario === "partial"
-              ? null
-              : new Date().toISOString().split("T")[0],
-          payment_confirmed_at:
-            paymentInfo.scenario === "partial" ? null : now,
+          status: "paid",
+          workflow_status: "confirmed",
+          // Para parcial: sobrescreve amount com o valor efetivamente recebido
+          ...(paymentInfo.scenario === "partial" && {
+            amount: paymentInfo.reported,
+          }),
+          payment_date: paymentDateConfirmed,
+          payment_confirmed_at: now,
           finance_last_action_at: now,
           last_interaction_at: now,
-          // Valores aceitos pelo constraint: payment_confirmed, charge_corrected,
-          // charge_cancelled, dispute_rejected, written_off
-          // Para pagamento parcial: dispute_rejected mantém a cobrança aberta
-          resolution_type:
-            paymentInfo.scenario === "partial"
-              ? "dispute_rejected"
-              : "payment_confirmed",
+          resolution_type: "payment_confirmed",
           resolution_notes:
             financeActionForm.resolutionNotes.trim() ||
+            financeActionForm.comment.trim() ||
             (paymentInfo.scenario === "partial"
-              ? "Pagamento parcial confirmado. Mantida pendência de saldo."
-              : financeActionForm.comment.trim() ||
-                "Pagamento confirmado pelo financeiro."),
+              ? "Pagamento parcial confirmado. Saldo gerado como nova cobrança."
+              : "Pagamento confirmado pelo financeiro."),
           dispute_status:
             selectedTransaction.dispute_status === "open"
               ? "resolved"
@@ -1781,53 +1825,102 @@ export default function FinanceiroPage() {
         })
         .eq("id", selectedTransaction.id);
 
-      if (error) throw new Error(error.message || "Erro ao confirmar pagamento.");
+      if (updateError)
+        throw new Error(updateError.message || "Erro ao confirmar pagamento.");
 
-      // Inserir comissão de venda ao confirmar pagamento integral
-      if (paymentInfo.scenario !== "partial" && selectedTransaction.quote_id) {
-        const { data: quoteData } = await supabase
-          .from("quotes")
-          .select("salesperson_id")
-          .eq("id", selectedTransaction.quote_id)
-          .single();
-
-        if (quoteData?.salesperson_id) {
-          const { data: sellerData } = await supabase
-            .from("profiles")
-            .select("commission_percentage")
-            .eq("id", quoteData.salesperson_id)
-            .single();
-
-          if (sellerData?.commission_percentage) {
-            const commissionAmount =
-              (Number(selectedTransaction.amount) * sellerData.commission_percentage) / 100;
-            await supabase.from("financial_transactions").insert({
-              type: "expense",
-              expense_type: "personnel",
-              category: "Comissão de Vendas",
-              description: `Comissão sobre ${selectedTransaction.description || "venda"}`,
-              amount: commissionAmount,
-              status: "pending",
-              due_date: new Date().toISOString().split("T")[0],
-              member_id: quoteData.salesperson_id,
-              client_id: selectedTransaction.client_id ?? null,
-              quote_id: selectedTransaction.quote_id,
-              source: "commission_auto",
-            });
-          }
-        }
+      // ── Comissão proporcional ao valor recebido ───────────────────────────
+      if (salespersonId && commissionPct) {
+        const commissionAmount =
+          (paymentInfo.reported * commissionPct) / 100;
+        await supabase.from("financial_transactions").insert({
+          type: "expense",
+          expense_type: "personnel",
+          category: "Comissão de Vendas",
+          description: `Comissão sobre ${selectedTransaction.description || "venda"}${paymentInfo.scenario === "partial" ? " (parcial)" : ""}`,
+          amount: commissionAmount,
+          status: "pending",
+          due_date: new Date().toISOString().split("T")[0],
+          member_id: salespersonId,
+          client_id: selectedTransaction.client_id ?? null,
+          quote_id: selectedTransaction.quote_id,
+          source: "commission_auto",
+        });
       }
 
-      showToast(
-        paymentInfo.scenario === "partial"
-          ? "Pagamento parcial registrado. A cobrança segue em análise."
-          : "Pagamento confirmado e baixa realizada.",
-        "success"
-      );
+      // ── Tratamento do saldo remanescente (só para pagamento parcial) ──────
+      if (paymentInfo.scenario === "partial") {
+        const saldo = Math.abs(paymentInfo.difference);
+
+        if (openInstallmentsInGroup.length > 0) {
+          // Dilui o saldo na primeira parcela aberta do grupo
+          const firstOpen = openInstallmentsInGroup.sort(
+            (a, b) => (a.installment_number || 0) - (b.installment_number || 0)
+          )[0];
+
+          const novoValor = Number(firstOpen.amount) + saldo;
+
+          await supabase
+            .from("financial_transactions")
+            .update({
+              amount: novoValor,
+              resolution_notes: `Saldo de ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(saldo)} da parcela anterior diluído nesta cobrança.`,
+              finance_last_action_at: now,
+              last_interaction_at: now,
+            })
+            .eq("id", firstOpen.id);
+
+          await registerFinanceEvent(
+            firstOpen.id,
+            "charge_adjusted",
+            "Saldo de pagamento parcial diluído nesta parcela",
+            `Valor original: ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(firstOpen.amount))}. Novo valor com saldo incorporado: ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(novoValor)}.`,
+            { saldo_incorporado: saldo, valor_original: Number(firstOpen.amount) }
+          );
+
+          showToast(
+            `Parcial confirmado. Saldo de ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(saldo)} diluído na próxima parcela.`,
+            "success"
+          );
+        } else {
+          // Não há parcelas abertas — gera nova cobrança com a data informada
+          const maxInstallment = receivableForGroup.reduce(
+            (max, r) => Math.max(max, r.installment_number || 0),
+            0
+          );
+
+          await supabase.from("financial_transactions").insert({
+            type: "income",
+            category: selectedTransaction.category,
+            description: `${selectedTransaction.description || "Fatura"} — Saldo remanescente`,
+            amount: saldo,
+            status: "pending",
+            workflow_status: "open",
+            due_date: financeActionForm.partialDueDate,
+            client_id: selectedTransaction.client_id ?? null,
+            quote_id: selectedTransaction.quote_id ?? null,
+            service_order_id: selectedTransaction.service_order_id ?? null,
+            document_number: selectedTransaction.document_number ?? null,
+            payment_method: selectedTransaction.payment_method ?? null,
+            installment_number: maxInstallment + 1,
+            total_installments: maxInstallment + 1,
+            source: "partial_balance",
+            invoice_notes: `Saldo gerado a partir de pagamento parcial confirmado em ${paymentDateConfirmed}.`,
+          });
+
+          showToast(
+            `Parcial confirmado. Nova cobrança de saldo (${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(saldo)}) criada com vencimento em ${new Date(financeActionForm.partialDueDate + "T00:00:00").toLocaleDateString("pt-BR")}.`,
+            "success"
+          );
+        }
+      } else {
+        showToast("Pagamento confirmado e baixa realizada.", "success");
+      }
+
       setFinanceActionForm({
         comment: "",
         resolutionType: "payment_confirmed",
         resolutionNotes: "",
+        partialDueDate: "",
       });
       setFinanceAttachmentFile(null);
       await fetchData();
@@ -1978,6 +2071,7 @@ export default function FinanceiroPage() {
         comment: "",
         resolutionType: "payment_confirmed",
         resolutionNotes: "",
+        partialDueDate: "",
       });
       setFinanceAttachmentFile(null);
       await fetchData();
@@ -2056,6 +2150,7 @@ export default function FinanceiroPage() {
         comment: "",
         resolutionType: "payment_confirmed",
         resolutionNotes: "",
+        partialDueDate: "",
       });
       setFinanceAttachmentFile(null);
       await fetchData();
@@ -4111,6 +4206,49 @@ export default function FinanceiroPage() {
                       selectedTransaction.workflow_status ===
                         "under_review") && (
                       <>
+                        {/* Campo de data só aparece para pagamento parcial sem parcelas abertas */}
+                        {selectedPaymentInfo.scenario === "partial" &&
+                          receivableForGroup.filter(
+                            (r) =>
+                              r.id !== selectedTransaction.id &&
+                              r.status === "pending"
+                          ).length === 0 && (
+                            <div>
+                              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
+                                Vencimento da nova cobrança de saldo *
+                              </label>
+                              <input
+                                type="date"
+                                value={financeActionForm.partialDueDate}
+                                onChange={(e) =>
+                                  setFinanceActionForm((prev) => ({
+                                    ...prev,
+                                    partialDueDate: e.target.value,
+                                  }))
+                                }
+                                className="w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-green"
+                                style={{ colorScheme: "dark" }}
+                              />
+                              <p className="mt-1 text-[10px] text-text-secondary">
+                                Saldo de {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Math.abs(selectedPaymentInfo.difference))} será gerado como nova cobrança nesta data.
+                              </p>
+                            </div>
+                          )}
+
+                        {/* Para pagamento parcial com parcelas abertas: informa que vai diluir */}
+                        {selectedPaymentInfo.scenario === "partial" &&
+                          receivableForGroup.filter(
+                            (r) =>
+                              r.id !== selectedTransaction.id &&
+                              r.status === "pending"
+                          ).length > 0 && (
+                            <div className="rounded-lg border border-cs-green/20 bg-cs-green/5 px-3 py-2.5">
+                              <p className="text-xs font-bold text-cs-green">
+                                Saldo de {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Math.abs(selectedPaymentInfo.difference))} será diluído na próxima parcela aberta do grupo.
+                              </p>
+                            </div>
+                          )}
+
                         <button
                           type="button"
                           onClick={handleConfirmPayment}
@@ -4123,7 +4261,7 @@ export default function FinanceiroPage() {
                             <CheckCheck size={18} />
                           )}
                           {selectedPaymentInfo.scenario === "partial"
-                            ? "Registrar parcial e manter saldo"
+                            ? "Confirmar parcial e gerar saldo"
                             : "Confirmar pagamento e dar baixa"}
                         </button>
 
