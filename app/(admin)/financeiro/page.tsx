@@ -250,7 +250,7 @@ const statusLabel = (t: Transaction) => {
   if (t.workflow_status === "confirmed") return "Confirmado";
   if (t.status === "paid" || t.status === "received") return "Pago";
   if (t.status === "cancelled") return "Cancelado";
-  if (t.dispute_status && t.dispute_status !== "resolved") return "Contestação";
+  if (t.dispute_status && t.dispute_status !== "resolved" && t.dispute_status !== "none") return "Contestação";
   if (t.workflow_status === "awaiting_finance") return "Aguardando financeiro";
   if (t.workflow_status === "under_review") return "Em análise";
   if (isOverdue(t.due_date, t.status || "pending")) return "Vencido";
@@ -265,7 +265,7 @@ const statusClass = (t: Transaction) => {
   ) {
     return "bg-cs-green/10 text-cs-green border-cs-green/20";
   }
-  if (t.dispute_status && t.dispute_status !== "resolved") {
+  if (t.dispute_status && t.dispute_status !== "resolved" && t.dispute_status !== "none") {
     return "bg-orange-500/10 text-orange-400 border-orange-500/20";
   }
   if (
