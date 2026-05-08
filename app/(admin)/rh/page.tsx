@@ -92,6 +92,8 @@ interface Quote {
   title: string;
   final_amount: number;
   status: string;
+  commission_reserved_at: string | null;
+  commission_reserved_payroll_id: string | null;
 }
 
 interface Toast { message: string; type: "success" | "error" | "warning" }
@@ -967,20 +969,18 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
 
   const emp = employees.find(e => e.id === (payroll?.employee_id ?? f.employee_id));
 
-  // Busca orçamentos aprovados e ainda não comissionados usando profile_id
+  // Busca orçamentos aprovados, não pagos e não reservados por outra folha
   useEffect(() => {
     if (!f.employee_id) { setQuotes([]); return; }
     const currentEmp = employees.find(e => e.id === f.employee_id);
     const profileId  = currentEmp?.profile_id;
-    if (!profileId) {
-      setQuotes([]);
-      return;
-    }
+    if (!profileId) { setQuotes([]); return; }
     void supabase.from("quotes")
-      .select("id,title,final_amount,status")
+      .select("id,title,final_amount,status,commission_reserved_at,commission_reserved_payroll_id")
       .eq("salesperson_id", profileId)
       .eq("status", "approved")
       .is("commission_paid_at", null)
+      .is("commission_reserved_at", null)
       .then(({ data }) => setQuotes((data ?? []) as Quote[]));
   }, [f.employee_id, employees]);
 
@@ -1035,11 +1035,32 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
       irrf_deduction: irrf, absence_discount: absDiscount, absence_days: absenceDays,
       final_net_value: netSalary, status: "draft",
     };
-    const { error } = payroll
-      ? await supabase.from("hr_payrolls").update(payload).eq("id", payroll.id)
-      : await supabase.from("hr_payrolls").insert([payload]);
+    let payrollId = payroll?.id;
+
+    if (payroll) {
+      const { error } = await supabase.from("hr_payrolls").update(payload).eq("id", payroll.id);
+      if (error) { showToast(error.message, "error"); setSaving(false); return; }
+    } else {
+      const { data, error } = await supabase.from("hr_payrolls").insert([payload]).select().single();
+      if (error) { showToast(error.message, "error"); setSaving(false); return; }
+      payrollId = (data as { id: string }).id;
+    }
+
+    // Reserva os orçamentos para esta folha — impede duplicação em folhas futuras
+    if (quotes.length > 0 && payrollId) {
+      const now = new Date().toISOString();
+      await Promise.all(
+        quotes.map(q =>
+          supabase.from("quotes").update({
+            commission_reserved_at:         now,
+            commission_reserved_payroll_id: payrollId,
+          }).eq("id", q.id)
+        )
+      );
+    }
+
     setSaving(false);
-    if (!error) onSaved(); else showToast(error.message, "error");
+    onSaved();
   }
 
   async function closePayroll() {
@@ -1059,16 +1080,19 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
       due_date: new Date(payroll.reference_year, payroll.reference_month - 1, 5).toISOString().split("T")[0],
     }]);
 
-    // 3. Marca cada orçamento como comissionado com trilha de auditoria
+    // 3. Liquida definitivamente cada orçamento reservado — trilha de auditoria completa
     if (quotes.length > 0) {
       const commissionedEmp = employees.find(e => e.id === payroll.employee_id);
       const rate = (commissionedEmp?.commission_rate ?? 0) / 100;
       await Promise.all(
         quotes.map(q =>
           supabase.from("quotes").update({
-            commission_paid_at:    now,
-            commission_payroll_id: payroll.id,
-            commission_amount:     +(q.final_amount * rate).toFixed(2),
+            commission_paid_at:             now,
+            commission_payroll_id:          payroll.id,
+            commission_amount:              +(q.final_amount * rate).toFixed(2),
+            // Limpa a reserva — agora está oficialmente pago
+            commission_reserved_at:         null,
+            commission_reserved_payroll_id: null,
           }).eq("id", q.id)
         )
       );
