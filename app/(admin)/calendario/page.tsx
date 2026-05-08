@@ -88,38 +88,42 @@ export default function CalendarioPage() {
 
     if (toggles.enable_service_orders) {
       promises.push(
-        supabase.from("service_orders")
-          .select("id, event_start_date, status, quotes(title)")
-          .gte("event_start_date", startOfMonth)
-          .lte("event_start_date", endOfMonth)
-          .then((r) => r.data?.forEach((item: any) => rawEvents.push({ source: "os", item })))
+        Promise.resolve(
+          supabase.from("service_orders")
+            .select("id, event_start_date, status, quotes(title)")
+            .gte("event_start_date", startOfMonth)
+            .lte("event_start_date", endOfMonth)
+        ).then((r) => r.data?.forEach((item: any) => rawEvents.push({ source: "os", item })))
       );
     }
     if (toggles.enable_financial) {
       promises.push(
-        supabase.from("financial_transactions")
-          .select("id, due_date, description, type, status, amount")
-          .gte("due_date", startOfMonth)
-          .lte("due_date", endOfMonth)
-          .then((r) => r.data?.forEach((item: any) => rawEvents.push({ source: "finance", item })))
+        Promise.resolve(
+          supabase.from("financial_transactions")
+            .select("id, due_date, description, type, status, amount")
+            .gte("due_date", startOfMonth)
+            .lte("due_date", endOfMonth)
+        ).then((r) => r.data?.forEach((item: any) => rawEvents.push({ source: "finance", item })))
       );
     }
     if (toggles.enable_marketing) {
       promises.push(
-        supabase.from("marketing_posts")
-          .select("id, scheduled_for, title, status")
-          .gte("scheduled_for", startOfMonth)
-          .lte("scheduled_for", endOfMonth)
-          .then((r) => r.data?.forEach((item: any) => rawEvents.push({ source: "marketing", item })))
+        Promise.resolve(
+          supabase.from("marketing_posts")
+            .select("id, scheduled_for, title, status")
+            .gte("scheduled_for", startOfMonth)
+            .lte("scheduled_for", endOfMonth)
+        ).then((r) => r.data?.forEach((item: any) => rawEvents.push({ source: "marketing", item })))
       );
     }
     if (toggles.enable_support) {
       promises.push(
-        supabase.from("tickets")
-          .select("id, sla_deadline, title, status")
-          .gte("sla_deadline", startOfMonth)
-          .lte("sla_deadline", endOfMonth)
-          .then((r) => r.data?.forEach((item: any) => rawEvents.push({ source: "ticket", item })))
+        Promise.resolve(
+          supabase.from("tickets")
+            .select("id, sla_deadline, title, status")
+            .gte("sla_deadline", startOfMonth)
+            .lte("sla_deadline", endOfMonth)
+        ).then((r) => r.data?.forEach((item: any) => rawEvents.push({ source: "ticket", item })))
       );
     }
 
