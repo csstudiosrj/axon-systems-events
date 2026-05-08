@@ -6,11 +6,10 @@ import { useRouter } from "next/navigation";
 import { 
   Truck, Plus, Loader2, ArrowLeft, Calendar, Clock, 
   Play, CheckCircle, AlertCircle, User, FileText, 
-  PackagePlus, Trash2, Save, Eye, Building2, AlertTriangle, Check, Printer
+  PackagePlus, Trash2, Save, Building2, AlertTriangle, Check, Printer
 } from "lucide-react";
 import { useSettings } from "@/app/providers/SettingsProvider";
 
-// --- TIPAGENS (BLINDAGEM TYPESCRIPT) ---
 interface ExtraItem {
   id: string;
   item_name: string;
@@ -39,28 +38,26 @@ export default function OSPage() {
   const { systemPreferences } = useSettings();
   
   const labels = systemPreferences?.custom_labels || {};
-  const osSingular = labels.entity_service_order_singular || "OS";
-  const osPlural = labels.entity_service_order_plural || "Ordens de Serviço";
-  const quoteSingular = labels.entity_quote_singular || "Orçamento";
-  const quotePlural = labels.entity_quote_plural || "Orçamentos";
+  const osSingular  = labels.entity_service_order_singular || "OS";
+  const osPlural    = labels.entity_service_order_plural   || "Ordens de Serviço";
+  const quoteSingular = labels.entity_quote_singular       || "Orçamento";
 
   const [view, setView] = useState<"list" | "create" | "details">("list");
   const [orders, setOrders] = useState<any[]>([]);
   const [availableQuotes, setAvailableQuotes] = useState<any[]>([]);
   const [internalTeam, setInternalTeam] = useState<InternalProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [toast, setToast] = useState<Toast | null>(null);
-  const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void } | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
 
   const [activeOS, setActiveOS] = useState<any>(null);
   const [quoteItems, setQuoteItems] = useState<QuoteItem[]>([]);
   const [extraItems, setExtraItems] = useState<ExtraItem[]>([]);
-  
   const [logisticsNotes, setLogisticsNotes] = useState("");
   const [producerId, setProducerId] = useState("");
-  
   const [newItemName, setNewItemName] = useState("");
   const [newItemQty, setNewItemQty] = useState("1");
 
@@ -79,7 +76,6 @@ export default function OSPage() {
       .from("profiles")
       .select("id, full_name, email, role")
       .in("role", staffRoles);
-    
     if (!error && data) setInternalTeam(data as InternalProfile[]);
   }, []);
 
@@ -87,16 +83,8 @@ export default function OSPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from("service_orders")
-      .select(`
-        *,
-        producer:profiles(full_name),
-        quotes (
-          title,
-          clients (company_name, contact_name, phone)
-        )
-      `)
+      .select(`*, producer:profiles(full_name), quotes(title, clients(company_name, contact_name, phone))`)
       .order("event_start_date", { ascending: true });
-      
     if (!error && data) setOrders(data);
     setLoading(false);
   }, []);
@@ -113,11 +101,14 @@ export default function OSPage() {
   useEffect(() => {
     if (view === "list") fetchOrders();
     if (view === "create") fetchAvailableQuotes();
+  }, [view, fetchOrders, fetchAvailableQuotes]);
+
+  useEffect(() => {
     fetchInternalTeam();
-  }, [view, fetchOrders, fetchAvailableQuotes, fetchInternalTeam]);
+  }, [fetchInternalTeam]);
 
   const openOSDetails = async (os: any) => {
-    setLoading(true);
+    setDetailLoading(true);
     setActiveOS(os);
     setLogisticsNotes(os.logistics_notes || "");
     setProducerId(os.producer_id || "");
@@ -137,13 +128,12 @@ export default function OSPage() {
     if (eItems) setExtraItems(eItems);
 
     setView("details");
-    setLoading(false);
+    setDetailLoading(false);
   };
 
   const handleCreateOS = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!quoteId || !startDate || !endDate) return;
-
     setIsSubmitting(true);
     try {
       const { error } = await supabase.from("service_orders").insert([{
@@ -152,9 +142,9 @@ export default function OSPage() {
         event_end_date: new Date(endDate).toISOString(),
         status: "pending"
       }]);
-
       if (!error) {
-        showToast(`${osSingular} gerada com sucesso no sistema ARXUM!`, "success");
+        showToast(`${osSingular} gerada com sucesso!`, "success");
+        setQuoteId(""); setStartDate(""); setEndDate("");
         setView("list");
       } else {
         showToast(`Erro: ${error.message}`, "error");
@@ -167,20 +157,15 @@ export default function OSPage() {
   const handleUpdateOSInfo = async () => {
     if (!activeOS) return;
     setIsSubmitting(true);
-    
     const { error } = await supabase
       .from("service_orders")
-      .update({ 
-        logistics_notes: logisticsNotes, 
-        producer_id: producerId || null 
-      })
+      .update({ logistics_notes: logisticsNotes, producer_id: producerId || null })
       .eq("id", activeOS.id);
-      
     if (!error) {
       showToast("Dados de logística salvos.", "success");
       fetchOrders();
     } else {
-      showToast(`Erro 403/RLS: Verifique as permissões no banco.`, "error");
+      showToast("Erro 403/RLS: Verifique as permissões no banco.", "error");
     }
     setIsSubmitting(false);
   };
@@ -188,24 +173,16 @@ export default function OSPage() {
   const handleAddExtraItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItemName || !activeOS) return;
-
     const { data, error } = await supabase
       .from("os_extra_items")
-      .insert([{ 
-        service_order_id: activeOS.id, 
-        item_name: newItemName, 
-        quantity: Number(newItemQty) 
-      }])
-      .select()
-      .single();
-      
+      .insert([{ service_order_id: activeOS.id, item_name: newItemName, quantity: Number(newItemQty) }])
+      .select().single();
     if (!error && data) {
       setExtraItems([...extraItems, data]);
-      setNewItemName("");
-      setNewItemQty("1");
+      setNewItemName(""); setNewItemQty("1");
       showToast("Item extra adicionado.", "success");
     } else {
-      showToast(`Erro 403: Acesso negado ao gravar item extra.`, "error");
+      showToast("Erro 403: Acesso negado ao gravar item extra.", "error");
     }
   };
 
@@ -228,58 +205,147 @@ export default function OSPage() {
   const updateOrderStatus = async (id: string, newStatus: string) => {
     const { error } = await supabase.from("service_orders").update({ status: newStatus }).eq("id", id);
     if (!error) {
-      if (activeOS && activeOS.id === id) setActiveOS({ ...activeOS, status: newStatus });
+      if (activeOS?.id === id) setActiveOS({ ...activeOS, status: newStatus });
       fetchOrders();
       showToast("Status operacional atualizado.", "success");
     }
   };
 
   const getStatusBadge = (status: string) => {
-    const statusConfig: Record<string, { label: string, color: string, icon: any }> = {
-      pending: { label: "Pendente", color: "bg-gray-500/10 text-gray-400 border-gray-500/20", icon: Clock },
-      load_in: { label: "Load-in", color: "bg-blue-500/10 text-blue-400 border-blue-500/20", icon: Truck },
-      execution: { label: "Em Execução", color: "bg-cs-gold/10 text-cs-gold border-cs-gold/20", icon: Play },
-      load_out: { label: "Load-out", color: "bg-orange-500/10 text-orange-400 border-orange-500/20", icon: AlertCircle },
-      completed: { label: "Concluído", color: "bg-cs-green/10 text-cs-green border-cs-green/20", icon: CheckCircle },
+    const statusConfig: Record<string, { label: string; color: string; icon: any }> = {
+      pending:   { label: "Pendente",    color: "bg-gray-500/10 text-gray-400 border-gray-500/20",       icon: Clock },
+      load_in:   { label: "Load-in",     color: "bg-blue-500/10 text-blue-400 border-blue-500/20",       icon: Truck },
+      execution: { label: "Em Execução", color: "bg-cs-gold/10 text-cs-gold border-cs-gold/20",          icon: Play },
+      load_out:  { label: "Load-out",    color: "bg-orange-500/10 text-orange-400 border-orange-500/20", icon: AlertCircle },
+      completed: { label: "Concluído",   color: "bg-cs-green/10 text-cs-green border-cs-green/20",       icon: CheckCircle },
     };
     const config = statusConfig[status] || statusConfig.pending;
     const Icon = config.icon;
-    return <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${config.color}`}><Icon size={12} />{config.label}</span>;
+    return (
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${config.color}`}>
+        <Icon size={12} />{config.label}
+      </span>
+    );
   };
 
   return (
     <div className="space-y-6 relative pb-12">
+
+      {/* Toast */}
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-[100] px-4 py-3 rounded-md shadow-lg flex items-center gap-2 border animate-in fade-in slide-in-from-bottom-4 ${
-          toast.type === 'success' ? 'bg-cs-green/10 border-cs-green/20 text-cs-green' : 
-          toast.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-500' : 
-          'bg-blue-500/10 border-blue-500/20 text-blue-400'
+        <div className={`fixed bottom-6 right-6 z-[100] px-4 py-3 rounded-md shadow-lg flex items-center gap-2 border ${
+          toast.type === "success" ? "bg-cs-green/10 border-cs-green/20 text-cs-green" :
+          toast.type === "error"   ? "bg-red-500/10 border-red-500/20 text-red-500" :
+          "bg-blue-500/10 border-blue-500/20 text-blue-400"
         }`}>
-          {toast.type === 'success' ? <Check size={18} /> : <AlertCircle size={18} />}
+          {toast.type === "success" ? <Check size={18} /> : <AlertCircle size={18} />}
           <span className="text-sm font-medium">{toast.message}</span>
         </div>
       )}
 
+      {/* Modal confirmação */}
       {confirmModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200 text-center">
+          <div className="bg-surface border border-surface/50 rounded-xl shadow-2xl w-full max-w-sm p-6 text-center">
             <div className="w-16 h-16 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mx-auto mb-4">
               <AlertTriangle size={32} />
             </div>
             <h3 className="text-xl font-bold text-white mb-2">{confirmModal.title}</h3>
             <p className="text-sm text-text-secondary mb-6">{confirmModal.message}</p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmModal(null)} className="flex-1 py-2 rounded-md border border-surface text-text-secondary hover:text-white transition-colors font-medium text-sm">
-                Cancelar
-              </button>
-              <button onClick={confirmModal.onConfirm} className="flex-1 py-2 rounded-md bg-red-500 text-white font-medium text-sm hover:bg-opacity-90 transition-colors shadow-lg">
-                Confirmar
-              </button>
+              <button onClick={() => setConfirmModal(null)} className="flex-1 py-2 rounded-md border border-surface text-text-secondary hover:text-white transition-colors font-medium text-sm">Cancelar</button>
+              <button onClick={confirmModal.onConfirm} className="flex-1 py-2 rounded-md bg-red-500 text-white font-medium text-sm hover:bg-opacity-90 transition-colors">Confirmar</button>
             </div>
           </div>
         </div>
       )}
 
+      {/* ── VIEW: CREATE ─────────────────────────────────────────────────────── */}
+      {view === "create" && (
+        <div className="space-y-6 max-w-2xl mx-auto">
+          <button onClick={() => setView("list")} className="flex items-center gap-2 text-text-secondary hover:text-white transition-colors text-sm">
+            <ArrowLeft size={18} /> Voltar para {osPlural}
+          </button>
+
+          <div className="bg-surface border border-surface/50 rounded-lg p-6 space-y-6">
+            <div className="flex items-center gap-3 border-b border-surface/50 pb-4">
+              <Truck className="text-cs-green" size={20} />
+              <h2 className="text-lg font-bold text-white">Gerar nova {osSingular}</h2>
+            </div>
+
+            <form onSubmit={handleCreateOS} className="space-y-5">
+              {/* Seleção do orçamento */}
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5">
+                  {quoteSingular} aprovado *
+                </label>
+                <select
+                  required
+                  value={quoteId}
+                  onChange={(e) => {
+                    setQuoteId(e.target.value);
+                    const selected = availableQuotes.find(q => q.id === e.target.value);
+                    if (selected) {
+                      setStartDate(selected.event_start_date?.slice(0, 16) || "");
+                      setEndDate(selected.event_end_date?.slice(0, 16) || "");
+                    }
+                  }}
+                  className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-white text-sm focus:border-cs-green focus:outline-none"
+                >
+                  <option value="">Selecione um {quoteSingular.toLowerCase()}…</option>
+                  {availableQuotes.map((q) => (
+                    <option key={q.id} value={q.id}>
+                      {q.title} — {q.clients?.company_name}
+                    </option>
+                  ))}
+                </select>
+                {availableQuotes.length === 0 && (
+                  <p className="text-xs text-text-secondary mt-2">Nenhum {quoteSingular.toLowerCase()} aprovado encontrado.</p>
+                )}
+              </div>
+
+              {/* Datas */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5">
+                    <span className="flex items-center gap-1.5"><Calendar size={12} /> Data de início *</span>
+                  </label>
+                  <input
+                    type="datetime-local"
+                    required
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-white text-sm focus:border-cs-green focus:outline-none [color-scheme:dark]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5">
+                    <span className="flex items-center gap-1.5"><Calendar size={12} /> Data de fim *</span>
+                  </label>
+                  <input
+                    type="datetime-local"
+                    required
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-white text-sm focus:border-cs-green focus:outline-none [color-scheme:dark]"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full flex items-center justify-center gap-2 rounded-md bg-cs-green py-2.5 text-sm font-bold text-white hover:bg-opacity-90 transition-all disabled:opacity-50"
+              >
+                {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
+                {isSubmitting ? "Gerando…" : `Gerar ${osSingular}`}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── VIEW: DETAILS ────────────────────────────────────────────────────── */}
       {view === "details" && activeOS && (
         <div className="space-y-6 max-w-6xl mx-auto">
           <div className="flex items-center justify-between">
@@ -287,7 +353,7 @@ export default function OSPage() {
               <ArrowLeft size={20} /> Voltar para {osPlural}
             </button>
             <div className="flex items-center gap-3">
-              <button 
+              <button
                 onClick={() => router.push(`/os/${activeOS.id}`)}
                 className="flex items-center gap-2 bg-background border border-surface/50 text-text-secondary hover:text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
               >
@@ -312,25 +378,24 @@ export default function OSPage() {
               <div>
                 <div className="flex items-center gap-3 mb-2">
                   <span className="bg-blue-500/20 text-blue-400 px-2 py-1 rounded text-xs font-bold uppercase tracking-wider border border-blue-500/30">
-                    {osSingular} #{activeOS.id.split('-')[0]}
+                    {osSingular} #{activeOS.id.split("-")[0]}
                   </span>
                   {getStatusBadge(activeOS.status)}
                 </div>
                 <h2 className="text-2xl font-bold text-white mb-1">{activeOS.quotes?.title}</h2>
                 <p className="text-text-secondary flex items-center gap-2">
-                  <Building2 size={16} /> {activeOS.quotes?.clients?.company_name} 
+                  <Building2 size={16} /> {activeOS.quotes?.clients?.company_name}
                 </p>
               </div>
-              
               <div className="bg-background border border-surface/50 p-4 rounded-md min-w-[250px]">
                 <div className="space-y-3 text-sm">
                   <div className="flex justify-between items-center">
-                    <span className="text-text-secondary flex items-center gap-2"><Calendar size={14}/> Início:</span>
-                    <span className="font-medium text-white">{new Date(activeOS.event_start_date).toLocaleString('pt-BR')}</span>
+                    <span className="text-text-secondary flex items-center gap-2"><Calendar size={14} /> Início:</span>
+                    <span className="font-medium text-white">{new Date(activeOS.event_start_date).toLocaleString("pt-BR")}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-text-secondary flex items-center gap-2"><Calendar size={14}/> Fim:</span>
-                    <span className="font-medium text-white">{new Date(activeOS.event_end_date).toLocaleString('pt-BR')}</span>
+                    <span className="text-text-secondary flex items-center gap-2"><Calendar size={14} /> Fim:</span>
+                    <span className="font-medium text-white">{new Date(activeOS.event_end_date).toLocaleString("pt-BR")}</span>
                   </div>
                 </div>
               </div>
@@ -343,18 +408,16 @@ export default function OSPage() {
                 <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2">
                   <User className="text-cs-green" size={18} /> Responsabilidade
                 </h3>
-                <div className="space-y-4">
-                  <select
-                    value={producerId}
-                    onChange={(e) => setProducerId(e.target.value)}
-                    className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
-                  >
-                    <option value="">Não atribuído</option>
-                    {internalTeam.map(user => (
-                      <option key={user.id} value={user.id}>{user.full_name || user.email}</option>
-                    ))}
-                  </select>
-                </div>
+                <select
+                  value={producerId}
+                  onChange={(e) => setProducerId(e.target.value)}
+                  className="block w-full rounded-md border border-surface bg-background px-3 py-2 text-white focus:border-cs-green focus:outline-none text-sm"
+                >
+                  <option value="">Não atribuído</option>
+                  {internalTeam.map(user => (
+                    <option key={user.id} value={user.id}>{user.full_name || user.email}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="bg-surface border border-surface/50 p-6 rounded-lg">
@@ -391,21 +454,24 @@ export default function OSPage() {
                         <span className="text-xs font-bold bg-surface px-2 py-1 rounded text-text-secondary">Qtd: {item.quantity}</span>
                       </li>
                     ))}
+                    {quoteItems.length === 0 && (
+                      <li className="text-sm text-text-secondary text-center py-4">Nenhum equipamento encontrado.</li>
+                    )}
                   </ul>
                 </div>
               </div>
 
               <div className="bg-surface border border-surface/50 rounded-lg overflow-hidden">
-                <div className="p-4 border-b border-surface/50 bg-background/30 flex justify-between items-center">
+                <div className="p-4 border-b border-surface/50 bg-background/30">
                   <h3 className="text-md font-bold text-white flex items-center gap-2">
                     <Truck className="text-cs-green" size={18} /> Itens Extras de Logística
                   </h3>
                 </div>
                 <div className="p-4 border-b border-surface/50 bg-background/50">
                   <form onSubmit={handleAddExtraItem} className="flex gap-3">
-                    <input type="text" required value={newItemName} onChange={(e) => setNewItemName(e.target.value)} placeholder="Item backup..." className="flex-1 rounded-md border border-surface bg-background px-3 py-2 text-white text-sm" />
-                    <input type="number" min="1" required value={newItemQty} onChange={(e) => setNewItemQty(e.target.value)} className="w-20 rounded-md border border-surface bg-background px-3 py-2 text-white text-sm text-center" />
-                    <button type="submit" className="bg-cs-green text-white px-4 py-2 rounded-md text-sm font-bold">Adicionar</button>
+                    <input type="text" required value={newItemName} onChange={(e) => setNewItemName(e.target.value)} placeholder="Item backup…" className="flex-1 rounded-md border border-surface bg-background px-3 py-2 text-white text-sm focus:border-cs-green focus:outline-none" />
+                    <input type="number" min="1" required value={newItemQty} onChange={(e) => setNewItemQty(e.target.value)} className="w-20 rounded-md border border-surface bg-background px-3 py-2 text-white text-sm text-center focus:border-cs-green focus:outline-none" />
+                    <button type="submit" className="bg-cs-green text-white px-4 py-2 rounded-md text-sm font-bold hover:bg-opacity-90 transition-all">Adicionar</button>
                   </form>
                 </div>
                 <div className="p-4">
@@ -419,6 +485,9 @@ export default function OSPage() {
                         </div>
                       </li>
                     ))}
+                    {extraItems.length === 0 && (
+                      <li className="text-sm text-text-secondary text-center py-4">Nenhum item extra adicionado.</li>
+                    )}
                   </ul>
                 </div>
               </div>
@@ -427,6 +496,7 @@ export default function OSPage() {
         </div>
       )}
 
+      {/* ── VIEW: LIST ───────────────────────────────────────────────────────── */}
       {view === "list" && (
         <div className="space-y-6">
           <div className="flex justify-between items-center bg-surface p-4 border border-surface/50 rounded-lg">
@@ -434,7 +504,7 @@ export default function OSPage() {
               <h3 className="text-lg font-medium text-white flex items-center gap-2">
                 <Truck className="text-cs-green" size={20} /> Painel de Logística / {osPlural}
               </h3>
-              <p className="text-xs text-text-secondary mt-1">Gestão operacional ARXUM.</p>
+              <p className="text-xs text-text-secondary mt-1">Gestão operacional.</p>
             </div>
             <button onClick={() => setView("create")} className="flex items-center gap-2 rounded-md bg-cs-green py-2 px-4 text-sm font-bold text-white shadow-sm hover:bg-opacity-90 transition-all">
               <Plus size={18} /> Gerar {osSingular}
@@ -469,7 +539,7 @@ export default function OSPage() {
                         </td>
                         <td className="px-6 py-4">{getStatusBadge(os.status)}</td>
                         <td className="px-6 py-4 text-right">
-                          <button onClick={() => openOSDetails(os)} className="bg-cs-green/10 text-cs-green hover:bg-cs-green hover:text-white px-4 py-2 rounded-md font-bold text-xs">Abrir Painel</button>
+                          <button onClick={() => openOSDetails(os)} className="bg-cs-green/10 text-cs-green hover:bg-cs-green hover:text-white px-4 py-2 rounded-md font-bold text-xs transition-colors">Abrir Painel</button>
                         </td>
                       </tr>
                     ))
