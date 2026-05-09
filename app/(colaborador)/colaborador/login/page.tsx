@@ -1,116 +1,184 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import crypto from "crypto";
+"use client";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Eye, EyeOff, Loader2, Lock, User } from "lucide-react";
 
-function hashPassword(password: string, salt: string): string {
-  return crypto.createHmac("sha256", salt).update(password).digest("hex");
+function formatCPF(v: string) {
+  const d = v.replace(/\D/g, "").slice(0, 11);
+  return d.replace(/^(\d{3})(\d)/, "$1.$2")
+          .replace(/(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+          .replace(/(\d{3})-?(\d{2})$/, "$1-$2");
 }
-function generateSalt(): string { return crypto.randomBytes(32).toString("hex"); }
-function generateToken(): string { return crypto.randomBytes(48).toString("hex"); }
-function cleanCPF(cpf: string): string { return cpf.replace(/\D/g, ""); }
 
-export async function POST(request: Request) {
-  try {
-    const body = await request.json() as {
-      cpf: string; password: string;
-      newPassword?: string; isFirstAccess?: boolean;
-    };
-    const { cpf, password, newPassword, isFirstAccess } = body;
+export default function ColaboradorLoginPage() {
+  const router = useRouter();
+  const [cpf, setCpf]             = useState("");
+  const [password, setPassword]   = useState("");
+  const [newPassword, setNew]     = useState("");
+  const [confirmPass, setConfirm] = useState("");
+  const [showPass, setShowPass]   = useState(false);
+  const [firstAccess, setFirstAccess] = useState(false);
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState("");
+  const [company, setCompany]     = useState<{ company_name?: string; logo_url?: string; primary_color?: string }>({});
 
-    if (!cpf || !password) {
-      return NextResponse.json({ error: "CPF e senha são obrigatórios." }, { status: 400 });
+  useEffect(() => {
+    fetch("/api/portal/company")
+      .then(r => r.json())
+      .then(d => setCompany(d ?? {}))
+      .catch(() => {});
+  }, []);
+
+  const primaryColor = company.primary_color || "#138946";
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+
+    if (firstAccess) {
+      if (newPassword.length < 6) { setError("Senha mínima de 6 caracteres."); return; }
+      if (newPassword !== confirmPass) { setError("As senhas não coincidem."); return; }
     }
 
-    const cpfClean = cleanCPF(cpf);
-    if (cpfClean.length !== 11) {
-      return NextResponse.json({ error: "CPF inválido." }, { status: 400 });
-    }
-
-    // Formata o CPF para bater com o formato salvo no banco (000.000.000-00)
-    const cpfFormatted = cpfClean
-      .replace(/^(\d{3})(\d)/, "$1.$2")
-      .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
-      .replace(/(\d{3})-?(\d{2})$/, "$1-$2");
-
-    // Tenta encontrar com CPF formatado primeiro, depois limpo como fallback
-    let { data: emp, error: empErr } = await supabaseAdmin
-      .from("hr_employee_details")
-      .select("id,full_name,document_cpf,status,portal_password_hash,portal_password_salt,portal_first_access,email")
-      .eq("document_cpf", cpfFormatted)
-      .eq("status", "active")
-      .single();
-
-    if (empErr || !emp) {
-      const res2 = await supabaseAdmin
-        .from("hr_employee_details")
-        .select("id,full_name,document_cpf,status,portal_password_hash,portal_password_salt,portal_first_access,email")
-        .eq("document_cpf", cpfClean)
-        .eq("status", "active")
-        .single();
-      emp = res2.data;
-      empErr = res2.error;
-    }
-
-    if (empErr || !emp) {
-      return NextResponse.json({ error: "CPF não encontrado ou colaborador inativo." }, { status: 401 });
-    }
-
-    // Primeiro acesso
-    if (emp.portal_first_access || !emp.portal_password_hash) {
-      if (!isFirstAccess || !newPassword) {
-        return NextResponse.json({ firstAccess: true }, { status: 200 });
-      }
-      if (newPassword.length < 6) {
-        return NextResponse.json({ error: "Senha mínima de 6 caracteres." }, { status: 400 });
-      }
-      const salt  = generateSalt();
-      const hash  = hashPassword(newPassword, salt);
-      const token = generateToken();
-      const exp   = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-
-      await supabaseAdmin.from("hr_employee_details").update({
-        portal_password_hash: hash, portal_password_salt: salt,
-        portal_first_access: false, portal_last_login: new Date().toISOString(),
-      }).eq("id", emp.id);
-
-      await supabaseAdmin.from("portal_sessions").insert([{ employee_id: emp.id, token, expires_at: exp }]);
-
-      const res = NextResponse.json({ ok: true, employee: { id: emp.id, full_name: emp.full_name } });
-      res.cookies.set("portal_token", token, {
-        httpOnly: true, secure: process.env.NODE_ENV === "production",
-        sameSite: "lax", expires: new Date(exp), path: "/colaborador",
+    setLoading(true);
+    try {
+      const res = await fetch("/api/portal/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cpf,
+          password,
+          newPassword: firstAccess ? newPassword : undefined,
+          isFirstAccess: firstAccess,
+        }),
       });
-      return res;
+
+      const data = await res.json() as { ok?: boolean; firstAccess?: boolean; error?: string };
+
+      if (data.firstAccess) { setFirstAccess(true); setLoading(false); return; }
+      if (!res.ok || data.error) { setError(data.error ?? "Erro ao entrar."); setLoading(false); return; }
+      if (data.ok) router.push("/colaborador");
+    } catch {
+      setError("Erro de conexão. Tente novamente.");
+    } finally {
+      setLoading(false);
     }
-
-    // Acesso normal
-    if (!emp.portal_password_hash || !emp.portal_password_salt) {
-      return NextResponse.json({ firstAccess: true }, { status: 200 });
-    }
-
-    const hash = hashPassword(password, emp.portal_password_salt);
-    if (hash !== emp.portal_password_hash) {
-      return NextResponse.json({ error: "Senha incorreta." }, { status: 401 });
-    }
-
-    const token = generateToken();
-    const exp   = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-
-    await supabaseAdmin.from("portal_sessions").insert([{ employee_id: emp.id, token, expires_at: exp }]);
-    await supabaseAdmin.from("hr_employee_details").update({ portal_last_login: new Date().toISOString() }).eq("id", emp.id);
-
-    const res = NextResponse.json({ ok: true, employee: { id: emp.id, full_name: emp.full_name } });
-    res.cookies.set("portal_token", token, {
-      httpOnly: true, secure: process.env.NODE_ENV === "production",
-      sameSite: "lax", expires: new Date(exp), path: "/colaborador",
-    });
-    return res;
-  } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Erro inesperado." }, { status: 500 });
   }
+
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-[#0d0807] px-4">
+      <div className="w-full max-w-sm space-y-8">
+
+        {/* Logo / nome da empresa */}
+        <div className="flex flex-col items-center gap-3">
+          {company.logo_url
+            ? <img src={company.logo_url} alt={company.company_name} className="h-14 w-auto object-contain" />
+            : <div className="flex h-14 w-14 items-center justify-center rounded-2xl text-white text-2xl font-black" style={{ backgroundColor: primaryColor }}>
+                {(company.company_name ?? "A").charAt(0)}
+              </div>}
+          <div className="text-center">
+            <p className="text-lg font-bold text-white">{company.company_name ?? "Portal"}</p>
+            <p className="text-xs text-[#a19d9c]">Portal do Colaborador</p>
+          </div>
+        </div>
+
+        {/* Card */}
+        <div className="rounded-2xl border border-white/10 bg-[#1a1413] p-8 shadow-2xl">
+          <h2 className="mb-1 text-base font-bold text-white">
+            {firstAccess ? "Crie sua senha" : "Entrar"}
+          </h2>
+          <p className="mb-6 text-xs text-[#a19d9c]">
+            {firstAccess
+              ? "Primeiro acesso detectado. Crie uma senha para continuar."
+              : "Digite seu CPF e senha para acessar."}
+          </p>
+
+          {error && (
+            <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-xs font-semibold text-red-400">
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={e => void handleSubmit(e)} className="space-y-4">
+            {/* CPF */}
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[#a19d9c]">CPF</label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-[#a19d9c]" size={15} />
+                <input
+                  type="text"
+                  required
+                  value={cpf}
+                  onChange={e => setCpf(formatCPF(e.target.value))}
+                  placeholder="000.000.000-00"
+                  className="w-full rounded-lg border border-white/10 bg-black/20 pl-9 pr-4 py-2.5 text-sm text-white outline-none placeholder:text-[#a19d9c] focus:border-[var(--color-cs-green,#138946)]"
+                  style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
+                />
+              </div>
+            </div>
+
+            {/* Senha atual (sempre visível) */}
+            {!firstAccess && (
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[#a19d9c]">Senha</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-[#a19d9c]" size={15} />
+                  <input
+                    type={showPass ? "text" : "password"}
+                    required
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="••••••"
+                    className="w-full rounded-lg border border-white/10 bg-black/20 pl-9 pr-10 py-2.5 text-sm text-white outline-none placeholder:text-[#a19d9c]"
+                  />
+                  <button type="button" onClick={() => setShowPass(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#a19d9c] hover:text-white">
+                    {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Primeiro acesso: nova senha */}
+            {firstAccess && (
+              <>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[#a19d9c]">Nova senha</label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-[#a19d9c]" size={15} />
+                    <input type={showPass ? "text" : "password"} required value={newPassword} onChange={e => setNew(e.target.value)}
+                      placeholder="Mínimo 6 caracteres"
+                      className="w-full rounded-lg border border-white/10 bg-black/20 pl-9 pr-10 py-2.5 text-sm text-white outline-none placeholder:text-[#a19d9c]" />
+                    <button type="button" onClick={() => setShowPass(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#a19d9c] hover:text-white">
+                      {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[#a19d9c]">Confirmar senha</label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-[#a19d9c]" size={15} />
+                    <input type="password" required value={confirmPass} onChange={e => setConfirm(e.target.value)}
+                      placeholder="Repita a senha"
+                      className="w-full rounded-lg border border-white/10 bg-black/20 pl-9 pr-4 py-2.5 text-sm text-white outline-none placeholder:text-[#a19d9c]" />
+                  </div>
+                </div>
+              </>
+            )}
+
+            <button type="submit" disabled={loading}
+              className="flex w-full items-center justify-center gap-2 rounded-lg py-3 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+              style={{ backgroundColor: primaryColor }}>
+              {loading ? <Loader2 className="animate-spin" size={16} /> : null}
+              {loading ? "Aguarde…" : firstAccess ? "Criar senha e entrar" : "Entrar"}
+            </button>
+          </form>
+        </div>
+
+        <p className="text-center text-xs text-[#a19d9c]">
+          Problemas para acessar? Fale com o RH da sua empresa.
+        </p>
+      </div>
+    </div>
+  );
 }
