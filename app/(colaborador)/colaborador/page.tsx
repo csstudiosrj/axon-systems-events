@@ -102,9 +102,9 @@ function SlipRow({ label, value, red, bold, sub }: {
   );
 }
 
-function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+function Card({ children, className = "", onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) {
   return (
-    <div className={`rounded-2xl border border-white/10 bg-[#1a1413] p-5 ${className}`}>
+    <div className={`rounded-2xl border border-white/10 bg-[#1a1413] p-5 ${className}`} onClick={onClick}>
       {children}
     </div>
   );
