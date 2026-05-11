@@ -11,6 +11,7 @@ import {
   LogOut,
   Home,
   CreditCard,
+  FileText,
   Users,
   User,
   Loader2,
@@ -40,6 +41,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const teamLabel = labels?.menu_team || "Equipe";
   const profileLabel = labels?.menu_profile || "Perfil";
   const invoicesLabel = "Faturas";
+  const quotesLabel = labels?.entity_quote_plural || "Orçamentos";
   const homeLabel = "Início";
 
   const companyName =
@@ -52,6 +54,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const trainingsEnabled = systemPreferences?.feature_toggles?.enable_trainings ?? true;
   const teamEnabled = systemPreferences?.feature_toggles?.enable_team ?? true;
   const financialEnabled = systemPreferences?.feature_toggles?.enable_financial ?? true;
+  const quotesEnabled = systemPreferences?.feature_toggles?.enable_quotes ?? true;
 
   useEffect(() => {
     const checkUser = async () => {
@@ -119,6 +122,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     return [
       { name: homeLabel, href: "/portal", icon: Home, enabled: true },
       { name: invoicesLabel, href: "/portal/faturas", icon: CreditCard, enabled: financialEnabled },
+      { name: quotesLabel, href: "/portal/orcamentos", icon: FileText, enabled: quotesEnabled },
       { name: teamLabel, href: "/portal/equipe", icon: Users, enabled: teamEnabled },
       { name: trainingsLabel, href: "/portal/treinamentos", icon: PlaySquare, enabled: trainingsEnabled },
       { name: supportLabel, href: "/portal/suporte", icon: Ticket, enabled: supportEnabled },
@@ -131,6 +135,8 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     homeLabel,
     invoicesLabel,
     financialEnabled,
+    quotesLabel,
+    quotesEnabled,
     teamLabel,
     teamEnabled,
     supportLabel,
