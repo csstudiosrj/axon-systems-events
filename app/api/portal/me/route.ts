@@ -16,7 +16,6 @@ export async function GET() {
       return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
     }
 
-    // Valida sessão
     const { data: session } = await supabaseAdmin
       .from("portal_sessions")
       .select("employee_id, expires_at")
@@ -28,7 +27,6 @@ export async function GET() {
       return NextResponse.json({ error: "Sessão expirada." }, { status: 401 });
     }
 
-    // Busca dados do colaborador
     const { data: emp } = await supabaseAdmin
       .from("hr_employee_details")
       .select("id,full_name,role_label,email,phone,document_cpf,hiring_date,contract_type,base_salary,vt_value,va_value,vr_value,health_plan_value,dental_plan_value,insurance_value,commission_rate,pix_key,bank_info")
@@ -39,7 +37,6 @@ export async function GET() {
       return NextResponse.json({ error: "Colaborador não encontrado." }, { status: 404 });
     }
 
-    // Busca contracheques
     const { data: payrolls } = await supabaseAdmin
       .from("hr_payrolls")
       .select("id,reference_month,reference_year,total_base_salary,total_benefits,total_commissions,total_reimbursements,total_deductions,inss_deduction,irrf_deduction,absence_discount,absence_days,final_net_value,status,confirmed_at")
@@ -47,21 +44,18 @@ export async function GET() {
       .order("reference_year", { ascending: false })
       .order("reference_month", { ascending: false });
 
-    // Busca reembolsos
     const { data: reimbursements } = await supabaseAdmin
       .from("hr_reimbursements")
       .select("id,description,amount,status,receipt_url,created_at,approved_at,rejection_reason,quote_id,service_order_id")
       .eq("employee_id", session.employee_id)
       .order("created_at", { ascending: false });
 
-    // Busca ocorrências
     const { data: occurrences } = await supabaseAdmin
       .from("hr_occurrences")
       .select("id,type,occurrence_date,days_count,description,attachment_url")
       .eq("employee_id", session.employee_id)
       .order("occurrence_date", { ascending: false });
 
-    // Dados da empresa para white label
     const { data: company } = await supabaseAdmin
       .from("company_profile")
       .select("company_name,logo_url,primary_color")

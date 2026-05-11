@@ -18,11 +18,17 @@ export async function POST() {
 
     const res = NextResponse.json({ ok: true });
     res.cookies.set("portal_token", "", {
-      httpOnly: true, secure: process.env.NODE_ENV === "production",
-      sameSite: "lax", expires: new Date(0), path: "/colaborador",
+      httpOnly: true,
+      secure:   process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      expires:  new Date(0),
+      path:     "/colaborador",
     });
     return res;
   } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Erro." }, { status: 500 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Erro." },
+      { status: 500 }
+    );
   }
 }

@@ -36,7 +36,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "CPF e senha são obrigatórios." }, { status: 400 });
     }
 
-    // Tenta com CPF formatado (como está salvo no banco) e sem formatação como fallback
     const cpfFormatted = formatCPF(cpf);
     const cpfClean     = cpf.replace(/\D/g, "");
 

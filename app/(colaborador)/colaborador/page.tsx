@@ -1,12 +1,18 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { supabase } from "@/app/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
 import {
   AlertTriangle, Calendar, Check, ChevronRight,
   DollarSign, Download, FileText, Loader2, LogOut,
   Plus, Printer, Upload, User, X,
 } from "lucide-react";
+
+// Supabase usado SOMENTE para upload de arquivos no storage
+const supabaseStorage = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -19,7 +25,7 @@ interface Employee {
   base_salary: number; vt_value: number; va_value: number;
   vr_value: number; health_plan_value: number; dental_plan_value: number;
   insurance_value: number; commission_rate: number;
-  pix_key: string | null; bank_info: Record<string,string> | null;
+  pix_key: string | null; bank_info: Record<string, string> | null;
 }
 
 interface Payroll {
@@ -63,7 +69,7 @@ function mName(m: number) {
 }
 
 function occLabel(type: string): string {
-  const map: Record<string,string> = {
+  const map: Record<string, string> = {
     absence: "Falta", warning: "Advertência", suspension: "Suspensão",
     medical_certificate: "Atestado Médico", performance_review: "Avaliação", other: "Outro",
   };
@@ -71,7 +77,7 @@ function occLabel(type: string): string {
 }
 
 function statusLabel(s: string): string {
-  const map: Record<string,string> = {
+  const map: Record<string, string> = {
     pending_approval: "Aguardando aprovação", approved: "Aprovado",
     rejected: "Rejeitado", draft: "Rascunho", closed: "Fechada", paid: "Paga",
   };
@@ -85,8 +91,8 @@ function statusColor(s: string): string {
 }
 
 function sanitize(name: string) {
-  return name.normalize("NFD").replace(/[\u0300-\u036f]/g,"")
-    .replace(/[^a-zA-Z0-9._-]/g,"-").toLowerCase();
+  return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "-").toLowerCase();
 }
 
 // ─── Componentes base ─────────────────────────────────────────────────────────
@@ -131,9 +137,9 @@ export default function ColaboradorPage() {
   const [loading, setLoading]   = useState(true);
   const [tab, setTab]           = useState<Tab>("inicio");
   const [toast, setToast]       = useState<Toast | null>(null);
-  const [payrollModal, setPayrollModal]       = useState<Payroll | null>(null);
-  const [reimbModal, setReimbModal]           = useState<"new" | null>(null);
-  const [occModal, setOccModal]               = useState<Occurrence | "new" | null>(null);
+  const [payrollModal, setPayrollModal]   = useState<Payroll | null>(null);
+  const [reimbModal, setReimbModal]       = useState<"new" | null>(null);
+  const [occModal, setOccModal]           = useState<Occurrence | "new" | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
   const showToast = useCallback((message: string, type: Toast["type"]) => {
@@ -265,7 +271,6 @@ export default function ColaboradorPage() {
               <p className="text-sm text-[#a19d9c]">{emp.role_label ?? "Colaborador"} · {emp.contract_type?.toUpperCase() ?? "—"}</p>
             </div>
 
-            {/* Último contracheque */}
             {latestPayroll ? (
               <Card>
                 <div className="mb-3 flex items-center justify-between">
@@ -294,13 +299,12 @@ export default function ColaboradorPage() {
               </Card>
             )}
 
-            {/* Ações rápidas */}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[
-                { label: "Ver contracheques", icon: FileText,    action: () => setTab("contracheques") },
-                { label: "Solicitar reembolso", icon: Upload,    action: () => { setTab("reembolsos"); setReimbModal("new"); } },
-                { label: "Enviar atestado",   icon: AlertTriangle, action: () => { setTab("ocorrencias"); setOccModal("new"); } },
-                { label: "Meu perfil",        icon: User,        action: () => setTab("perfil") },
+                { label: "Ver contracheques",   icon: FileText,      action: () => setTab("contracheques") },
+                { label: "Solicitar reembolso", icon: Upload,        action: () => { setTab("reembolsos"); setReimbModal("new"); } },
+                { label: "Enviar atestado",     icon: AlertTriangle, action: () => { setTab("ocorrencias"); setOccModal("new"); } },
+                { label: "Meu perfil",          icon: User,          action: () => setTab("perfil") },
               ].map(({ label, icon: Icon, action }) => (
                 <button key={label} onClick={action}
                   className="flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-[#1a1413] p-4 text-center transition hover:border-white/20">
@@ -310,8 +314,7 @@ export default function ColaboradorPage() {
               ))}
             </div>
 
-            {/* Reembolsos pendentes */}
-            {(data.reimbursements.filter(r => r.status === "pending_approval").length > 0) && (
+            {data.reimbursements.filter(r => r.status === "pending_approval").length > 0 && (
               <Card>
                 <p className="mb-3 text-xs font-bold uppercase tracking-wider text-[#a19d9c]">Reembolsos aguardando aprovação</p>
                 <div className="space-y-2">
@@ -334,7 +337,7 @@ export default function ColaboradorPage() {
             {data.payrolls.length === 0
               ? <Card><p className="text-center text-sm text-[#a19d9c]">Nenhum contracheque disponível.</p></Card>
               : data.payrolls.map(p => (
-                <Card key={p.id} className="cursor-pointer hover:border-white/20" >
+                <Card key={p.id} className="cursor-pointer hover:border-white/20">
                   <div className="flex items-center justify-between" onClick={() => setPayrollModal(p)}>
                     <div>
                       <p className="font-bold capitalize text-white">{mName(p.reference_month)}/{p.reference_year}</p>
@@ -422,13 +425,13 @@ export default function ColaboradorPage() {
               <p className="mb-4 text-xs font-bold uppercase tracking-wider text-[#a19d9c]">Dados pessoais</p>
               <div className="grid gap-4 sm:grid-cols-2">
                 {[
-                  { label: "Nome completo",  value: emp.full_name },
-                  { label: "CPF",            value: emp.document_cpf ?? "—" },
-                  { label: "Cargo",          value: emp.role_label ?? "—" },
-                  { label: "Contrato",       value: emp.contract_type?.toUpperCase() ?? "—" },
-                  { label: "Admissão",       value: emp.hiring_date ? new Date(emp.hiring_date + "T12:00").toLocaleDateString("pt-BR") : "—" },
-                  { label: "E-mail",         value: emp.email ?? "—" },
-                  { label: "Telefone",       value: emp.phone ?? "—" },
+                  { label: "Nome completo", value: emp.full_name },
+                  { label: "CPF",           value: emp.document_cpf ?? "—" },
+                  { label: "Cargo",         value: emp.role_label ?? "—" },
+                  { label: "Contrato",      value: emp.contract_type?.toUpperCase() ?? "—" },
+                  { label: "Admissão",      value: emp.hiring_date ? new Date(emp.hiring_date + "T12:00").toLocaleDateString("pt-BR") : "—" },
+                  { label: "E-mail",        value: emp.email ?? "—" },
+                  { label: "Telefone",      value: emp.phone ?? "—" },
                 ].map(({ label, value }) => (
                   <div key={label}>
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-[#a19d9c]">{label}</p>
@@ -442,14 +445,14 @@ export default function ColaboradorPage() {
               <p className="mb-4 text-xs font-bold uppercase tracking-wider text-[#a19d9c]">Remuneração e benefícios</p>
               <div className="grid gap-4 sm:grid-cols-2">
                 {[
-                  { label: "Salário base",      value: fBRL(emp.base_salary) },
-                  { label: "Comissão",          value: `${emp.commission_rate ?? 0}%` },
-                  { label: "Vale Transporte",   value: fBRL(emp.vt_value) },
-                  { label: "Vale Alimentação",  value: fBRL(emp.va_value) },
-                  { label: "Vale Refeição",     value: fBRL(emp.vr_value ?? 0) },
-                  { label: "Plano de Saúde",    value: fBRL(emp.health_plan_value ?? 0) },
-                  { label: "Plano Odonto",      value: fBRL(emp.dental_plan_value ?? 0) },
-                  { label: "Seguro de vida",    value: fBRL(emp.insurance_value ?? 0) },
+                  { label: "Salário base",     value: fBRL(emp.base_salary) },
+                  { label: "Comissão",         value: `${emp.commission_rate ?? 0}%` },
+                  { label: "Vale Transporte",  value: fBRL(emp.vt_value) },
+                  { label: "Vale Alimentação", value: fBRL(emp.va_value) },
+                  { label: "Vale Refeição",    value: fBRL(emp.vr_value ?? 0) },
+                  { label: "Plano de Saúde",   value: fBRL(emp.health_plan_value ?? 0) },
+                  { label: "Plano Odonto",     value: fBRL(emp.dental_plan_value ?? 0) },
+                  { label: "Seguro de vida",   value: fBRL(emp.insurance_value ?? 0) },
                 ].map(({ label, value }) => (
                   <div key={label}>
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-[#a19d9c]">{label}</p>
@@ -463,9 +466,9 @@ export default function ColaboradorPage() {
               <p className="mb-4 text-xs font-bold uppercase tracking-wider text-[#a19d9c]">Dados bancários</p>
               <div className="grid gap-4 sm:grid-cols-2">
                 {[
-                  { label: "Banco",   value: (emp.bank_info as Record<string,string>)?.name ?? "—" },
-                  { label: "Agência", value: (emp.bank_info as Record<string,string>)?.agency ?? "—" },
-                  { label: "Conta",   value: (emp.bank_info as Record<string,string>)?.account ?? "—" },
+                  { label: "Banco",   value: (emp.bank_info as Record<string, string>)?.name ?? "—" },
+                  { label: "Agência", value: (emp.bank_info as Record<string, string>)?.agency ?? "—" },
+                  { label: "Conta",   value: (emp.bank_info as Record<string, string>)?.account ?? "—" },
                   { label: "PIX",     value: emp.pix_key ?? "—" },
                 ].map(({ label, value }) => (
                   <div key={label}>
@@ -511,9 +514,9 @@ export default function ColaboradorPage() {
                     <SlipRow label="Salário base" value={fBRL(payrollModal.total_base_salary)} />
                     {payrollModal.total_commissions > 0    && <SlipRow label="Comissões"       value={fBRL(payrollModal.total_commissions)}    sub />}
                     {payrollModal.total_reimbursements > 0 && <SlipRow label="Reembolsos"      value={fBRL(payrollModal.total_reimbursements)} sub />}
-                    {emp.vt_value > 0           && <SlipRow label="Vale Transporte"  value={fBRL(emp.vt_value)}            sub />}
-                    {emp.va_value > 0           && <SlipRow label="Vale Alimentação" value={fBRL(emp.va_value)}            sub />}
-                    {(emp.vr_value ?? 0) > 0          && <SlipRow label="Vale Refeição"    value={fBRL(emp.vr_value ?? 0)}       sub />}
+                    {emp.vt_value > 0              && <SlipRow label="Vale Transporte"  value={fBRL(emp.vt_value)}               sub />}
+                    {emp.va_value > 0              && <SlipRow label="Vale Alimentação" value={fBRL(emp.va_value)}               sub />}
+                    {(emp.vr_value ?? 0) > 0       && <SlipRow label="Vale Refeição"    value={fBRL(emp.vr_value ?? 0)}          sub />}
                     {(emp.health_plan_value ?? 0) > 0 && <SlipRow label="Plano de Saúde"  value={fBRL(emp.health_plan_value ?? 0)} sub />}
                     {(emp.dental_plan_value ?? 0) > 0 && <SlipRow label="Plano Odonto"    value={fBRL(emp.dental_plan_value ?? 0)} sub />}
                     {(emp.insurance_value ?? 0) > 0   && <SlipRow label="Seguro de vida"  value={fBRL(emp.insurance_value ?? 0)}   sub />}
@@ -521,8 +524,8 @@ export default function ColaboradorPage() {
                   </div>
                   <div className="p-4 space-y-0.5">
                     <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-red-400">Descontos</p>
-                    <SlipRow label="INSS"  value={fBRL(payrollModal.inss_deduction)}  red />
-                    <SlipRow label="IRRF"  value={fBRL(payrollModal.irrf_deduction)}  red />
+                    <SlipRow label="INSS" value={fBRL(payrollModal.inss_deduction)}  red />
+                    <SlipRow label="IRRF" value={fBRL(payrollModal.irrf_deduction)}  red />
                     {payrollModal.absence_days > 0 && <SlipRow label={`Faltas (${payrollModal.absence_days}d)`} value={fBRL(payrollModal.absence_discount)} red sub />}
                     <SlipRow label="Total descontos" value={fBRL(payrollModal.total_deductions)} bold red />
                   </div>
@@ -540,7 +543,6 @@ export default function ColaboradorPage() {
       {/* ── MODAL: SOLICITAR REEMBOLSO ───────────────────────────────────── */}
       {reimbModal === "new" && emp && (
         <ReimbursementModal
-          employeeId={emp.id}
           primaryColor={primaryColor}
           onClose={() => setReimbModal(null)}
           onSaved={() => { setReimbModal(null); void fetchData(); showToast("Reembolso solicitado com sucesso.", "success"); }}
@@ -552,7 +554,6 @@ export default function ColaboradorPage() {
       {occModal !== null && emp && (
         <OccurrenceModal
           occurrence={occModal === "new" ? null : occModal}
-          employeeId={emp.id}
           primaryColor={primaryColor}
           onClose={() => setOccModal(null)}
           onSaved={() => { setOccModal(null); void fetchData(); showToast("Registrado com sucesso.", "success"); }}
@@ -565,12 +566,13 @@ export default function ColaboradorPage() {
 
 // ─── Modal: Solicitar reembolso ───────────────────────────────────────────────
 
-function ReimbursementModal({ employeeId, primaryColor, onClose, onSaved, showToast }: {
-  employeeId: string; primaryColor: string;
-  onClose: () => void; onSaved: () => void;
+function ReimbursementModal({ primaryColor, onClose, onSaved, showToast }: {
+  primaryColor: string;
+  onClose: () => void;
+  onSaved: () => void;
   showToast: (m: string, t: Toast["type"]) => void;
 }) {
-  const [saving, setSaving]     = useState(false);
+  const [saving, setSaving]       = useState(false);
   const [uploading, setUploading] = useState(false);
   const [f, setF] = useState({
     description: "", amount: "", quote_id: "", service_order_id: "", receipt_url: "",
@@ -581,9 +583,9 @@ function ReimbursementModal({ employeeId, primaryColor, onClose, onSaved, showTo
     const file = e.target.files?.[0]; if (!file) return;
     setUploading(true);
     const path = `rh/reembolsos/${Date.now()}-${sanitize(file.name)}`;
-    const { error } = await supabase.storage.from("axon-assets").upload(path, file, { upsert: true });
+    const { error } = await supabaseStorage.storage.from("axon-assets").upload(path, file, { upsert: true });
     if (!error) {
-      const { data } = supabase.storage.from("axon-assets").getPublicUrl(path);
+      const { data } = supabaseStorage.storage.from("axon-assets").getPublicUrl(path);
       s("receipt_url", data.publicUrl);
     } else {
       showToast("Erro no upload do comprovante.", "error");
@@ -595,19 +597,26 @@ function ReimbursementModal({ employeeId, primaryColor, onClose, onSaved, showTo
     e.preventDefault();
     if (!f.description || !f.amount) return;
     setSaving(true);
-    const { error } = await supabase.from("hr_reimbursements").insert([{
-      employee_id:  employeeId,
-      description:  f.description,
-      amount:       parseFloat(f.amount) || 0,
-      quote_id:     f.quote_id || null,
-      service_order_id: f.service_order_id || null,
-      receipt_url:  f.receipt_url || null,
-      status:       "pending_approval",
-      batch_status: "submitted",
-      submitted_at: new Date().toISOString(),
-    }]);
-    setSaving(false);
-    if (!error) onSaved(); else showToast(error.message, "error");
+    try {
+      const res = await fetch("/api/portal/reembolso", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          description:      f.description,
+          amount:           parseFloat(f.amount) || 0,
+          quote_id:         f.quote_id || null,
+          service_order_id: f.service_order_id || null,
+          receipt_url:      f.receipt_url || null,
+        }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || data.error) { showToast(data.error ?? "Erro ao solicitar.", "error"); return; }
+      onSaved();
+    } catch {
+      showToast("Erro de conexão.", "error");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -640,7 +649,10 @@ function ReimbursementModal({ employeeId, primaryColor, onClose, onSaved, showTo
           </label>
         </div>
         <div className="flex justify-end gap-3 border-t border-white/10 pt-4">
-          <button type="button" onClick={onClose} className="rounded-lg border border-white/10 px-5 py-2.5 text-sm text-[#a19d9c] transition hover:text-white">Cancelar</button>
+          <button type="button" onClick={onClose}
+            className="rounded-lg border border-white/10 px-5 py-2.5 text-sm text-[#a19d9c] transition hover:text-white">
+            Cancelar
+          </button>
           <button type="submit" disabled={saving}
             className="flex items-center gap-2 rounded-lg px-6 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-50"
             style={{ backgroundColor: primaryColor }}>
@@ -654,9 +666,11 @@ function ReimbursementModal({ employeeId, primaryColor, onClose, onSaved, showTo
 
 // ─── Modal: Ocorrência / Atestado ─────────────────────────────────────────────
 
-function OccurrenceModal({ occurrence, employeeId, primaryColor, onClose, onSaved, showToast }: {
-  occurrence: Occurrence | null; employeeId: string; primaryColor: string;
-  onClose: () => void; onSaved: () => void;
+function OccurrenceModal({ occurrence, primaryColor, onClose, onSaved, showToast }: {
+  occurrence: Occurrence | null;
+  primaryColor: string;
+  onClose: () => void;
+  onSaved: () => void;
   showToast: (m: string, t: Toast["type"]) => void;
 }) {
   const isView = occurrence !== null;
@@ -675,9 +689,9 @@ function OccurrenceModal({ occurrence, employeeId, primaryColor, onClose, onSave
     const file = e.target.files?.[0]; if (!file) return;
     setUploading(true);
     const path = `rh/atestados/${Date.now()}-${sanitize(file.name)}`;
-    const { error } = await supabase.storage.from("axon-assets").upload(path, file, { upsert: true });
+    const { error } = await supabaseStorage.storage.from("axon-assets").upload(path, file, { upsert: true });
     if (!error) {
-      const { data } = supabase.storage.from("axon-assets").getPublicUrl(path);
+      const { data } = supabaseStorage.storage.from("axon-assets").getPublicUrl(path);
       s("attachment_url", data.publicUrl);
     } else {
       showToast("Erro no upload.", "error");
@@ -687,19 +701,27 @@ function OccurrenceModal({ occurrence, employeeId, primaryColor, onClose, onSave
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const today = new Date().toISOString().slice(0, 10);
-    if (f.occurrence_date > today) { showToast("Data não pode ser futura.", "warning"); return; }
     setSaving(true);
-    const { error } = await supabase.from("hr_occurrences").insert([{
-      employee_id: employeeId,
-      type: f.type,
-      occurrence_date: f.occurrence_date,
-      days_count: parseInt(f.days_count) || 1,
-      description: f.description,
-      attachment_url: f.attachment_url || null,
-    }]);
-    setSaving(false);
-    if (!error) onSaved(); else showToast(error.message, "error");
+    try {
+      const res = await fetch("/api/portal/ocorrencia", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type:            f.type,
+          occurrence_date: f.occurrence_date,
+          days_count:      parseInt(f.days_count) || 1,
+          description:     f.description,
+          attachment_url:  f.attachment_url || null,
+        }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || data.error) { showToast(data.error ?? "Erro ao registrar.", "error"); return; }
+      onSaved();
+    } catch {
+      showToast("Erro de conexão.", "error");
+    } finally {
+      setSaving(false);
+    }
   }
 
   // Visualização de ocorrência existente
@@ -739,7 +761,7 @@ function OccurrenceModal({ occurrence, employeeId, primaryColor, onClose, onSave
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[#a19d9c]">Data *</label>
-            <input type="date" required value={f.occurrence_date} max={new Date().toISOString().slice(0,10)}
+            <input type="date" required value={f.occurrence_date} max={new Date().toISOString().slice(0, 10)}
               onChange={e => s("occurrence_date", e.target.value)}
               className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none [color-scheme:dark]" />
           </div>
@@ -766,7 +788,10 @@ function OccurrenceModal({ occurrence, employeeId, primaryColor, onClose, onSave
           </label>
         </div>
         <div className="flex justify-end gap-3 border-t border-white/10 pt-4">
-          <button type="button" onClick={onClose} className="rounded-lg border border-white/10 px-5 py-2.5 text-sm text-[#a19d9c] transition hover:text-white">Cancelar</button>
+          <button type="button" onClick={onClose}
+            className="rounded-lg border border-white/10 px-5 py-2.5 text-sm text-[#a19d9c] transition hover:text-white">
+            Cancelar
+          </button>
           <button type="submit" disabled={saving}
             className="flex items-center gap-2 rounded-lg px-6 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-50"
             style={{ backgroundColor: primaryColor }}>
