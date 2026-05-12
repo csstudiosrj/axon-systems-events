@@ -1,18 +1,11 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
 import {
   AlertTriangle, Calendar, Check, ChevronRight,
   DollarSign, Download, FileText, Loader2, LogOut,
   Plus, Printer, Upload, User, X,
 } from "lucide-react";
-
-// Supabase usado SOMENTE para upload de arquivos no storage
-const supabaseStorage = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -90,9 +83,16 @@ function statusColor(s: string): string {
   return "text-[#C5A059]";
 }
 
-function sanitize(name: string) {
-  return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9._-]/g, "-").toLowerCase();
+// ─── Upload helper (via API — usa service role) ───────────────────────────────
+
+async function uploadFile(file: File, folder: string): Promise<string> {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("folder", folder);
+  const res = await fetch("/api/portal/upload", { method: "POST", body: fd });
+  const data = await res.json() as { url?: string; error?: string };
+  if (!res.ok || !data.url) throw new Error(data.error ?? "Erro no upload.");
+  return data.url;
 }
 
 // ─── Componentes base ─────────────────────────────────────────────────────────
@@ -133,13 +133,13 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function ColaboradorPage() {
-  const [data, setData]         = useState<PortalData | null>(null);
-  const [loading, setLoading]   = useState(true);
-  const [tab, setTab]           = useState<Tab>("inicio");
-  const [toast, setToast]       = useState<Toast | null>(null);
-  const [payrollModal, setPayrollModal]   = useState<Payroll | null>(null);
-  const [reimbModal, setReimbModal]       = useState<"new" | null>(null);
-  const [occModal, setOccModal]           = useState<Occurrence | "new" | null>(null);
+  const [data, setData]       = useState<PortalData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab]         = useState<Tab>("inicio");
+  const [toast, setToast]     = useState<Toast | null>(null);
+  const [payrollModal, setPayrollModal] = useState<Payroll | null>(null);
+  const [reimbModal, setReimbModal]     = useState<"new" | null>(null);
+  const [occModal, setOccModal]         = useState<Occurrence | "new" | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
   const showToast = useCallback((message: string, type: Toast["type"]) => {
@@ -261,13 +261,14 @@ export default function ColaboradorPage() {
         </div>
       </div>
 
-      <main className="mx-auto max-w-4xl space-y-5 p-4 pb-16">
+      {/* ── CONTEÚDO ─────────────────────────────────────────────────────── */}
+      <main className="mx-auto max-w-4xl space-y-5 p-4 pb-32">
 
         {/* ── INÍCIO ────────────────────────────────────────────────────── */}
         {tab === "inicio" && (
           <div className="space-y-5">
             <div className="pt-2">
-              <p className="text-lg font-bold text-white">Olá, {emp.full_name.split(" ")[0]} 👋</p>
+              <p className="text-lg font-bold text-white">Olá, {emp.full_name.split(" ")[0]}</p>
               <p className="text-sm text-[#a19d9c]">{emp.role_label ?? "Colaborador"} · {emp.contract_type?.toUpperCase() ?? "—"}</p>
             </div>
 
@@ -288,7 +289,7 @@ export default function ColaboradorPage() {
                   </div>
                   <span className={`rounded border-l-2 px-2 py-0.5 text-[10px] font-bold ${
                     latestPayroll.status === "closed" ? "border-blue-500 bg-blue-500/10 text-blue-400"
-                    : latestPayroll.status === "paid" ? "border-emerald-500 bg-emerald-500/10 text-emerald-400"
+                    : latestPayroll.status === "paid"  ? "border-emerald-500 bg-emerald-500/10 text-emerald-400"
                     : "border-zinc-500 bg-zinc-500/10 text-zinc-400"
                   }`}>{statusLabel(latestPayroll.status)}</span>
                 </div>
@@ -490,7 +491,6 @@ export default function ColaboradorPage() {
               className="flex items-center gap-2 rounded-lg border border-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/5">
               <Printer size={13} /> Imprimir / Salvar PDF
             </button>
-
             <div ref={printRef}>
               <div className="rounded-lg border border-white/10 bg-black/20 overflow-hidden">
                 <div className="border-b border-white/10 bg-black/30 px-4 py-3 flex justify-between">
@@ -514,9 +514,9 @@ export default function ColaboradorPage() {
                     <SlipRow label="Salário base" value={fBRL(payrollModal.total_base_salary)} />
                     {payrollModal.total_commissions > 0    && <SlipRow label="Comissões"       value={fBRL(payrollModal.total_commissions)}    sub />}
                     {payrollModal.total_reimbursements > 0 && <SlipRow label="Reembolsos"      value={fBRL(payrollModal.total_reimbursements)} sub />}
-                    {emp.vt_value > 0              && <SlipRow label="Vale Transporte"  value={fBRL(emp.vt_value)}               sub />}
-                    {emp.va_value > 0              && <SlipRow label="Vale Alimentação" value={fBRL(emp.va_value)}               sub />}
-                    {(emp.vr_value ?? 0) > 0       && <SlipRow label="Vale Refeição"    value={fBRL(emp.vr_value ?? 0)}          sub />}
+                    {emp.vt_value > 0                && <SlipRow label="Vale Transporte"  value={fBRL(emp.vt_value)}               sub />}
+                    {emp.va_value > 0                && <SlipRow label="Vale Alimentação" value={fBRL(emp.va_value)}               sub />}
+                    {(emp.vr_value ?? 0) > 0         && <SlipRow label="Vale Refeição"    value={fBRL(emp.vr_value ?? 0)}          sub />}
                     {(emp.health_plan_value ?? 0) > 0 && <SlipRow label="Plano de Saúde"  value={fBRL(emp.health_plan_value ?? 0)} sub />}
                     {(emp.dental_plan_value ?? 0) > 0 && <SlipRow label="Plano Odonto"    value={fBRL(emp.dental_plan_value ?? 0)} sub />}
                     {(emp.insurance_value ?? 0) > 0   && <SlipRow label="Seguro de vida"  value={fBRL(emp.insurance_value ?? 0)}   sub />}
@@ -524,13 +524,14 @@ export default function ColaboradorPage() {
                   </div>
                   <div className="p-4 space-y-0.5">
                     <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-red-400">Descontos</p>
-                    <SlipRow label="INSS" value={fBRL(payrollModal.inss_deduction)}  red />
-                    <SlipRow label="IRRF" value={fBRL(payrollModal.irrf_deduction)}  red />
+                    <SlipRow label="INSS" value={fBRL(payrollModal.inss_deduction)} red />
+                    <SlipRow label="IRRF" value={fBRL(payrollModal.irrf_deduction)} red />
                     {payrollModal.absence_days > 0 && <SlipRow label={`Faltas (${payrollModal.absence_days}d)`} value={fBRL(payrollModal.absence_discount)} red sub />}
                     <SlipRow label="Total descontos" value={fBRL(payrollModal.total_deductions)} bold red />
                   </div>
                 </div>
-                <div className="border-t px-4 py-4 flex justify-between items-center" style={{ borderColor: primaryColor + "50", backgroundColor: primaryColor + "0D" }}>
+                <div className="border-t px-4 py-4 flex justify-between items-center"
+                  style={{ borderColor: primaryColor + "50", backgroundColor: primaryColor + "0D" }}>
                   <span className="font-bold text-white">Salário líquido a receber</span>
                   <span className="text-2xl font-black" style={{ color: primaryColor }}>{fBRL(payrollModal.final_net_value)}</span>
                 </div>
@@ -541,7 +542,7 @@ export default function ColaboradorPage() {
       )}
 
       {/* ── MODAL: SOLICITAR REEMBOLSO ───────────────────────────────────── */}
-      {reimbModal === "new" && emp && (
+      {reimbModal === "new" && (
         <ReimbursementModal
           primaryColor={primaryColor}
           onClose={() => setReimbModal(null)}
@@ -551,7 +552,7 @@ export default function ColaboradorPage() {
       )}
 
       {/* ── MODAL: OCORRÊNCIA ────────────────────────────────────────────── */}
-      {occModal !== null && emp && (
+      {occModal !== null && (
         <OccurrenceModal
           occurrence={occModal === "new" ? null : occModal}
           primaryColor={primaryColor}
@@ -575,22 +576,21 @@ function ReimbursementModal({ primaryColor, onClose, onSaved, showToast }: {
   const [saving, setSaving]       = useState(false);
   const [uploading, setUploading] = useState(false);
   const [f, setF] = useState({
-    description: "", amount: "", quote_id: "", service_order_id: "", receipt_url: "",
+    description: "", amount: "", quote_id: "", receipt_url: "",
   });
   const s = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
     setUploading(true);
-    const path = `rh/reembolsos/${Date.now()}-${sanitize(file.name)}`;
-    const { error } = await supabaseStorage.storage.from("axon-assets").upload(path, file, { upsert: true });
-    if (!error) {
-      const { data } = supabaseStorage.storage.from("axon-assets").getPublicUrl(path);
-      s("receipt_url", data.publicUrl);
-    } else {
+    try {
+      const url = await uploadFile(file, "rh/reembolsos");
+      s("receipt_url", url);
+    } catch {
       showToast("Erro no upload do comprovante.", "error");
+    } finally {
+      setUploading(false);
     }
-    setUploading(false);
   }
 
   async function submit(e: React.FormEvent) {
@@ -602,11 +602,10 @@ function ReimbursementModal({ primaryColor, onClose, onSaved, showToast }: {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          description:      f.description,
-          amount:           parseFloat(f.amount) || 0,
-          quote_id:         f.quote_id || null,
-          service_order_id: f.service_order_id || null,
-          receipt_url:      f.receipt_url || null,
+          description:  f.description,
+          amount:       parseFloat(f.amount) || 0,
+          quote_id:     f.quote_id || null,
+          receipt_url:  f.receipt_url || null,
         }),
       });
       const data = await res.json() as { ok?: boolean; error?: string };
@@ -637,7 +636,7 @@ function ReimbursementModal({ primaryColor, onClose, onSaved, showToast }: {
         <div>
           <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[#a19d9c]">Orçamento / OS relacionado</label>
           <input value={f.quote_id} onChange={e => s("quote_id", e.target.value)}
-            placeholder="ID do orçamento ou ordem de serviço (opcional)"
+            placeholder="ID do orçamento ou OS (opcional)"
             className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none placeholder:text-[#a19d9c]" />
         </div>
         <div>
@@ -681,22 +680,21 @@ function OccurrenceModal({ occurrence, primaryColor, onClose, onSaved, showToast
     occurrence_date: new Date().toISOString().slice(0, 10),
     days_count: "1",
     description: "",
-    attachment_url: occurrence?.attachment_url ?? "",
+    attachment_url: "",
   });
   const s = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
     setUploading(true);
-    const path = `rh/atestados/${Date.now()}-${sanitize(file.name)}`;
-    const { error } = await supabaseStorage.storage.from("axon-assets").upload(path, file, { upsert: true });
-    if (!error) {
-      const { data } = supabaseStorage.storage.from("axon-assets").getPublicUrl(path);
-      s("attachment_url", data.publicUrl);
-    } else {
+    try {
+      const url = await uploadFile(file, "rh/atestados");
+      s("attachment_url", url);
+    } catch {
       showToast("Erro no upload.", "error");
+    } finally {
+      setUploading(false);
     }
-    setUploading(false);
   }
 
   async function submit(e: React.FormEvent) {
@@ -724,7 +722,6 @@ function OccurrenceModal({ occurrence, primaryColor, onClose, onSaved, showToast
     }
   }
 
-  // Visualização de ocorrência existente
   if (isView) {
     return (
       <Modal title={occLabel(occurrence.type)} onClose={onClose}>
