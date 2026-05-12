@@ -174,10 +174,12 @@ interface SystemPreferencesRow {
   financial_categories: FinancialCategories | null;
 }
 
+// FIX: adicionado company_id — necessário para isolar queries por empresa
 interface ProfileIdentityRow {
   id: string;
   client_id: string | null;
   role: string | null;
+  company_id: string | null;
 }
 
 interface SettingsContextValue {
@@ -186,6 +188,8 @@ interface SettingsContextValue {
   loading: boolean;
   resolvedUserId: string | null;
   resolvedClientId: string | null;
+  // FIX: exposto para todas as páginas injetarem em inserts/updates
+  userCompanyId: string | null;
   refreshSettings: () => Promise<void>;
   hasPermission: (module: string, userRole: UserRole) => boolean;
 }
@@ -282,7 +286,7 @@ const defaultCommercialDocuments: CommercialDocuments = {
 
 const defaultFinancialCategories: FinancialCategories = {
   income: ["Venda de Serviços", "Locação de Equipamentos", "Treinamentos", "Consultoria"],
-  expense: ["OPEX", "Folha de Pagamento", "Comissões", "Logística", "Impostos", "Manutenção"]
+  expense: ["OPEX", "Folha de Pagamento", "Comissões", "Logística", "Impostos", "Manutenção"],
 };
 
 const defaultSystemPreferences: SystemPreferences = {
@@ -290,7 +294,7 @@ const defaultSystemPreferences: SystemPreferences = {
   custom_labels: defaultCustomLabels,
   commercial_documents: defaultCommercialDocuments,
   currency_code: "BRL",
-  financial_categories: defaultFinancialCategories
+  financial_categories: defaultFinancialCategories,
 };
 
 const SettingsContext = createContext<SettingsContextValue>({
@@ -299,6 +303,7 @@ const SettingsContext = createContext<SettingsContextValue>({
   loading: true,
   resolvedUserId: null,
   resolvedClientId: null,
+  userCompanyId: null,
   refreshSettings: async () => undefined,
   hasPermission: () => false,
 });
@@ -322,10 +327,7 @@ function mergeCustomLabels(input: Partial<CustomLabels> | null | undefined): Cus
 }
 
 function mergeFeatureToggles(input: FeatureToggles | null | undefined): FeatureToggles {
-  if (!isPlainObject(input)) {
-    return { ...defaultFeatureToggles };
-  }
-
+  if (!isPlainObject(input)) return { ...defaultFeatureToggles };
   return {
     ...defaultFeatureToggles,
     ...Object.fromEntries(
@@ -334,17 +336,9 @@ function mergeFeatureToggles(input: FeatureToggles | null | undefined): FeatureT
   };
 }
 
-function mergeCommercialDocuments(
-  input: CommercialDocuments | null | undefined
-): CommercialDocuments {
-  if (!isPlainObject(input)) {
-    return { ...defaultCommercialDocuments };
-  }
-
-  return {
-    ...defaultCommercialDocuments,
-    ...input,
-  };
+function mergeCommercialDocuments(input: CommercialDocuments | null | undefined): CommercialDocuments {
+  if (!isPlainObject(input)) return { ...defaultCommercialDocuments };
+  return { ...defaultCommercialDocuments, ...input };
 }
 
 function mergeFinancialCategories(input: FinancialCategories | null | undefined): FinancialCategories {
@@ -356,10 +350,7 @@ function mergeFinancialCategories(input: FinancialCategories | null | undefined)
 }
 
 function normalizeCompanyProfile(row: CompanyProfileRow | null): CompanyProfile {
-  if (!row) {
-    return { ...defaultCompanyProfile };
-  }
-
+  if (!row) return { ...defaultCompanyProfile };
   return {
     id: row.id,
     company_name: safeString(row.company_name, defaultCompanyProfile.company_name),
@@ -388,10 +379,7 @@ function normalizeCompanyProfile(row: CompanyProfileRow | null): CompanyProfile 
 }
 
 function normalizeSystemPreferences(row: SystemPreferencesRow | null): SystemPreferences {
-  if (!row) {
-    return { ...defaultSystemPreferences };
-  }
-
+  if (!row) return { ...defaultSystemPreferences };
   return {
     id: row.id,
     feature_toggles: mergeFeatureToggles(row.feature_toggles),
@@ -406,11 +394,12 @@ export const useSettings = () => useContext(SettingsContext);
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile>(defaultCompanyProfile);
-  const [systemPreferences, setSystemPreferences] =
-    useState<SystemPreferences>(defaultSystemPreferences);
+  const [systemPreferences, setSystemPreferences] = useState<SystemPreferences>(defaultSystemPreferences);
   const [loading, setLoading] = useState<boolean>(true);
   const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
   const [resolvedClientId, setResolvedClientId] = useState<string | null>(null);
+  // FIX: estado do company_id do usuário logado
+  const [userCompanyId, setUserCompanyId] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState<number>(0);
 
   const activeRequestRef = useRef<number>(0);
@@ -418,13 +407,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const hasPermission = useCallback((module: string, userRole: UserRole): boolean => {
     const normalizedModule = module.trim().toLowerCase();
     const normalizedRole = userRole.trim().toLowerCase();
-
     if (!normalizedModule || !normalizedRole) return false;
     if (normalizedRole === "super_admin") return true;
-
-    if (normalizedRole === "admin") {
-      return normalizedModule !== "settings";
-    }
+    if (normalizedRole === "admin") return normalizedModule !== "settings";
 
     const permissionMatrix: Record<string, string[]> = {
       commercial: ["crm", "clients", "quotes"],
@@ -458,42 +443,52 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
         if (userResponse.error || !authUser) {
           if (!isMounted || activeRequestRef.current !== requestId) return;
-
           setResolvedUserId(null);
           setResolvedClientId(null);
+          setUserCompanyId(null);
           setCompanyProfile({ ...defaultCompanyProfile });
           setSystemPreferences({ ...defaultSystemPreferences });
           return;
         }
 
         if (!isMounted || activeRequestRef.current !== requestId) return;
-
         setResolvedUserId(authUser.id);
 
+        // FIX: busca company_id junto com o perfil
         const profileResponse = await supabase
           .from("profiles")
-          .select("id, client_id, role")
+          .select("id, client_id, role, company_id")
           .eq("id", authUser.id)
           .maybeSingle<ProfileIdentityRow>();
 
         if (!isMounted || activeRequestRef.current !== requestId) return;
-
         if (profileResponse.error) throw profileResponse.error;
 
         const profile = profileResponse.data ?? null;
-        setResolvedClientId(profile?.client_id ?? null);
+        const companyId = profile?.company_id ?? null;
 
+        setResolvedClientId(profile?.client_id ?? null);
+        setUserCompanyId(companyId);
+
+        // FIX: company_profile e system_preferences agora filtram pelo
+        // company_id do usuário logado — antes usavam .limit(1) que retornava
+        // a primeira linha do banco, podendo sobrescrever dados de outra empresa.
         const [companyResult, preferencesResult] = await Promise.all([
-          supabase
-            .from("company_profile")
-            .select("*")
-            .limit(1)
-            .maybeSingle<CompanyProfileRow>(),
-          supabase
-            .from("system_preferences")
-            .select("id, feature_toggles, custom_labels, commercial_documents, currency_code, financial_categories")
-            .limit(1)
-            .maybeSingle<SystemPreferencesRow>(),
+          companyId
+            ? supabase
+                .from("company_profile")
+                .select("*")
+                .eq("id", companyId)
+                .maybeSingle<CompanyProfileRow>()
+            : Promise.resolve({ data: null, error: null }),
+
+          companyId
+            ? supabase
+                .from("system_preferences")
+                .select("id, feature_toggles, custom_labels, commercial_documents, currency_code, financial_categories")
+                .eq("company_id", companyId)
+                .maybeSingle<SystemPreferencesRow>()
+            : Promise.resolve({ data: null, error: null }),
         ]);
 
         if (!isMounted || activeRequestRef.current !== requestId) return;
@@ -505,9 +500,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setSystemPreferences(normalizeSystemPreferences(preferencesResult.data ?? null));
       } catch (error) {
         console.error("Erro ao carregar configurações do sistema:", error);
-
         if (!isMounted || activeRequestRef.current !== requestId) return;
-
         setCompanyProfile({ ...defaultCompanyProfile });
         setSystemPreferences({ ...defaultSystemPreferences });
       } finally {
@@ -531,6 +524,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       loading,
       resolvedUserId,
       resolvedClientId,
+      userCompanyId,
       refreshSettings,
       hasPermission,
     }),
@@ -540,6 +534,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       loading,
       resolvedUserId,
       resolvedClientId,
+      userCompanyId,
       refreshSettings,
       hasPermission,
     ]
