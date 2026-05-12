@@ -3,6 +3,15 @@ import { NextResponse } from "next/server";
 export const runtime = "edge";
 export const maxDuration = 60;
 
+// ─── Modelo Gemini ────────────────────────────────────────────────────────────
+// Identificador completo obrigatório para a API v1beta.
+// Configurável via env var para facilitar atualização sem deploy.
+const GEMINI_MODEL =
+  process.env.GEMINI_MODEL ?? "gemini-2.5-flash-preview-05-20";
+
+const GEMINI_BASE =
+  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}`;
+
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface GenerateBody {
@@ -44,6 +53,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Body inválido." }, { status: 400 });
   }
 
+  // ⚠️  TODO: companyName = "AXON" é hardcode de marca — substituir por lookup
+  //           via company_id assim que o BLOCO 3 de contexto for implementado.
   const { mode, objective, title, companyName = "AXON", niche = "cliente", platforms = ["blog"] } = body;
 
   // ── Modo: sugestões de pauta ───────────────────────────────────────────────
@@ -53,7 +64,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Campo 'objective' obrigatório." }, { status: 400 });
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today        = new Date().toISOString().slice(0, 10);
     const platformList = platforms.join(", ");
 
     const prompt = `Você é um estrategista de conteúdo digital. Gere exatamente 5 sugestões de posts para a empresa "${companyName}" (nicho: ${niche}).
@@ -68,7 +79,7 @@ Retorne APENAS um JSON válido, sem markdown, sem texto antes ou depois. Formato
 
 Distribua as datas ao longo das próximas 4 semanas. Varie os horários entre 09:00, 12:00 e 18:00.`;
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const endpoint = `${GEMINI_BASE}:generateContent?key=${apiKey}`;
 
     try {
       const res = await fetch(endpoint, {
@@ -85,8 +96,8 @@ Distribua as datas ao longo das próximas 4 semanas. Varie os horários entre 09
         return NextResponse.json({ error: `Gemini error: ${errText}` }, { status: 502 });
       }
 
-      const gemini = await res.json() as GeminiResponse;
-      const raw = gemini.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+      const gemini  = await res.json() as GeminiResponse;
+      const raw     = gemini.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
       const cleaned = raw.replace(/```json|```/g, "").trim();
 
       let parsed: { suggestions: AiSuggestion[] };
@@ -127,7 +138,7 @@ Regras obrigatórias:
 - Se houver múltiplas plataformas, separe por seções com o nome da plataforma em negrito.
 - Máximo de 300 palavras por plataforma.`;
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=${apiKey}`;
+    const endpoint = `${GEMINI_BASE}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
     try {
       const geminiRes = await fetch(endpoint, {
