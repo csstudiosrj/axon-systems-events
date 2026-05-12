@@ -62,6 +62,7 @@ type FinancialAmountRow = {
 };
 
 type SettingsShape = {
+  userCompanyId?: string | null;
   systemPreferences?: {
     feature_toggles?: Record<string, boolean | undefined> | null;
     custom_labels?: Record<string, string | undefined> | null;
@@ -179,7 +180,8 @@ function SmallToggleSection({
 }
 
 export default function DashboardPage() {
-  const { systemPreferences } = (useSettings() as SettingsShape) ?? {};
+  const { systemPreferences, userCompanyId } =
+    (useSettings() as SettingsShape) ?? {};
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [state, setState] = useState<DashboardState>(INITIAL_STATE);
@@ -207,7 +209,10 @@ export default function DashboardPage() {
     [customLabels]
   );
 
+  // userCompanyId é dependência do callback para recarregar quando a empresa mudar
   const loadDashboard = useCallback(async () => {
+    if (!userCompanyId) return;
+
     setErrorMessage(null);
     const now = new Date().toISOString();
     const todayStart = startOfTodayIso();
@@ -230,51 +235,61 @@ export default function DashboardPage() {
         supabase
           .from("financial_transactions")
           .select("amount")
+          .eq("company_id", userCompanyId)
           .eq("type", "income")
           .eq("status", "paid"),
         supabase
           .from("financial_transactions")
           .select("amount")
+          .eq("company_id", userCompanyId)
           .eq("type", "expense")
           .eq("status", "paid"),
         supabase
           .from("financial_transactions")
           .select("amount")
+          .eq("company_id", userCompanyId)
           .eq("type", "income")
           .eq("status", "pending")
           .lt("due_date", todayStart.slice(0, 10)),
         supabase
           .from("financial_transactions")
           .select("amount")
+          .eq("company_id", userCompanyId)
           .eq("type", "expense")
           .eq("status", "pending")
           .lt("due_date", todayStart.slice(0, 10)),
         supabase
           .from("tickets")
           .select("*", { count: "exact", head: true })
+          .eq("company_id", userCompanyId)
           .in("status", ["open", "pending", "in_progress"]),
         supabase
           .from("tickets")
           .select("*", { count: "exact", head: true })
+          .eq("company_id", userCompanyId)
           .in("status", ["open", "pending", "in_progress"])
           .lt("sla_deadline", now),
         supabase
           .from("service_orders")
           .select("*", { count: "exact", head: true })
+          .eq("company_id", userCompanyId)
           .gte("event_start_date", now)
           .lte("event_start_date", next7Days),
         supabase
           .from("quotes")
           .select("*", { count: "exact", head: true })
+          .eq("company_id", userCompanyId)
           .in("status", ["draft", "pending_approval"]),
         supabase
           .from("quotes")
           .select("id, title, status, final_amount, valid_until, created_at")
+          .eq("company_id", userCompanyId)
           .order("created_at", { ascending: false })
           .limit(3),
         supabase
           .from("service_orders")
           .select("id, status, event_start_date, event_end_date")
+          .eq("company_id", userCompanyId)
           .gte("event_start_date", now)
           .lte("event_start_date", next7Days)
           .order("event_start_date", { ascending: true })
@@ -282,6 +297,7 @@ export default function DashboardPage() {
         supabase
           .from("tickets")
           .select("id, title, status, priority, category, sla_deadline")
+          .eq("company_id", userCompanyId)
           .in("status", ["open", "pending", "in_progress"])
           .order("created_at", { ascending: false })
           .limit(3),
@@ -306,10 +322,18 @@ export default function DashboardPage() {
       const sumAmount = (rows: FinancialAmountRow[] | null) =>
         (rows ?? []).reduce((acc, curr) => acc + toNumber(curr.amount), 0);
 
-      const totalIncomePaid = sumAmount((paidIncomeRes.data as FinancialAmountRow[] | null) ?? []);
-      const totalExpensePaid = sumAmount((paidExpenseRes.data as FinancialAmountRow[] | null) ?? []);
-      const overdueIncome = sumAmount((overdueIncomeRes.data as FinancialAmountRow[] | null) ?? []);
-      const overdueExpense = sumAmount((overdueExpenseRes.data as FinancialAmountRow[] | null) ?? []);
+      const totalIncomePaid = sumAmount(
+        (paidIncomeRes.data as FinancialAmountRow[] | null) ?? []
+      );
+      const totalExpensePaid = sumAmount(
+        (paidExpenseRes.data as FinancialAmountRow[] | null) ?? []
+      );
+      const overdueIncome = sumAmount(
+        (overdueIncomeRes.data as FinancialAmountRow[] | null) ?? []
+      );
+      const overdueExpense = sumAmount(
+        (overdueExpenseRes.data as FinancialAmountRow[] | null) ?? []
+      );
 
       setState({
         totalIncomePaid,
@@ -330,7 +354,7 @@ export default function DashboardPage() {
       console.error("Erro ao carregar dashboard:", error);
       setErrorMessage("Não foi possível carregar o painel agora.");
     }
-  }, []);
+  }, [userCompanyId]); // recarrega se a empresa ativa mudar
 
   useEffect(() => {
     let mounted = true;
@@ -374,7 +398,10 @@ export default function DashboardPage() {
       value: formatCurrency(state.balance),
       href: "/financeiro",
       icon: Wallet,
-      accent: state.balance >= 0 ? "text-cs-green bg-cs-green/10" : "text-red-400 bg-red-500/10",
+      accent:
+        state.balance >= 0
+          ? "text-cs-green bg-cs-green/10"
+          : "text-red-400 bg-red-500/10",
     },
     {
       title: `${labels.quotes} pendentes`,
