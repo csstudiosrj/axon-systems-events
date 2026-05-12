@@ -94,7 +94,7 @@ export async function POST(request: Request) {
         secure:   process.env.NODE_ENV === "production",
         sameSite: "lax",
         expires:  new Date(exp),
-        path:     "/colaborador",
+        path:     "/",
       });
       return res;
     }
@@ -128,7 +128,7 @@ export async function POST(request: Request) {
       secure:   process.env.NODE_ENV === "production",
       sameSite: "lax",
       expires:  new Date(exp),
-      path:     "/colaborador",
+      path:     "/",
     });
     return res;
 
