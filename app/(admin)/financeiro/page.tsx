@@ -218,7 +218,7 @@ const translateDisputeCategory = (value?: string | null) => {
   const map: Record<string, string> = {
     amount_divergence: "Valor divergente",
     duplicate_charge: "Cobrança duplicada",
-    service_not_delivered: "Serviço não entregue",
+    service_not_delivered: "Serviço não entregido",
     wrong_due_date: "Data incorreta",
     wrong_document: "Documento incorreto",
     unknown_charge: "Cobrança desconhecida",
@@ -334,6 +334,7 @@ const getPaymentDifference = (transaction: Transaction) => {
 export default function FinanceiroPage() {
   const router = useRouter();
   const settingsCtx = useSettings() as unknown as {
+    userCompanyId?: string | null;
     systemPreferences?: {
       custom_labels?: Record<string, string>;
       currency_code?: string;
@@ -342,6 +343,7 @@ export default function FinanceiroPage() {
     companyProfile?: { company_name?: string; [k: string]: unknown };
   };
 
+  const userCompanyId = settingsCtx?.userCompanyId;
   const sys = settingsCtx?.systemPreferences;
   const companyProfile = settingsCtx?.companyProfile;
 
@@ -512,6 +514,9 @@ export default function FinanceiroPage() {
   }, []);
 
   const fetchData = useCallback(async () => {
+    // Não faz nenhuma query sem o ID da empresa
+    if (!userCompanyId) return;
+
     setLoading(true);
     try {
       await fetchCurrentUser();
@@ -532,19 +537,23 @@ export default function FinanceiroPage() {
              clients(*),
              member:profiles!member_id(id, full_name, email, role, commission_percentage)`
           )
+          .eq("company_id", userCompanyId)
           .order("due_date", { ascending: true }),
         supabase
           .from("clients")
           .select("id, company_name, email, phone")
+          .eq("company_id", userCompanyId)
           .order("company_name"),
         supabase
           .from("quotes")
           .select("id, title, salesperson_id, final_amount, client_id")
+          .eq("company_id", userCompanyId)
           .eq("status", "approved")
           .order("created_at", { ascending: false }),
         supabase
           .from("profiles")
           .select("id, full_name, email, role, commission_percentage")
+          .eq("company_id", userCompanyId)
           .order("full_name"),
       ]);
 
@@ -559,7 +568,7 @@ export default function FinanceiroPage() {
     } finally {
       setLoading(false);
     }
-  }, [fetchCurrentUser, showToast]);
+  }, [userCompanyId, fetchCurrentUser, showToast]);
 
   const fetchInteractionDetails = useCallback(
     async (transactionId: string) => {
@@ -623,6 +632,8 @@ export default function FinanceiroPage() {
 
   // ── Realtime subscription ─────────────────────────────────────────────────
   useEffect(() => {
+    if (!userCompanyId) return;
+
     const channel = supabase
       .channel("financeiro-realtime-v3")
       .on(
@@ -646,6 +657,7 @@ export default function FinanceiroPage() {
                  clients(*),
                  member:profiles!member_id(id, full_name, email, role, commission_percentage)`
               )
+              .eq("company_id", userCompanyId)
               .eq("id", selectedTransaction.id)
               .single();
             if (latest.data)
@@ -685,6 +697,7 @@ export default function FinanceiroPage() {
       supabase.removeChannel(channel);
     };
   }, [
+    userCompanyId,
     fetchData,
     fetchInteractionDetails,
     isDetailModalOpen,
@@ -723,8 +736,6 @@ export default function FinanceiroPage() {
   }, [attachments]);
 
   // ── Queue new-items tracking ──────────────────────────────────────────────
-  // FIX: deduplica por grupo (document_number || quote_id) para evitar que
-  // múltiplas parcelas do mesmo grupo apareçam como itens separados na fila.
   const clientActionQueue = useMemo(() => {
     const seen = new Set<string>();
     return transactions
@@ -738,7 +749,6 @@ export default function FinanceiroPage() {
               t.dispute_status !== "none"))
       )
       .filter((t) => {
-        // Usa a chave de grupo mais específica disponível
         const groupKey = t.document_number || t.quote_id || t.id;
         if (seen.has(groupKey)) return false;
         seen.add(groupKey);
@@ -1227,9 +1237,10 @@ export default function FinanceiroPage() {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
       const clientId =
         selectedTransaction?.client_id || formData.clientId || "internal";
-      return `financial/${clientId}/${transactionId}/finance/${Date.now()}-${safeName}`;
+      // Prefixo com userCompanyId para isolar assets por empresa (item 10)
+      return `${userCompanyId}/financial/${clientId}/${transactionId}/finance/${Date.now()}-${safeName}`;
     },
-    [formData.clientId, selectedTransaction?.client_id]
+    [userCompanyId, formData.clientId, selectedTransaction?.client_id]
   );
 
   const uploadPrivateFile = useCallback(
@@ -1475,6 +1486,7 @@ export default function FinanceiroPage() {
     };
 
     const payload: Record<string, unknown> = {
+      company_id: userCompanyId,
       description: formData.description,
       type: formType,
       expense_type: formType === "expense" ? expenseType : null,
@@ -1707,13 +1719,14 @@ export default function FinanceiroPage() {
            clients(*),
            member:profiles!member_id(id, full_name, email, role, commission_percentage)`
         )
+        .eq("company_id", userCompanyId!)
         .eq("id", transactionId)
         .single();
 
       if (data) setSelectedTransaction(data as unknown as Transaction);
       await fetchInteractionDetails(transactionId);
     },
-    [fetchInteractionDetails]
+    [userCompanyId, fetchInteractionDetails]
   );
 
   // ── Finance actions ───────────────────────────────────────────────────────
@@ -1721,8 +1734,6 @@ export default function FinanceiroPage() {
     if (!selectedTransaction) return;
     const paymentInfo = getPaymentDifference(selectedTransaction);
 
-    // Pagamento parcial exige data de vencimento para a nova cobrança de saldo
-    // (só quando não há parcelas abertas no grupo para absorver o saldo)
     const openInstallmentsInGroup = receivableForGroup.filter(
       (r) => r.id !== selectedTransaction.id && r.status === "pending"
     );
@@ -1740,7 +1751,6 @@ export default function FinanceiroPage() {
     setActionSubmitting(true);
     try {
       const now = new Date().toISOString();
-      // Usa a data informada pelo cliente como data de pagamento
       const paymentDateConfirmed =
         selectedTransaction.payment_reported_at
           ? new Date(selectedTransaction.payment_reported_at)
@@ -1748,13 +1758,14 @@ export default function FinanceiroPage() {
               .split("T")[0]
           : new Date().toISOString().split("T")[0];
 
-      // ── Busca dados do vendedor para comissão proporcional ────────────────
+      // Busca vendedor da empresa correta
       let salespersonId: string | null = null;
       let commissionPct: number | null = null;
       if (selectedTransaction.quote_id) {
         const { data: quoteData } = await supabase
           .from("quotes")
           .select("salesperson_id")
+          .eq("company_id", userCompanyId!)
           .eq("id", selectedTransaction.quote_id)
           .single();
         if (quoteData?.salesperson_id) {
@@ -1762,13 +1773,13 @@ export default function FinanceiroPage() {
           const { data: sellerData } = await supabase
             .from("profiles")
             .select("commission_percentage")
+            .eq("company_id", userCompanyId!)
             .eq("id", quoteData.salesperson_id)
             .single();
           commissionPct = sellerData?.commission_percentage ?? null;
         }
       }
 
-      // ── Registra evento de confirmação ────────────────────────────────────
       const eventId = await registerFinanceEvent(
         selectedTransaction.id,
         "payment_confirmed",
@@ -1797,13 +1808,11 @@ export default function FinanceiroPage() {
         "finance_confirmation"
       );
 
-      // ── Dá baixa na transação original pelo valor informado ───────────────
       const { error: updateError } = await supabase
         .from("financial_transactions")
         .update({
           status: "paid",
           workflow_status: "confirmed",
-          // Para parcial: sobrescreve amount com o valor efetivamente recebido
           ...(paymentInfo.scenario === "partial" && {
             amount: paymentInfo.reported,
           }),
@@ -1828,11 +1837,12 @@ export default function FinanceiroPage() {
       if (updateError)
         throw new Error(updateError.message || "Erro ao confirmar pagamento.");
 
-      // ── Comissão proporcional ao valor recebido ───────────────────────────
+      // Comissão proporcional — inclui company_id
       if (salespersonId && commissionPct) {
         const commissionAmount =
           (paymentInfo.reported * commissionPct) / 100;
         await supabase.from("financial_transactions").insert({
+          company_id: userCompanyId,
           type: "expense",
           expense_type: "personnel",
           category: "Comissão de Vendas",
@@ -1847,12 +1857,10 @@ export default function FinanceiroPage() {
         });
       }
 
-      // ── Tratamento do saldo remanescente (só para pagamento parcial) ──────
       if (paymentInfo.scenario === "partial") {
         const saldo = Math.abs(paymentInfo.difference);
 
         if (openInstallmentsInGroup.length > 0) {
-          // Dilui o saldo na primeira parcela aberta do grupo
           const firstOpen = openInstallmentsInGroup.sort(
             (a, b) => (a.installment_number || 0) - (b.installment_number || 0)
           )[0];
@@ -1882,13 +1890,14 @@ export default function FinanceiroPage() {
             "success"
           );
         } else {
-          // Não há parcelas abertas — gera nova cobrança com a data informada
           const maxInstallment = receivableForGroup.reduce(
             (max, r) => Math.max(max, r.installment_number || 0),
             0
           );
 
+          // Nova cobrança de saldo — inclui company_id
           await supabase.from("financial_transactions").insert({
+            company_id: userCompanyId,
             type: "income",
             category: selectedTransaction.category,
             description: `${selectedTransaction.description || "Fatura"} — Saldo remanescente`,
@@ -4206,7 +4215,6 @@ export default function FinanceiroPage() {
                       selectedTransaction.workflow_status ===
                         "under_review") && (
                       <>
-                        {/* Campo de data só aparece para pagamento parcial sem parcelas abertas */}
                         {selectedPaymentInfo.scenario === "partial" &&
                           receivableForGroup.filter(
                             (r) =>
@@ -4235,7 +4243,6 @@ export default function FinanceiroPage() {
                             </div>
                           )}
 
-                        {/* Para pagamento parcial com parcelas abertas: informa que vai diluir */}
                         {selectedPaymentInfo.scenario === "partial" &&
                           receivableForGroup.filter(
                             (r) =>
