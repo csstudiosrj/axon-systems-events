@@ -61,6 +61,7 @@ interface SettingsContextShape {
   companyProfile?: CompanyProfileRecord | null;
   systemPreferences?: SystemPreferencesRecord | null;
   refreshSettings?: () => Promise<void> | void;
+  userCompanyId?: string | null;
 }
 
 interface CompanyForm {
@@ -466,7 +467,12 @@ function getErrorMessage(error: any) {
 
 export default function ConfiguracoesPage() {
   const router = useRouter();
-  const { companyProfile, systemPreferences, refreshSettings } = useSettings() as SettingsContextShape;
+  const {
+    companyProfile,
+    systemPreferences,
+    refreshSettings,
+    userCompanyId,
+  } = useSettings() as SettingsContextShape;
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("perfil");
   const[companyForm, setCompanyForm] = useState<CompanyForm>(DEFAULT_COMPANY_FORM);
@@ -678,7 +684,8 @@ export default function ConfiguracoesPage() {
 
     const extension = selectedLogoFile.name.split(".").pop()?.toLowerCase() || "png";
     const safeName = sanitizeFileName(selectedLogoFile.name.replace(/\.[^.]+$/, "") || "logo");
-    const filePath = `logos/${Date.now()}-${safeName}.${extension}`;
+    // Prefixo com userCompanyId para isolar assets por empresa (item 10)
+    const filePath = `${userCompanyId}/logos/${Date.now()}-${safeName}.${extension}`;
 
     const { error: uploadError } = await supabase.storage
       .from("axon-assets")
@@ -706,6 +713,8 @@ export default function ConfiguracoesPage() {
   };
 
   const saveCompanyProfileRecord = async () => {
+    if (!userCompanyId) throw new Error("company_id não disponível.");
+
     const logoUrl = await uploadLogo();
 
     const payload = {
@@ -733,39 +742,61 @@ export default function ConfiguracoesPage() {
       invoice_footer: companyForm.invoice_footer || "",
     };
 
-    const { data: existing, error: fetchError } = await supabase.from("company_profile").select("id").limit(1).maybeSingle();
-    
-    if (fetchError && fetchError.code !== 'PGRST116') {
+    // Busca o registro da empresa corrente pelo company_id (não mais .limit(1))
+    const { data: existing, error: fetchError } = await supabase
+      .from("company_profile")
+      .select("id")
+      .eq("company_id", userCompanyId)
+      .maybeSingle();
+
+    if (fetchError && fetchError.code !== "PGRST116") {
       throw fetchError;
     }
 
     if (existing?.id) {
-      const { error } = await supabase.from("company_profile").update(payload).eq("id", existing.id);
+      const { error } = await supabase
+        .from("company_profile")
+        .update(payload)
+        .eq("id", existing.id);
       if (error) throw error;
     } else {
-      const { error } = await supabase.from("company_profile").insert(payload);
+      const { error } = await supabase
+        .from("company_profile")
+        .insert({ ...payload, company_id: userCompanyId });
       if (error) throw error;
     }
   };
 
   const savePreferencesRecord = async () => {
+    if (!userCompanyId) throw new Error("company_id não disponível.");
+
     const payload = {
       custom_labels: preferencesForm.custom_labels || {},
       feature_toggles: preferencesForm.feature_toggles || {},
       commercial_documents: preferencesForm.commercial_documents || {},
     };
 
-    const { data: existing, error: fetchError } = await supabase.from("system_preferences").select("id").limit(1).maybeSingle();
-    
-    if (fetchError && fetchError.code !== 'PGRST116') {
+    // Busca o registro da empresa corrente pelo company_id (não mais .limit(1))
+    const { data: existing, error: fetchError } = await supabase
+      .from("system_preferences")
+      .select("id")
+      .eq("company_id", userCompanyId)
+      .maybeSingle();
+
+    if (fetchError && fetchError.code !== "PGRST116") {
       throw fetchError;
     }
 
     if (existing?.id) {
-      const { error } = await supabase.from("system_preferences").update(payload).eq("id", existing.id);
+      const { error } = await supabase
+        .from("system_preferences")
+        .update(payload)
+        .eq("id", existing.id);
       if (error) throw error;
     } else {
-      const { error } = await supabase.from("system_preferences").insert(payload);
+      const { error } = await supabase
+        .from("system_preferences")
+        .insert({ ...payload, company_id: userCompanyId });
       if (error) throw error;
     }
   };
