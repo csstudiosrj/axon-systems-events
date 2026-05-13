@@ -35,12 +35,16 @@ interface Toast {
 
 export default function OSPage() {
   const router = useRouter();
-  const { systemPreferences } = useSettings();
-  
+  const settings = useSettings() as {
+    systemPreferences?: { custom_labels?: Record<string, string> } | null;
+    userCompanyId?: string | null;
+  };
+
+  const { systemPreferences, userCompanyId } = settings;
   const labels = systemPreferences?.custom_labels || {};
-  const osSingular  = labels.entity_service_order_singular || "OS";
-  const osPlural    = labels.entity_service_order_plural   || "Ordens de Serviço";
-  const quoteSingular = labels.entity_quote_singular       || "Orçamento";
+  const osSingular    = labels.entity_service_order_singular || "OS";
+  const osPlural      = labels.entity_service_order_plural   || "Ordens de Serviço";
+  const quoteSingular = labels.entity_quote_singular         || "Orçamento";
 
   const [view, setView] = useState<"list" | "create" | "details">("list");
   const [orders, setOrders] = useState<any[]>([]);
@@ -71,32 +75,41 @@ export default function OSPage() {
   }, []);
 
   const fetchInternalTeam = useCallback(async () => {
+    if (!userCompanyId) return;
+
     const staffRoles = ['super_admin', 'admin', 'commercial', 'financial', 'logistics', 'marketing', 'training', 'support'];
     const { data, error } = await supabase
       .from("profiles")
       .select("id, full_name, email, role")
+      .eq("company_id", userCompanyId)
       .in("role", staffRoles);
     if (!error && data) setInternalTeam(data as InternalProfile[]);
-  }, []);
+  }, [userCompanyId]);
 
   const fetchOrders = useCallback(async () => {
+    if (!userCompanyId) return;
+
     setLoading(true);
     const { data, error } = await supabase
       .from("service_orders")
       .select(`*, producer:profiles(full_name), quotes(title, clients(company_name, contact_name, phone))`)
+      .eq("company_id", userCompanyId)
       .order("event_start_date", { ascending: true });
     if (!error && data) setOrders(data);
     setLoading(false);
-  }, []);
+  }, [userCompanyId]);
 
   const fetchAvailableQuotes = useCallback(async () => {
+    if (!userCompanyId) return;
+
     const { data } = await supabase
       .from("quotes")
       .select("id, title, event_start_date, event_end_date, clients(company_name)")
+      .eq("company_id", userCompanyId)
       .eq("status", "approved")
       .order("created_at", { ascending: false });
     if (data) setAvailableQuotes(data);
-  }, []);
+  }, [userCompanyId]);
 
   useEffect(() => {
     if (view === "list") fetchOrders();
@@ -137,6 +150,7 @@ export default function OSPage() {
     setIsSubmitting(true);
     try {
       const { error } = await supabase.from("service_orders").insert([{
+        company_id: userCompanyId,
         quote_id: quoteId,
         event_start_date: new Date(startDate).toISOString(),
         event_end_date: new Date(endDate).toISOString(),
@@ -274,7 +288,6 @@ export default function OSPage() {
             </div>
 
             <form onSubmit={handleCreateOS} className="space-y-5">
-              {/* Seleção do orçamento */}
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5">
                   {quoteSingular} aprovado *
@@ -304,7 +317,6 @@ export default function OSPage() {
                 )}
               </div>
 
-              {/* Datas */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5">
