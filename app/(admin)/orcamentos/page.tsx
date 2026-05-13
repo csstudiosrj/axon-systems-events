@@ -84,9 +84,9 @@ export default function OrcamentosPage() {
   const labels = systemPreferences?.custom_labels || {};
   const currencyCode = systemPreferences?.currency_code || "BRL";
 
-  const quoteSingular     = labels.entity_quote_singular     || "Orçamento";
-  const quotePlural       = labels.entity_quote_plural       || "Orçamentos";
-  const clientSingular    = labels.entity_client_singular    || "Cliente";
+  const quoteSingular       = labels.entity_quote_singular       || "Orçamento";
+  const quotePlural         = labels.entity_quote_plural         || "Orçamentos";
+  const clientSingular      = labels.entity_client_singular      || "Cliente";
   const salespersonSingular = labels.entity_salesperson_singular || "Responsável Comercial";
 
   // ─── View state ─────────────────────────────────────────────────────────────
@@ -118,7 +118,9 @@ export default function OrcamentosPage() {
   const [teardownEnd, setTeardownEnd]     = useState("");
   const [items, setItems] = useState<QuoteItem[]>([]);
 
-  // ─── Modal: Aprovação + Financeiro + OS ────────────────────────────────────
+  // ─── Modal: Aprovação + Financeiro ──────────────────────────────────────────
+  // NOTA: a OS NÃO é criada aqui. Ela será gerada pelo Financeiro
+  // no momento em que o pagamento da fatura for confirmado.
 
   const [approvalModalOpen, setApprovalModalOpen] = useState(false);
   const [selectedQuoteForApproval, setSelectedQuoteForApproval] = useState<Quote | null>(null);
@@ -287,7 +289,8 @@ export default function OrcamentosPage() {
     setLoading(false);
   };
 
-  // ─── Motor de Aprovação: Financeiro + OS ────────────────────────────────────
+  // ─── Motor de Aprovação: apenas Financeiro ───────────────────────────────────
+  // A OS será criada pelo Financeiro ao confirmar o pagamento da fatura.
 
   const openApprovalModal = (quote: Quote) => {
     setSelectedQuoteForApproval(quote);
@@ -309,32 +312,36 @@ export default function OrcamentosPage() {
     }
   };
 
-  // Cria: financial_transactions (parcelas) + service_order (OS) automaticamente
+  // Cria apenas as parcelas financeiras.
+  // A OS é responsabilidade do Financeiro após confirmação do pagamento.
   const processApprovalAndFinance = async () => {
     if (!selectedQuoteForApproval || !firstDueDate) return;
     setIsSubmitting(true);
 
     try {
       const quote = selectedQuoteForApproval;
-      const amountPerInstallment = quote.final_amount / installments;
+      const total = quote.final_amount;
 
-      // 1. Parcelas financeiras
+      // Distribuição de centavos: parcelas iguais, diferença vai para a última
+      const baseAmount   = Math.floor((total / installments) * 100) / 100;
+      const lastAmount   = Math.round((total - baseAmount * (installments - 1)) * 100) / 100;
+
       const transactions = Array.from({ length: installments }, (_, i) => {
         const dueDate = new Date(firstDueDate);
         dueDate.setMonth(dueDate.getMonth() + i);
         return {
-          description: `${quote.title} — Parcela ${i + 1}/${installments}`,
-          type: "income",
-          category: "Venda de Serviços",
-          amount: amountPerInstallment,
-          status: "pending",
-          due_date: dueDate.toISOString().split("T")[0],
-          client_id: quote.client_id,
-          quote_id: quote.id,
+          description:        `${quote.title} — Parcela ${i + 1}/${installments}`,
+          type:               "income",
+          category:           "Venda de Serviços",
+          amount:             i === installments - 1 ? lastAmount : baseAmount,
+          status:             "pending",
+          due_date:           dueDate.toISOString().split("T")[0],
+          client_id:          quote.client_id,
+          quote_id:           quote.id,
           installment_number: i + 1,
           total_installments: installments,
-          payment_method: paymentMethod,
-          source: "quote_approval",
+          payment_method:     paymentMethod,
+          source:             "quote_approval",
         };
       });
 
@@ -343,31 +350,7 @@ export default function OrcamentosPage() {
         .insert(transactions);
       if (financeError) throw financeError;
 
-      // 2. Criação automática da OS (service_order)
-      const { error: osError } = await supabase
-        .from("service_orders")
-        .insert({
-          quote_id: quote.id,
-          client_id: quote.client_id,
-          salesperson_id: quote.salesperson_id,
-          title: quote.title,
-          status: "scheduled",
-          start_date: quote.event_start_date
-            ? quote.event_start_date.split("T")[0]
-            : null,
-          end_date: quote.event_end_date
-            ? quote.event_end_date.split("T")[0]
-            : null,
-          setup_start_date: quote.setup_start_date,
-          setup_end_date: quote.setup_end_date,
-          teardown_start_date: quote.teardown_start_date,
-          teardown_end_date: quote.teardown_end_date,
-          total_amount: quote.final_amount,
-          source: "quote_approval",
-        });
-      if (osError) throw osError;
-
-      // 3. Atualiza status do orçamento
+      // Atualiza status do orçamento
       const { error: quoteError } = await supabase
         .from("quotes")
         .update({ status: "approved" })
@@ -375,7 +358,7 @@ export default function OrcamentosPage() {
       if (quoteError) throw quoteError;
 
       showToast(
-        `${quoteSingular} aprovado — OS e financeiro criados com sucesso.`,
+        `${quoteSingular} aprovado — parcelas financeiras geradas. A OS será criada após confirmação do pagamento.`,
         "success"
       );
       setApprovalModalOpen(false);
@@ -411,7 +394,6 @@ export default function OrcamentosPage() {
     setNegotiationModalOpen(true);
   };
 
-  // Responde ao cliente (mantém "negotiating", atualiza notes)
   const handleRespondNegotiation = async () => {
     if (!selectedQuoteForNegotiation || isRespondingNegotiation) return;
     setIsRespondingNegotiation(true);
@@ -430,10 +412,8 @@ export default function OrcamentosPage() {
     setIsRespondingNegotiation(false);
   };
 
-  // Aprova diretamente do painel de negociação
   const handleApproveFromNegotiation = async () => {
     if (!selectedQuoteForNegotiation) return;
-    // Salva resposta do admin antes de abrir modal de aprovação
     if (adminResponse.trim()) {
       await supabase
         .from("quotes")
@@ -444,7 +424,6 @@ export default function OrcamentosPage() {
     openApprovalModal(selectedQuoteForNegotiation);
   };
 
-  // Recusa do painel de negociação
   const handleRejectFromNegotiation = async () => {
     if (!selectedQuoteForNegotiation || isRespondingNegotiation) return;
     setIsRespondingNegotiation(true);
@@ -634,14 +613,14 @@ export default function OrcamentosPage() {
         </div>
       )}
 
-      {/* ── Modal: Aprovação + Financeiro + OS ── */}
+      {/* ── Modal: Aprovação + Financeiro ── */}
       {approvalModalOpen && selectedQuoteForApproval && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 backdrop-blur-sm">
           <div className="bg-surface border border-surface/50 rounded-xl w-full max-w-md overflow-hidden shadow-2xl">
             <div className="bg-background p-4 border-b border-surface/50 flex justify-between items-center">
               <h3 className="text-white font-bold flex items-center gap-2">
                 <DollarSign className="text-cs-green" size={18} />
-                Condições de Pagamento + OS
+                Condições de Pagamento
               </h3>
               <button
                 onClick={() => setApprovalModalOpen(false)}
@@ -661,12 +640,12 @@ export default function OrcamentosPage() {
                 </p>
               </div>
 
-              {/* Aviso OS */}
-              <div className="flex items-start gap-2 rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2.5">
-                <ClipboardList size={14} className="text-blue-400 mt-0.5 shrink-0" />
-                <p className="text-xs text-blue-300">
-                  Uma <strong>Ordem de Serviço</strong> com status{" "}
-                  <em>Agendada</em> será criada automaticamente ao confirmar.
+              {/* Aviso: OS criada apenas após confirmação do pagamento */}
+              <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
+                <ClipboardList size={14} className="text-amber-400 mt-0.5 shrink-0" />
+                <p className="text-xs text-amber-300">
+                  A <strong>Ordem de Serviço</strong> será criada automaticamente pelo{" "}
+                  <strong>Financeiro</strong> somente após a confirmação do pagamento.
                 </p>
               </div>
 
@@ -707,7 +686,7 @@ export default function OrcamentosPage() {
                         <option key={num} value={num}>
                           {num}x de{" "}
                           {formatCurrency(
-                            selectedQuoteForApproval.final_amount / num
+                            Math.floor((selectedQuoteForApproval.final_amount / num) * 100) / 100
                           )}
                         </option>
                       ))}
@@ -747,7 +726,7 @@ export default function OrcamentosPage() {
                 ) : (
                   <Check size={16} />
                 )}
-                Confirmar — Criar OS e Financeiro
+                Confirmar — Gerar Financeiro
               </button>
             </div>
           </div>
@@ -772,7 +751,6 @@ export default function OrcamentosPage() {
             </div>
 
             <div className="p-6 space-y-5">
-              {/* Proposta do cliente */}
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-amber-400 mb-2">
                   Proposta do Cliente
@@ -790,7 +768,6 @@ export default function OrcamentosPage() {
                 )}
               </div>
 
-              {/* Resposta do admin */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-text-secondary mb-2">
                   Sua Resposta{" "}
@@ -807,7 +784,6 @@ export default function OrcamentosPage() {
                 />
               </div>
 
-              {/* Resumo do orçamento */}
               <div className="flex items-center justify-between rounded-lg border border-surface/50 bg-background px-4 py-3">
                 <div>
                   <p className="text-xs text-text-secondary">
@@ -919,7 +895,6 @@ export default function OrcamentosPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Coluna esquerda: dados gerais + cronograma */}
             <div className="lg:col-span-1 space-y-6">
-              {/* Dados Gerais */}
               <div className="bg-surface border border-surface/50 p-6 rounded-lg space-y-4">
                 <h3 className="text-md font-bold text-white border-b border-surface/50 pb-2 flex items-center gap-2">
                   <FileText size={18} className="text-cs-green" /> Dados Gerais
@@ -937,7 +912,6 @@ export default function OrcamentosPage() {
                   />
                 </div>
 
-                {/* Busca de cliente com dropdown */}
                 <div ref={clientDropdownRef} className="relative">
                   <label className="block text-xs font-medium text-text-secondary mb-1">
                     {clientSingular} *
@@ -1261,7 +1235,7 @@ export default function OrcamentosPage() {
                 Gestão de {quotePlural}
               </h3>
               <p className="text-xs text-text-secondary mt-1">
-                Crie propostas, gerencie status, negocie com clientes e gere OS automaticamente.
+                Crie propostas, gerencie status, negocie com clientes e aprove para geração de financeiro.
               </p>
             </div>
             <button
@@ -1315,16 +1289,12 @@ export default function OrcamentosPage() {
                         STATUS_CONFIG[quote.status] || STATUS_CONFIG.draft;
                       const hasClientMessage =
                         quote.status === "negotiating" && !!quote.client_notes;
-                      // Quote aprovado pelo cliente via portal (sem OS/financeiro criados pelo admin)
-                      const isClientApproved =
-                        quote.status === "approved";
 
                       return (
                         <tr
                           key={quote.id}
                           className="hover:bg-background/50 transition-colors"
                         >
-                          {/* Título + Cliente */}
                           <td className="px-6 py-4">
                             <p className="font-bold text-white">
                               {quote.title}
@@ -1332,7 +1302,6 @@ export default function OrcamentosPage() {
                             <p className="text-xs mt-1">
                               {quote.clients?.company_name}
                             </p>
-                            {/* Badge de mensagem de negociação pendente */}
                             {hasClientMessage && (
                               <button
                                 onClick={() => openNegotiationModal(quote)}
@@ -1344,7 +1313,6 @@ export default function OrcamentosPage() {
                             )}
                           </td>
 
-                          {/* Salesperson */}
                           <td className="px-6 py-4">
                             {quote.salesperson ? (
                               <span className="flex items-center gap-1.5 text-xs font-medium text-white">
@@ -1358,7 +1326,6 @@ export default function OrcamentosPage() {
                             )}
                           </td>
 
-                          {/* Status select */}
                           <td className="px-6 py-4">
                             <select
                               value={quote.status}
@@ -1377,15 +1344,12 @@ export default function OrcamentosPage() {
                             </select>
                           </td>
 
-                          {/* Valor */}
                           <td className="px-6 py-4 font-bold text-cs-green">
                             {formatCurrency(quote.final_amount)}
                           </td>
 
-                          {/* Ações */}
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-3 flex-wrap">
-                              {/* Botão de negociação — destaque quando há mensagem */}
                               {quote.status === "negotiating" && (
                                 <button
                                   onClick={() => openNegotiationModal(quote)}
@@ -1397,17 +1361,6 @@ export default function OrcamentosPage() {
                                 >
                                   <MessageSquare size={14} />
                                   Negociar
-                                </button>
-                              )}
-
-                              {/* Processar aprovação do cliente (cliente aprovou, admin ainda não gerou OS) */}
-                              {isClientApproved && (
-                                <button
-                                  onClick={() => openApprovalModal(quote)}
-                                  className="inline-flex items-center gap-1 text-xs font-medium text-cs-green hover:text-white transition-colors"
-                                >
-                                  <ClipboardList size={14} />
-                                  Gerar OS
                                 </button>
                               )}
 
