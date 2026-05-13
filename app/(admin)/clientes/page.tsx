@@ -53,13 +53,18 @@ interface Toast { message: string; type: "success" | "error" | "warning" | "info
 
 export default function ClientesPage() {
   const router = useRouter();
-  const { systemPreferences } = useSettings();
-  
+  const settings = useSettings() as {
+    systemPreferences?: { custom_labels?: Record<string, string> } | null;
+    userCompanyId?: string | null;
+  };
+
+  const { systemPreferences, userCompanyId } = settings;
+
   // --- LABELS DINÂMICAS (ARXUM ENGINE) ---
   const labels = systemPreferences?.custom_labels || {};
   const clientSingular = labels.entity_client_singular || "Cliente";
-  const clientPlural = labels.entity_client_plural || "Clientes";
-  const quotePlural = labels.entity_quote_plural || "Orçamentos";
+  const clientPlural   = labels.entity_client_plural   || "Clientes";
+  const quotePlural    = labels.entity_quote_plural     || "Orçamentos";
 
   // Estados de Interface
   const [view, setView] = useState<"list" | "create">("list");
@@ -99,11 +104,17 @@ export default function ClientesPage() {
   }, []);
 
   const fetchClients = useCallback(async () => {
+    if (!userCompanyId) return;
+
     setLoading(true);
-    const { data, error } = await supabase.from("clients").select("*").order("company_name", { ascending: true });
+    const { data, error } = await supabase
+      .from("clients")
+      .select("*")
+      .eq("company_id", userCompanyId)
+      .order("company_name", { ascending: true });
     if (!error && data) setClients(data as Client[]);
     setLoading(false);
-  }, []);
+  }, [userCompanyId]);
 
   const fetchStates = useCallback(async () => {
     try {
@@ -182,18 +193,20 @@ export default function ClientesPage() {
     setLoading(true);
     setSelectedClient(client);
     
-    // 1. Buscar Orçamentos vinculados
+    // Buscar Orçamentos vinculados — escopo da empresa
     const { data: quotes } = await supabase
       .from("quotes")
       .select("id, title, status, final_amount, created_at")
+      .eq("company_id", userCompanyId!)
       .eq("client_id", client.id)
       .order("created_at", { ascending: false });
     setClientQuotes(quotes || []);
 
-    // 2. Buscar Resumo Financeiro Real
+    // Buscar Resumo Financeiro Real — escopo da empresa
     const { data: trans } = await supabase
       .from("financial_transactions")
       .select("amount, status, type")
+      .eq("company_id", userCompanyId!)
       .eq("client_id", client.id);
     
     const summary = (trans || []).reduce((acc, t) => {
@@ -212,11 +225,12 @@ export default function ClientesPage() {
   const handleSave = async () => {
     setIsSubmitting(true);
     try {
-      // Validação de Duplicidade Preventiva (apenas para novos registros)
+      // Validação de Duplicidade Preventiva (apenas para novos registros, dentro da mesma empresa)
       if (!editingClientId) {
         const { data: existing } = await supabase
           .from("clients")
           .select("id")
+          .eq("company_id", userCompanyId!)
           .eq("document", formData.document)
           .maybeSingle();
         
@@ -230,6 +244,7 @@ export default function ClientesPage() {
 
       const { error } = await supabase.from("clients").upsert({
         id: editingClientId || undefined,
+        company_id: userCompanyId,
         ...formData
       });
 
