@@ -514,7 +514,6 @@ export default function FinanceiroPage() {
   }, []);
 
   const fetchData = useCallback(async () => {
-    // Não faz nenhuma query sem o ID da empresa
     if (!userCompanyId) return;
 
     setLoading(true);
@@ -1237,7 +1236,6 @@ export default function FinanceiroPage() {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
       const clientId =
         selectedTransaction?.client_id || formData.clientId || "internal";
-      // Prefixo com userCompanyId para isolar assets por empresa (item 10)
       return `${userCompanyId}/financial/${clientId}/${transactionId}/finance/${Date.now()}-${safeName}`;
     },
     [userCompanyId, formData.clientId, selectedTransaction?.client_id]
@@ -1387,6 +1385,7 @@ export default function FinanceiroPage() {
     clearSelection();
   }, [transactions, selectedIds, formatCurrency, showToast]);
 
+  // ── E-mail em lote — usa company_id (sem hardcode de marca) ──────────────
   const handleBatchEmail = useCallback(async () => {
     const selected = transactions.filter(
       (t) => selectedIds.has(t.id) && t.clients?.email
@@ -1403,7 +1402,7 @@ export default function FinanceiroPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             transactionId: t.id,
-            companyName: companyProfile?.company_name || "ARXUM",
+            company_id: userCompanyId,   // ← dinâmico, sem hardcode de marca
           }),
         });
         if (res.ok) sent++;
@@ -1411,7 +1410,7 @@ export default function FinanceiroPage() {
     }
     showToast(`${sent} e-mail(s) enviado(s).`, "success");
     clearSelection();
-  }, [transactions, selectedIds, companyProfile, showToast]);
+  }, [transactions, selectedIds, userCompanyId, showToast]);
 
   // ── Régua de cobrança ─────────────────────────────────────────────────────
   const runRegua = useCallback(async () => {
@@ -1612,6 +1611,7 @@ export default function FinanceiroPage() {
     );
   };
 
+  // ── E-mail individual — usa company_id (sem hardcode de marca) ────────────
   const sendInvoiceEmail = async (t: Transaction) => {
     if (!t.clients?.email) {
       showToast(`${L.cliente} sem e-mail cadastrado.`, "warning");
@@ -1624,7 +1624,7 @@ export default function FinanceiroPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           transactionId: t.id,
-          companyName: companyProfile?.company_name || "ARXUM",
+          company_id: userCompanyId,   // ← dinâmico, sem hardcode de marca
         }),
       });
       const data = await res.json();
@@ -1837,6 +1837,68 @@ export default function FinanceiroPage() {
       if (updateError)
         throw new Error(updateError.message || "Erro ao confirmar pagamento.");
 
+      // ── Gatilho de criação de OS ─────────────────────────────────────────
+      // A OS só é criada aqui, após confirmação do pagamento pelo financeiro.
+      // Verifica duplicata antes de inserir.
+      if (selectedTransaction.quote_id) {
+        const { data: existingOS } = await supabase
+          .from("service_orders")
+          .select("id")
+          .eq("company_id", userCompanyId!)
+          .eq("quote_id", selectedTransaction.quote_id)
+          .maybeSingle();
+
+        if (!existingOS) {
+          const { data: quoteForOS } = await supabase
+            .from("quotes")
+            .select(
+              "title, client_id, salesperson_id, final_amount, " +
+              "event_start_date, event_end_date, " +
+              "setup_start_date, setup_end_date, " +
+              "teardown_start_date, teardown_end_date"
+            )
+            .eq("company_id", userCompanyId!)
+            .eq("id", selectedTransaction.quote_id)
+            .single();
+
+          if (quoteForOS) {
+            const { error: osError } = await supabase
+              .from("service_orders")
+              .insert({
+                company_id:          userCompanyId,
+                quote_id:            selectedTransaction.quote_id,
+                client_id:           quoteForOS.client_id,
+                salesperson_id:      quoteForOS.salesperson_id,
+                title:               quoteForOS.title,
+                status:              "scheduled",
+                start_date:          quoteForOS.event_start_date
+                  ? quoteForOS.event_start_date.split("T")[0]
+                  : null,
+                end_date:            quoteForOS.event_end_date
+                  ? quoteForOS.event_end_date.split("T")[0]
+                  : null,
+                setup_start_date:    quoteForOS.setup_start_date,
+                setup_end_date:      quoteForOS.setup_end_date,
+                teardown_start_date: quoteForOS.teardown_start_date,
+                teardown_end_date:   quoteForOS.teardown_end_date,
+                total_amount:        quoteForOS.final_amount,
+                source:              "payment_confirmed",
+              });
+
+            if (osError) {
+              // Não interrompe o fluxo principal — avisa apenas
+              console.error("Erro ao criar OS após pagamento:", osError.message);
+              showToast(
+                "Pagamento confirmado, mas houve erro ao criar a OS. Verifique manualmente.",
+                "warning"
+              );
+            }
+          }
+        }
+        // Se já existe OS para este orçamento, não cria duplicata (pagamento parcial em grupo)
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       // Comissão proporcional — inclui company_id
       if (salespersonId && commissionPct) {
         const commissionAmount =
@@ -1895,7 +1957,6 @@ export default function FinanceiroPage() {
             0
           );
 
-          // Nova cobrança de saldo — inclui company_id
           await supabase.from("financial_transactions").insert({
             company_id: userCompanyId,
             type: "income",
@@ -2395,7 +2456,6 @@ export default function FinanceiroPage() {
         )}
 
         <div className="overflow-hidden rounded-lg border border-surface/50 bg-surface shadow-xl">
-          {/* Toolbar */}
           <div className="flex flex-col gap-3 border-b border-surface/50 bg-surface/50 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-3">
               <div className="relative">
@@ -2474,7 +2534,6 @@ export default function FinanceiroPage() {
             </div>
           </div>
 
-          {/* Filter bar */}
           {showFilters && (
             <div className="flex flex-wrap gap-3 border-b border-surface/50 bg-background/30 px-4 py-3">
               <select
@@ -2551,7 +2610,6 @@ export default function FinanceiroPage() {
             </div>
           )}
 
-          {/* Table */}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-background/50 text-xs font-black uppercase tracking-wide text-text-secondary">
@@ -2676,7 +2734,6 @@ export default function FinanceiroPage() {
             </table>
           </div>
 
-          {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between border-t border-surface/50 px-6 py-4">
               <p className="text-xs text-text-secondary">
@@ -2737,8 +2794,7 @@ export default function FinanceiroPage() {
             <Wallet className="text-cs-green" size={28} /> {L.hub}
           </h3>
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-text-secondary">
-            {(companyProfile?.company_name as string) || "ARXUM"} · Gestão
-            Financeira
+            {(companyProfile?.company_name as string) || ""} · Gestão Financeira
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -2781,142 +2837,61 @@ export default function FinanceiroPage() {
           {activeTab === "dashboard" && (
             <div className="animate-in fade-in space-y-6 duration-500">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                {renderMetricCard(
-                  "Saldo realizado",
-                  formatCurrency(stats.balance),
-                  stats.balance >= 0 ? "green" : "red"
-                )}
-                {renderMetricCard(
-                  `${L.receber} pendente`,
-                  formatCurrency(stats.pendingIn),
-                  "green"
-                )}
-                {renderMetricCard(
-                  "Aguardando financeiro",
-                  formatCurrency(stats.waitingFinance),
-                  "gold"
-                )}
-                {renderMetricCard(
-                  "Contestação em aberto",
-                  formatCurrency(stats.disputedOpen),
-                  "orange"
-                )}
+                {renderMetricCard("Saldo realizado", formatCurrency(stats.balance), stats.balance >= 0 ? "green" : "red")}
+                {renderMetricCard(`${L.receber} pendente`, formatCurrency(stats.pendingIn), "green")}
+                {renderMetricCard("Aguardando financeiro", formatCurrency(stats.waitingFinance), "gold")}
+                {renderMetricCard("Contestação em aberto", formatCurrency(stats.disputedOpen), "orange")}
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                {renderMetricCard(
-                  "Inadimplência real",
-                  formatCurrency(stats.overdueIn),
-                  "red"
-                )}
-                {renderMetricCard(
-                  "Pago no mês",
-                  formatCurrency(stats.paidThisMonth),
-                  "green"
-                )}
-                {renderMetricCard(
-                  "Despesas pagas",
-                  formatCurrency(stats.expensePaid),
-                  "red"
-                )}
-                {renderMetricCard(
-                  "Folha + comissão",
-                  formatCurrency(stats.peopleCost),
-                  "gold"
-                )}
+                {renderMetricCard("Inadimplência real", formatCurrency(stats.overdueIn), "red")}
+                {renderMetricCard("Pago no mês", formatCurrency(stats.paidThisMonth), "green")}
+                {renderMetricCard("Despesas pagas", formatCurrency(stats.expensePaid), "red")}
+                {renderMetricCard("Folha + comissão", formatCurrency(stats.peopleCost), "gold")}
               </div>
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                 <div className="rounded-xl border border-surface/50 bg-surface p-6">
                   <h4 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
-                    <TrendingUp size={16} className="text-cs-gold" /> Projeção
-                    de {L.receber}
+                    <TrendingUp size={16} className="text-cs-gold" /> Projeção de {L.receber}
                   </h4>
                   <div className="grid grid-cols-2 gap-4">
                     {[
-                      {
-                        label: "Vencidos",
-                        val: stats.overdueIn,
-                        color: "bg-red-500",
-                      },
-                      {
-                        label: "Próx. 7 dias",
-                        val: stats.pendingIn * 0.4,
-                        color: "bg-cs-gold",
-                      },
-                      {
-                        label: "15–30 dias",
-                        val: stats.pendingIn * 0.3,
-                        color: "bg-blue-500",
-                      },
-                      {
-                        label: "30+ dias",
-                        val: stats.pendingIn * 0.3,
-                        color: "bg-cs-green",
-                      },
+                      { label: "Vencidos", val: stats.overdueIn, color: "bg-red-500" },
+                      { label: "Próx. 7 dias", val: stats.pendingIn * 0.4, color: "bg-cs-gold" },
+                      { label: "15–30 dias", val: stats.pendingIn * 0.3, color: "bg-blue-500" },
+                      { label: "30+ dias", val: stats.pendingIn * 0.3, color: "bg-cs-green" },
                     ].map((b) => (
                       <div key={b.label} className="space-y-2">
                         <div className="h-2 w-full overflow-hidden rounded-full bg-background">
-                          <div
-                            className={`h-full ${b.color} transition-all`}
-                            style={{
-                              width: `${Math.min(
-                                (b.val / (stats.pendingIn || 1)) * 100,
-                                100
-                              )}%`,
-                            }}
-                          />
+                          <div className={`h-full ${b.color} transition-all`} style={{ width: `${Math.min((b.val / (stats.pendingIn || 1)) * 100, 100)}%` }} />
                         </div>
-                        <p className="text-[9px] font-black uppercase text-text-secondary">
-                          {b.label}
-                        </p>
-                        <p className="break-words text-sm font-bold text-white">
-                          {formatCurrency(b.val)}
-                        </p>
+                        <p className="text-[9px] font-black uppercase text-text-secondary">{b.label}</p>
+                        <p className="break-words text-sm font-bold text-white">{formatCurrency(b.val)}</p>
                       </div>
                     ))}
                   </div>
                 </div>
                 <div className="rounded-xl border border-surface/50 bg-surface p-6">
                   <h4 className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
-                    <PieChart size={16} className="text-cs-gold" /> Centro de
-                    Custos
+                    <PieChart size={16} className="text-cs-gold" /> Centro de Custos
                   </h4>
                   {expenseByCategory.length === 0 ? (
-                    <p className="py-8 text-center text-xs font-black uppercase text-text-secondary">
-                      Sem despesas efetivadas.
-                    </p>
+                    <p className="py-8 text-center text-xs font-black uppercase text-text-secondary">Sem despesas efetivadas.</p>
                   ) : (
                     <div className="space-y-3">
                       {expenseByCategory.map((item, i) => (
                         <div key={item.cat} className="space-y-1">
                           <div className="flex items-center justify-between gap-3">
-                            <span className="max-w-[65%] truncate text-xs font-semibold uppercase text-text-secondary">
-                              {item.cat}
-                            </span>
-                            <span className="text-xs font-black text-white">
-                              {formatCurrency(item.val)}
-                            </span>
+                            <span className="max-w-[65%] truncate text-xs font-semibold uppercase text-text-secondary">{item.cat}</span>
+                            <span className="text-xs font-black text-white">{formatCurrency(item.val)}</span>
                           </div>
                           <div className="h-1.5 w-full overflow-hidden rounded-full bg-background">
-                            <div
-                              className={`h-full ${
-                                CHART_COLORS[i % CHART_COLORS.length]
-                              } transition-all`}
-                              style={{
-                                width: `${
-                                  (item.val / (totalExpenses || 1)) * 100
-                                }%`,
-                              }}
-                            />
+                            <div className={`h-full ${CHART_COLORS[i % CHART_COLORS.length]} transition-all`} style={{ width: `${(item.val / (totalExpenses || 1)) * 100}%` }} />
                           </div>
                         </div>
                       ))}
                       <div className="flex justify-between gap-3 border-t border-surface/50 pt-2">
-                        <span className="text-xs font-bold uppercase text-text-secondary">
-                          Total Despesas
-                        </span>
-                        <span className="text-xs font-black text-red-400">
-                          {formatCurrency(totalExpenses)}
-                        </span>
+                        <span className="text-xs font-bold uppercase text-text-secondary">Total Despesas</span>
+                        <span className="text-xs font-black text-red-400">{formatCurrency(totalExpenses)}</span>
                       </div>
                     </div>
                   )}
@@ -2926,33 +2901,23 @@ export default function FinanceiroPage() {
           )}
 
           {activeTab === "receber" && renderTable("income")}
-          {activeTab === "pagar_admin" &&
-            renderTable("expense", "administrative")}
-          {activeTab === "pagar_operacional" &&
-            renderTable("expense", "operational")}
+          {activeTab === "pagar_admin" && renderTable("expense", "administrative")}
+          {activeTab === "pagar_operacional" && renderTable("expense", "operational")}
 
           {activeTab === "pessoal" && (
             <div className="animate-in fade-in space-y-6">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="flex items-center justify-between rounded-xl border border-surface/50 bg-surface p-6">
                   <div>
-                    <p className="text-xs font-bold uppercase text-text-secondary">
-                      {L.salario}s Pagos
-                    </p>
-                    <p className="break-words text-2xl font-black text-white">
-                      {formatCurrency(personnelStats.totalSalaries)}
-                    </p>
+                    <p className="text-xs font-bold uppercase text-text-secondary">{L.salario}s Pagos</p>
+                    <p className="break-words text-2xl font-black text-white">{formatCurrency(personnelStats.totalSalaries)}</p>
                   </div>
                   <UserCheck className="text-cs-green opacity-20" size={48} />
                 </div>
                 <div className="flex items-center justify-between rounded-xl border border-surface/50 bg-surface p-6">
                   <div>
-                    <p className="text-xs font-bold uppercase text-text-secondary">
-                      {L.comissao} Pagas
-                    </p>
-                    <p className="break-words text-2xl font-black text-cs-gold">
-                      {formatCurrency(personnelStats.totalCommissions)}
-                    </p>
+                    <p className="text-xs font-bold uppercase text-text-secondary">{L.comissao} Pagas</p>
+                    <p className="break-words text-2xl font-black text-cs-gold">{formatCurrency(personnelStats.totalCommissions)}</p>
                   </div>
                   <Percent className="text-cs-gold opacity-20" size={48} />
                 </div>
@@ -2961,15 +2926,9 @@ export default function FinanceiroPage() {
                 <div className="rounded-xl border border-surface/50 bg-surface p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="mb-1 text-xs font-black uppercase text-text-secondary">
-                        Centro de Custo RH
-                      </p>
-                      <p className="break-words text-2xl font-black text-cs-gold">
-                        {formatCurrency(personnelStats.totalRH)}
-                      </p>
-                      <p className="mt-1 text-xs text-text-secondary">
-                        Folha de Pagamento · Reembolsos RH · Descontos RH
-                      </p>
+                      <p className="mb-1 text-xs font-black uppercase text-text-secondary">Centro de Custo RH</p>
+                      <p className="break-words text-2xl font-black text-cs-gold">{formatCurrency(personnelStats.totalRH)}</p>
+                      <p className="mt-1 text-xs text-text-secondary">Folha de Pagamento · Reembolsos RH · Descontos RH</p>
                     </div>
                     <Users className="text-cs-gold opacity-20" size={48} />
                   </div>
@@ -2978,36 +2937,19 @@ export default function FinanceiroPage() {
               {personnelStats.commissionByMember.length > 0 && (
                 <div className="rounded-xl border border-surface/50 bg-surface p-6">
                   <h4 className="mb-4 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
-                    <BarChart3 size={16} className="text-cs-gold" /> Ranking de{" "}
-                    {L.comissao} por {L.colaborador}
+                    <BarChart3 size={16} className="text-cs-gold" /> Ranking de {L.comissao} por {L.colaborador}
                   </h4>
                   <div className="space-y-3">
                     {personnelStats.commissionByMember.map((m, i) => (
                       <div key={m.name} className="flex items-center gap-4">
-                        <span className="w-5 text-right text-xs font-bold text-text-secondary">
-                          {i + 1}.
-                        </span>
+                        <span className="w-5 text-right text-xs font-bold text-text-secondary">{i + 1}.</span>
                         <div className="flex-1">
                           <div className="mb-1 flex justify-between gap-3">
-                            <span className="text-xs font-bold text-white">
-                              {m.name}
-                            </span>
-                            <span className="text-xs font-black text-cs-gold">
-                              {formatCurrency(m.total)}
-                            </span>
+                            <span className="text-xs font-bold text-white">{m.name}</span>
+                            <span className="text-xs font-black text-cs-gold">{formatCurrency(m.total)}</span>
                           </div>
                           <div className="h-1.5 overflow-hidden rounded-full bg-background">
-                            <div
-                              className="h-full bg-cs-gold transition-all"
-                              style={{
-                                width: `${
-                                  (m.total /
-                                    (personnelStats.commissionByMember[0]
-                                      ?.total || 1)) *
-                                  100
-                                }%`,
-                              }}
-                            />
+                            <div className="h-full bg-cs-gold transition-all" style={{ width: `${(m.total / (personnelStats.commissionByMember[0]?.total || 1)) * 100}%` }} />
                           </div>
                         </div>
                       </div>
@@ -3033,36 +2975,18 @@ export default function FinanceiroPage() {
                 <tbody className="divide-y divide-surface/50">
                   {clientSummary.length === 0 ? (
                     <tr>
-                      <td
-                        colSpan={4}
-                        className="px-8 py-10 text-center text-xs font-black uppercase tracking-widest text-text-secondary"
-                      >
+                      <td colSpan={4} className="px-8 py-10 text-center text-xs font-black uppercase tracking-widest text-text-secondary">
                         Nenhum {L.cliente} com movimentação financeira.
                       </td>
                     </tr>
                   ) : (
                     clientSummary.map((c) => (
-                      <tr
-                        key={c.id}
-                        className="group transition-colors hover:bg-background/40"
-                      >
-                        <td className="px-8 py-6 font-black uppercase tracking-tight text-white">
-                          {c.company_name}
-                        </td>
-                        <td className="px-8 py-6 font-bold text-cs-green">
-                          {formatCurrency(c.ltv)}
-                        </td>
-                        <td className="px-8 py-6 font-bold text-red-400">
-                          {formatCurrency(c.debt)}
-                        </td>
+                      <tr key={c.id} className="group transition-colors hover:bg-background/40">
+                        <td className="px-8 py-6 font-black uppercase tracking-tight text-white">{c.company_name}</td>
+                        <td className="px-8 py-6 font-bold text-cs-green">{formatCurrency(c.ltv)}</td>
+                        <td className="px-8 py-6 font-bold text-red-400">{formatCurrency(c.debt)}</td>
                         <td className="px-8 py-6 text-right">
-                          <button
-                            onClick={() => {
-                              setSearchTerm(c.company_name);
-                              setActiveTab("receber");
-                            }}
-                            className="text-xs font-bold uppercase text-cs-gold hover:underline"
-                          >
+                          <button onClick={() => { setSearchTerm(c.company_name); setActiveTab("receber"); }} className="text-xs font-bold uppercase text-cs-gold hover:underline">
                             Ver Extrato
                           </button>
                         </td>
@@ -3078,21 +3002,13 @@ export default function FinanceiroPage() {
             <div className="animate-in fade-in space-y-5">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-black uppercase tracking-tight text-white">
-                    Demonstrativo de Resultado (DRE)
-                  </h3>
-                  <p className="mt-1 text-xs uppercase tracking-wide text-text-secondary">
-                    Apenas lançamentos efetivados (pagos/recebidos/confirmados)
-                  </p>
+                  <h3 className="text-lg font-black uppercase tracking-tight text-white">Demonstrativo de Resultado (DRE)</h3>
+                  <p className="mt-1 text-xs uppercase tracking-wide text-text-secondary">Apenas lançamentos efetivados (pagos/recebidos/confirmados)</p>
                 </div>
-                <button
-                  onClick={exportDRE}
-                  className="inline-flex items-center gap-2 rounded-md border border-cs-green/30 bg-cs-green/10 px-5 py-2.5 text-xs font-black uppercase text-cs-green transition-all hover:bg-cs-green/20"
-                >
+                <button onClick={exportDRE} className="inline-flex items-center gap-2 rounded-md border border-cs-green/30 bg-cs-green/10 px-5 py-2.5 text-xs font-black uppercase text-cs-green transition-all hover:bg-cs-green/20">
                   <Download size={14} /> Exportar CSV
                 </button>
               </div>
-
               {dreByMonth.length === 0 ? (
                 <div className="rounded-xl border border-surface/50 bg-surface p-10 text-center text-sm text-text-secondary">
                   Nenhum lançamento efetivado registrado ainda.
@@ -3106,41 +3022,19 @@ export default function FinanceiroPage() {
                         <th className="px-6 py-4 text-cs-green">Receitas</th>
                         <th className="px-6 py-4 text-red-400">Despesas</th>
                         <th className="px-6 py-4">Resultado</th>
-                        <th className="px-6 py-4 text-text-secondary">
-                          Acumulado
-                        </th>
+                        <th className="px-6 py-4 text-text-secondary">Acumulado</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-surface/50">
                       {dreByMonth.map((m) => (
-                        <tr
-                          key={m.key}
-                          className="transition-colors hover:bg-background/40"
-                        >
-                          <td className="px-6 py-4 font-bold capitalize text-white">
-                            {m.month} {m.year}
+                        <tr key={m.key} className="transition-colors hover:bg-background/40">
+                          <td className="px-6 py-4 font-bold capitalize text-white">{m.month} {m.year}</td>
+                          <td className="px-6 py-4 font-bold text-cs-green">{formatCurrency(m.income)}</td>
+                          <td className="px-6 py-4 font-bold text-red-400">{formatCurrency(m.expense)}</td>
+                          <td className={`px-6 py-4 font-black ${m.balance >= 0 ? "text-cs-green" : "text-red-500"}`}>
+                            {m.balance >= 0 ? "+" : ""}{formatCurrency(m.balance)}
                           </td>
-                          <td className="px-6 py-4 font-bold text-cs-green">
-                            {formatCurrency(m.income)}
-                          </td>
-                          <td className="px-6 py-4 font-bold text-red-400">
-                            {formatCurrency(m.expense)}
-                          </td>
-                          <td
-                            className={`px-6 py-4 font-black ${
-                              m.balance >= 0 ? "text-cs-green" : "text-red-500"
-                            }`}
-                          >
-                            {m.balance >= 0 ? "+" : ""}
-                            {formatCurrency(m.balance)}
-                          </td>
-                          <td
-                            className={`px-6 py-4 font-bold ${
-                              m.cumulative >= 0
-                                ? "text-zinc-300"
-                                : "text-red-400"
-                            }`}
-                          >
+                          <td className={`px-6 py-4 font-bold ${m.cumulative >= 0 ? "text-zinc-300" : "text-red-400"}`}>
                             {formatCurrency(m.cumulative)}
                           </td>
                         </tr>
@@ -3148,29 +3042,11 @@ export default function FinanceiroPage() {
                     </tbody>
                     <tfoot className="border-t border-surface/50 bg-background/50">
                       <tr>
-                        <td className="px-6 py-4 text-xs font-black uppercase tracking-wide text-text-secondary">
-                          Total
-                        </td>
-                        <td className="px-6 py-4 font-black text-cs-green">
-                          {formatCurrency(
-                            dreByMonth.reduce((a, m) => a + m.income, 0)
-                          )}
-                        </td>
-                        <td className="px-6 py-4 font-black text-red-400">
-                          {formatCurrency(
-                            dreByMonth.reduce((a, m) => a + m.expense, 0)
-                          )}
-                        </td>
-                        <td
-                          className={`px-6 py-4 font-black ${
-                            dreByMonth.reduce((a, m) => a + m.balance, 0) >= 0
-                              ? "text-cs-green"
-                              : "text-red-500"
-                          }`}
-                        >
-                          {formatCurrency(
-                            dreByMonth.reduce((a, m) => a + m.balance, 0)
-                          )}
+                        <td className="px-6 py-4 text-xs font-black uppercase tracking-wide text-text-secondary">Total</td>
+                        <td className="px-6 py-4 font-black text-cs-green">{formatCurrency(dreByMonth.reduce((a, m) => a + m.income, 0))}</td>
+                        <td className="px-6 py-4 font-black text-red-400">{formatCurrency(dreByMonth.reduce((a, m) => a + m.expense, 0))}</td>
+                        <td className={`px-6 py-4 font-black ${dreByMonth.reduce((a, m) => a + m.balance, 0) >= 0 ? "text-cs-green" : "text-red-500"}`}>
+                          {formatCurrency(dreByMonth.reduce((a, m) => a + m.balance, 0))}
                         </td>
                         <td />
                       </tr>
@@ -3186,13 +3062,7 @@ export default function FinanceiroPage() {
       {/* ── Create/Edit form ─────────────────────────────────────────────── */}
       {view === "create" && (
         <div className="mx-auto max-w-5xl space-y-6">
-          <button
-            onClick={() => {
-              resetForm();
-              setView("list");
-            }}
-            className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-text-secondary transition-all hover:text-white"
-          >
+          <button onClick={() => { resetForm(); setView("list"); }} className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-text-secondary transition-all hover:text-white">
             <ArrowLeft size={16} /> Voltar ao Fluxo
           </button>
           <div className="rounded-xl border border-surface/50 bg-surface p-8 shadow-2xl">
@@ -3202,50 +3072,13 @@ export default function FinanceiroPage() {
             <form onSubmit={handleSave} className="space-y-8">
               <div className="space-y-4">
                 <div className="flex w-fit gap-2 rounded-lg border border-surface/50 bg-background p-1">
-                  <button
-                    type="button"
-                    onClick={() => setFormType("income")}
-                    className={`rounded px-8 py-2 text-xs font-black uppercase transition-all ${
-                      formType === "income"
-                        ? "bg-cs-green text-white shadow-lg"
-                        : "text-text-secondary"
-                    }`}
-                  >
-                    {L.receita}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFormType("expense")}
-                    className={`rounded px-8 py-2 text-xs font-black uppercase transition-all ${
-                      formType === "expense"
-                        ? "bg-red-500 text-white shadow-lg"
-                        : "text-text-secondary"
-                    }`}
-                  >
-                    {L.despesa}
-                  </button>
+                  <button type="button" onClick={() => setFormType("income")} className={`rounded px-8 py-2 text-xs font-black uppercase transition-all ${formType === "income" ? "bg-cs-green text-white shadow-lg" : "text-text-secondary"}`}>{L.receita}</button>
+                  <button type="button" onClick={() => setFormType("expense")} className={`rounded px-8 py-2 text-xs font-black uppercase transition-all ${formType === "expense" ? "bg-red-500 text-white shadow-lg" : "text-text-secondary"}`}>{L.despesa}</button>
                 </div>
                 {formType === "expense" && (
                   <div className="flex gap-2">
-                    {(
-                      [
-                        { id: "administrative", label: L.pagarAdmin },
-                        { id: "operational", label: L.pagarOp },
-                        { id: "personnel", label: L.pessoal },
-                      ] as const
-                    ).map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => setExpenseType(opt.id)}
-                        className={`flex-1 rounded border border-surface py-2 text-xs font-black uppercase transition-all ${
-                          expenseType === opt.id
-                            ? "bg-white text-black"
-                            : "text-text-secondary"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
+                    {([{ id: "administrative", label: L.pagarAdmin }, { id: "operational", label: L.pagarOp }, { id: "personnel", label: L.pessoal }] as const).map((opt) => (
+                      <button key={opt.id} type="button" onClick={() => setExpenseType(opt.id)} className={`flex-1 rounded border border-surface py-2 text-xs font-black uppercase transition-all ${expenseType === opt.id ? "bg-white text-black" : "text-text-secondary"}`}>{opt.label}</button>
                     ))}
                   </div>
                 )}
@@ -3254,111 +3087,38 @@ export default function FinanceiroPage() {
               <div className="grid grid-cols-1 gap-10 lg:grid-cols-2">
                 <div className="space-y-6">
                   <div>
-                    <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                      Descrição *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.description}
-                      onChange={(e) =>
-                        setForm((p) => ({
-                          ...p,
-                          description: e.target.value,
-                        }))
-                      }
-                      className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none transition-all focus:border-cs-green"
-                    />
+                    <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">Descrição *</label>
+                    <input type="text" required value={formData.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none transition-all focus:border-cs-green" />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                        Valor ({currencyCode}) *
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        required
-                        value={formData.amount}
-                        onChange={(e) =>
-                          setForm((p) => ({ ...p, amount: e.target.value }))
-                        }
-                        className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none transition-all focus:border-cs-green"
-                      />
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">Valor ({currencyCode}) *</label>
+                      <input type="number" step="0.01" min="0" required value={formData.amount} onChange={(e) => setForm((p) => ({ ...p, amount: e.target.value }))} className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none transition-all focus:border-cs-green" />
                     </div>
                     <div>
-                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                        Vencimento *
-                      </label>
-                      <input
-                        type="date"
-                        required
-                        value={formData.dueDate}
-                        onChange={(e) =>
-                          setForm((p) => ({ ...p, dueDate: e.target.value }))
-                        }
-                        className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none transition-all focus:border-cs-green"
-                        style={{ colorScheme: "dark" }}
-                      />
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">Vencimento *</label>
+                      <input type="date" required value={formData.dueDate} onChange={(e) => setForm((p) => ({ ...p, dueDate: e.target.value }))} className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none transition-all focus:border-cs-green" style={{ colorScheme: "dark" }} />
                     </div>
                   </div>
                   <div>
-                    <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                      Categoria
-                    </label>
-                    <select
-                      value={formData.category}
-                      onChange={(e) =>
-                        setForm((p) => ({ ...p, category: e.target.value }))
-                      }
-                      className="w-full rounded-md border border-surface bg-background px-4 py-3 text-sm text-white outline-none transition-all focus:border-cs-green"
-                    >
+                    <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">Categoria</label>
+                    <select value={formData.category} onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))} className="w-full rounded-md border border-surface bg-background px-4 py-3 text-sm text-white outline-none transition-all focus:border-cs-green">
                       <option value="">Selecionar...</option>
-                      {currentCategories.map((cat) => (
-                        <option key={cat} value={cat}>
-                          {cat}
-                        </option>
-                      ))}
+                      {currentCategories.map((cat) => (<option key={cat} value={cat}>{cat}</option>))}
                     </select>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                        Status
-                      </label>
-                      <select
-                        value={formData.status}
-                        onChange={(e) =>
-                          setForm((p) => ({
-                            ...p,
-                            status: e.target.value as
-                              | "pending"
-                              | "paid"
-                              | "cancelled",
-                          }))
-                        }
-                        className="w-full rounded-md border border-surface bg-background px-4 py-3 text-sm text-white outline-none transition-all focus:border-cs-green"
-                      >
+                      <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">Status</label>
+                      <select value={formData.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value as "pending" | "paid" | "cancelled" }))} className="w-full rounded-md border border-surface bg-background px-4 py-3 text-sm text-white outline-none transition-all focus:border-cs-green">
                         <option value="pending">Pendente</option>
                         <option value="paid">Pago / Efetivado</option>
                         <option value="cancelled">Cancelado</option>
                       </select>
                     </div>
                     <div>
-                      <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                        Método
-                      </label>
-                      <select
-                        value={formData.paymentMethod}
-                        onChange={(e) =>
-                          setForm((p) => ({
-                            ...p,
-                            paymentMethod: e.target.value,
-                          }))
-                        }
-                        className="w-full rounded-md border border-surface bg-background px-4 py-3 text-sm text-white outline-none transition-all focus:border-cs-green"
-                      >
+                      <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">Método</label>
+                      <select value={formData.paymentMethod} onChange={(e) => setForm((p) => ({ ...p, paymentMethod: e.target.value }))} className="w-full rounded-md border border-surface bg-background px-4 py-3 text-sm text-white outline-none transition-all focus:border-cs-green">
                         <option value="pix">PIX</option>
                         <option value="boleto">Boleto</option>
                         <option value="transfer">TED / DOC</option>
@@ -3369,21 +3129,8 @@ export default function FinanceiroPage() {
                   </div>
                   {formData.status === "paid" && (
                     <div>
-                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                        Data do Pagamento
-                      </label>
-                      <input
-                        type="date"
-                        value={formData.paymentDate}
-                        onChange={(e) =>
-                          setForm((p) => ({
-                            ...p,
-                            paymentDate: e.target.value,
-                          }))
-                        }
-                        className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none transition-all focus:border-cs-green"
-                        style={{ colorScheme: "dark" }}
-                      />
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">Data do Pagamento</label>
+                      <input type="date" value={formData.paymentDate} onChange={(e) => setForm((p) => ({ ...p, paymentDate: e.target.value }))} className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none transition-all focus:border-cs-green" style={{ colorScheme: "dark" }} />
                     </div>
                   )}
                 </div>
@@ -3391,76 +3138,28 @@ export default function FinanceiroPage() {
                 <div className="space-y-6">
                   {formType === "income" && (
                     <div className="relative">
-                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                        Vincular {L.cliente}
-                      </label>
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">Vincular {L.cliente}</label>
                       <div className="relative">
-                        <Search
-                          className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary"
-                          size={14}
-                        />
-                        <input
-                          type="text"
-                          value={clientSearch}
-                          onChange={(e) => {
-                            setClientSearch(e.target.value);
-                            if (!e.target.value)
-                              setForm((p) => ({ ...p, clientId: "" }));
-                          }}
-                          placeholder={`Pesquisar ${L.cliente}...`}
-                          className="w-full rounded-md border border-surface bg-background py-2.5 pl-9 pr-4 text-sm text-white outline-none transition-all focus:border-cs-green"
-                        />
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={14} />
+                        <input type="text" value={clientSearch} onChange={(e) => { setClientSearch(e.target.value); if (!e.target.value) setForm((p) => ({ ...p, clientId: "" })); }} placeholder={`Pesquisar ${L.cliente}...`} className="w-full rounded-md border border-surface bg-background py-2.5 pl-9 pr-4 text-sm text-white outline-none transition-all focus:border-cs-green" />
                       </div>
-                      {clientSearch &&
-                        filteredClientsList.length > 0 &&
-                        !formData.clientId && (
-                          <div className="absolute z-50 mt-1 w-full rounded-md border border-surface/50 bg-surface shadow-2xl">
-                            {filteredClientsList.map((c) => (
-                              <button
-                                key={c.id}
-                                type="button"
-                                onClick={() => {
-                                  setForm((p) => ({ ...p, clientId: c.id }));
-                                  setClientSearch(c.company_name);
-                                }}
-                                className="w-full border-b border-surface/50 px-4 py-2 text-left text-xs text-white last:border-0 hover:bg-cs-green/20"
-                              >
-                                {c.company_name}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      {formData.clientId && (
-                        <p className="mt-1 text-xs font-semibold text-cs-green">
-                          ✓ {L.cliente} vinculado
-                        </p>
+                      {clientSearch && filteredClientsList.length > 0 && !formData.clientId && (
+                        <div className="absolute z-50 mt-1 w-full rounded-md border border-surface/50 bg-surface shadow-2xl">
+                          {filteredClientsList.map((c) => (
+                            <button key={c.id} type="button" onClick={() => { setForm((p) => ({ ...p, clientId: c.id })); setClientSearch(c.company_name); }} className="w-full border-b border-surface/50 px-4 py-2 text-left text-xs text-white last:border-0 hover:bg-cs-green/20">{c.company_name}</button>
+                          ))}
+                        </div>
                       )}
+                      {formData.clientId && <p className="mt-1 text-xs font-semibold text-cs-green">✓ {L.cliente} vinculado</p>}
                     </div>
                   )}
 
-                  {(formType === "income" ||
-                    (formType === "expense" &&
-                      expenseType === "operational")) && (
+                  {(formType === "income" || (formType === "expense" && expenseType === "operational")) && (
                     <div>
-                      <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                        Centro de Custos ({L.os})
-                      </label>
-                      <select
-                        value={formData.serviceOrderId}
-                        onChange={(e) =>
-                          setForm((p) => ({
-                            ...p,
-                            serviceOrderId: e.target.value,
-                          }))
-                        }
-                        className="w-full rounded-md border border-surface bg-background px-4 py-3 text-sm text-white outline-none transition-all focus:border-cs-green"
-                      >
+                      <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">Centro de Custos ({L.os})</label>
+                      <select value={formData.serviceOrderId} onChange={(e) => setForm((p) => ({ ...p, serviceOrderId: e.target.value }))} className="w-full rounded-md border border-surface bg-background px-4 py-3 text-sm text-white outline-none transition-all focus:border-cs-green">
                         <option value="">Geral / Sem {L.os}</option>
-                        {approvedQuotes.map((q) => (
-                          <option key={q.id} value={q.id}>
-                            {L.orcamento}: {q.title}
-                          </option>
-                        ))}
+                        {approvedQuotes.map((q) => (<option key={q.id} value={q.id}>{L.orcamento}: {q.title}</option>))}
                       </select>
                     </div>
                   )}
@@ -3468,114 +3167,35 @@ export default function FinanceiroPage() {
                   {formType === "expense" && expenseType === "personnel" && (
                     <>
                       <div className="relative">
-                        <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                          {L.colaborador}
-                        </label>
+                        <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">{L.colaborador}</label>
                         <div className="relative">
-                          <Search
-                            className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary"
-                            size={14}
-                          />
-                          <input
-                            type="text"
-                            value={memberSearch}
-                            onChange={(e) => {
-                              setMemberSearch(e.target.value);
-                              if (!e.target.value)
-                                setForm((p) => ({ ...p, memberId: "" }));
-                            }}
-                            placeholder={`Pesquisar ${L.colaborador}...`}
-                            className="w-full rounded-md border border-surface bg-background py-2.5 pl-9 pr-4 text-sm text-white outline-none transition-all focus:border-cs-green"
-                          />
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={14} />
+                          <input type="text" value={memberSearch} onChange={(e) => { setMemberSearch(e.target.value); if (!e.target.value) setForm((p) => ({ ...p, memberId: "" })); }} placeholder={`Pesquisar ${L.colaborador}...`} className="w-full rounded-md border border-surface bg-background py-2.5 pl-9 pr-4 text-sm text-white outline-none transition-all focus:border-cs-green" />
                         </div>
-                        {memberSearch &&
-                          filteredTeamList.length > 0 &&
-                          !formData.memberId && (
-                            <div className="absolute z-50 mt-1 w-full rounded-md border border-surface/50 bg-surface shadow-2xl">
-                              {filteredTeamList.map((m) => (
-                                <button
-                                  key={m.id}
-                                  type="button"
-                                  onClick={() => {
-                                    setForm((p) => ({
-                                      ...p,
-                                      memberId: m.id,
-                                    }));
-                                    setMemberSearch(m.full_name);
-                                  }}
-                                  className="w-full border-b border-surface/50 px-4 py-2 text-left text-xs text-white last:border-0 hover:bg-cs-gold/20"
-                                >
-                                  <span className="font-bold">
-                                    {m.full_name}
-                                  </span>
-                                  {m.commission_percentage ? (
-                                    <span className="ml-2 text-cs-gold">
-                                      · {m.commission_percentage}%{" "}
-                                      {L.comissao}
-                                    </span>
-                                  ) : null}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        {formData.memberId && (
-                          <p className="mt-1 text-xs font-semibold text-cs-gold">
-                            ✓ {L.colaborador} vinculado
-                          </p>
+                        {memberSearch && filteredTeamList.length > 0 && !formData.memberId && (
+                          <div className="absolute z-50 mt-1 w-full rounded-md border border-surface/50 bg-surface shadow-2xl">
+                            {filteredTeamList.map((m) => (
+                              <button key={m.id} type="button" onClick={() => { setForm((p) => ({ ...p, memberId: m.id })); setMemberSearch(m.full_name); }} className="w-full border-b border-surface/50 px-4 py-2 text-left text-xs text-white last:border-0 hover:bg-cs-gold/20">
+                                <span className="font-bold">{m.full_name}</span>
+                                {m.commission_percentage ? <span className="ml-2 text-cs-gold">· {m.commission_percentage}% {L.comissao}</span> : null}
+                              </button>
+                            ))}
+                          </div>
                         )}
+                        {formData.memberId && <p className="mt-1 text-xs font-semibold text-cs-gold">✓ {L.colaborador} vinculado</p>}
                       </div>
-
                       {formData.category.toLowerCase().includes("comiss") && (
                         <div className="space-y-3 rounded-lg border border-cs-gold/20 bg-cs-gold/5 p-4">
-                          <p className="text-xs font-black uppercase tracking-widest text-cs-gold">
-                            {L.comissao} de Venda
-                          </p>
-                          {formData.memberId &&
-                            (() => {
-                              const member = team.find(
-                                (m) => m.id === formData.memberId
-                              );
-                              return member?.commission_percentage ? (
-                                <p className="text-xs text-text-secondary">
-                                  Taxa:{" "}
-                                  <strong className="text-white">
-                                    {member.commission_percentage}%
-                                  </strong>
-                                  {formData.amount ? (
-                                    <>
-                                      {" "}
-                                      · Calculado:{" "}
-                                      <strong className="text-cs-gold">
-                                        {formatCurrency(
-                                          (Number(formData.amount) *
-                                            member.commission_percentage) /
-                                            100
-                                        )}
-                                      </strong>
-                                    </>
-                                  ) : null}
-                                </p>
-                              ) : null;
-                            })()}
+                          <p className="text-xs font-black uppercase tracking-widest text-cs-gold">{L.comissao} de Venda</p>
+                          {formData.memberId && (() => {
+                            const member = team.find((m) => m.id === formData.memberId);
+                            return member?.commission_percentage ? (
+                              <p className="text-xs text-text-secondary">Taxa: <strong className="text-white">{member.commission_percentage}%</strong>{formData.amount ? <> · Calculado: <strong className="text-cs-gold">{formatCurrency((Number(formData.amount) * member.commission_percentage) / 100)}</strong></> : null}</p>
+                            ) : null;
+                          })()}
                           <div>
-                            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                              Valor da {L.comissao} ({currencyCode})
-                            </label>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="Valor final a pagar..."
-                              value={formData.commissionAmount}
-                              onChange={(e) =>
-                                setForm((p) => ({
-                                  ...p,
-                                  commissionAmount: e.target.value,
-                                  amount: e.target.value,
-                                }))
-                              }
-                              className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none transition-all focus:border-cs-gold"
-                            />
+                            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">Valor da {L.comissao} ({currencyCode})</label>
+                            <input type="number" step="0.01" min="0" placeholder="Valor final a pagar..." value={formData.commissionAmount} onChange={(e) => setForm((p) => ({ ...p, commissionAmount: e.target.value, amount: e.target.value }))} className="w-full rounded-md border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none transition-all focus:border-cs-gold" />
                           </div>
                         </div>
                       )}
@@ -3583,48 +3203,20 @@ export default function FinanceiroPage() {
                   )}
 
                   <div>
-                    <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                      Comprovante / Anexo
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex w-full items-center justify-center gap-2 rounded-md border border-surface/50 bg-surface py-3 text-xs font-black uppercase text-white transition-all hover:bg-background"
-                    >
-                      {uploading ? (
-                        <Loader2 className="animate-spin" size={14} />
-                      ) : (
-                        <Upload size={14} />
-                      )}
+                    <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">Comprovante / Anexo</label>
+                    <button type="button" onClick={() => fileInputRef.current?.click()} className="flex w-full items-center justify-center gap-2 rounded-md border border-surface/50 bg-surface py-3 text-xs font-black uppercase text-white transition-all hover:bg-background">
+                      {uploading ? <Loader2 className="animate-spin" size={14} /> : <Upload size={14} />}
                       {formData.attachmentUrl ? "Trocar Arquivo" : "Fazer Upload"}
                     </button>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={handleFileUpload}
-                      className="hidden"
-                      accept=".pdf,.jpg,.jpeg,.png,.webp"
-                    />
-                    {formData.attachmentUrl && (
-                      <p className="mt-1 text-xs font-semibold text-cs-green">
-                        ✓ Arquivo anexado
-                      </p>
-                    )}
+                    <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".pdf,.jpg,.jpeg,.png,.webp" />
+                    {formData.attachmentUrl && <p className="mt-1 text-xs font-semibold text-cs-green">✓ Arquivo anexado</p>}
                   </div>
                 </div>
               </div>
 
               <div className="flex justify-end border-t border-surface/50 pt-8">
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="flex items-center gap-3 rounded-md bg-cs-green px-12 py-4 text-sm font-black uppercase tracking-[0.2em] text-white shadow-2xl transition-all hover:bg-opacity-90 disabled:opacity-50"
-                >
-                  {isSubmitting ? (
-                    <Loader2 className="animate-spin" size={18} />
-                  ) : (
-                    <Save size={18} />
-                  )}
+                <button type="submit" disabled={isSubmitting} className="flex items-center gap-3 rounded-md bg-cs-green px-12 py-4 text-sm font-black uppercase tracking-[0.2em] text-white shadow-2xl transition-all hover:bg-opacity-90 disabled:opacity-50">
+                  {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
                   Finalizar Registro
                 </button>
               </div>
@@ -3639,36 +3231,18 @@ export default function FinanceiroPage() {
           <div className="flex max-h-[94vh] w-full max-w-7xl flex-col overflow-hidden rounded-xl border border-surface/50 bg-[#1a1413] shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-surface/50 bg-background/50 p-6">
               <div className="min-w-0">
-                <h2 className="mb-2 text-2xl font-black uppercase tracking-tighter text-white">
-                  {selectedTransaction.description}
-                </h2>
+                <h2 className="mb-2 text-2xl font-black uppercase tracking-tighter text-white">{selectedTransaction.description}</h2>
                 <div className="flex flex-wrap gap-2">
-                  <span
-                    className={`rounded-full border px-3 py-1 text-xs font-black uppercase ${
-                      selectedTransaction.type === "income"
-                        ? "border-cs-green/20 bg-cs-green/10 text-cs-green"
-                        : "border-red-500/20 bg-red-500/10 text-red-500"
-                    }`}
-                  >
-                    {selectedTransaction.type === "income"
-                      ? L.receita
-                      : L.despesa}
+                  <span className={`rounded-full border px-3 py-1 text-xs font-black uppercase ${selectedTransaction.type === "income" ? "border-cs-green/20 bg-cs-green/10 text-cs-green" : "border-red-500/20 bg-red-500/10 text-red-500"}`}>
+                    {selectedTransaction.type === "income" ? L.receita : L.despesa}
                   </span>
-                  <span className="rounded-full border border-surface/50 bg-surface px-3 py-1 text-xs font-black uppercase text-text-secondary">
-                    {selectedTransaction.category}
-                  </span>
+                  <span className="rounded-full border border-surface/50 bg-surface px-3 py-1 text-xs font-black uppercase text-text-secondary">{selectedTransaction.category}</span>
                   {selectedTransaction.document_number && (
-                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-black uppercase text-zinc-300">
-                      Doc: {selectedTransaction.document_number}
-                    </span>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-black uppercase text-zinc-300">Doc: {selectedTransaction.document_number}</span>
                   )}
                 </div>
               </div>
-              <button
-                onClick={() => setIsDetailModalOpen(false)}
-                className="rounded-full border border-surface/50 bg-surface p-2 text-text-secondary transition-colors hover:text-white"
-                aria-label="Fechar (ESC)"
-              >
+              <button onClick={() => setIsDetailModalOpen(false)} className="rounded-full border border-surface/50 bg-surface p-2 text-text-secondary transition-colors hover:text-white" aria-label="Fechar (ESC)">
                 <XCircle size={24} />
               </button>
             </div>
@@ -3678,41 +3252,14 @@ export default function FinanceiroPage() {
               <div className="max-h-[calc(94vh-110px)] space-y-6 overflow-y-auto p-6">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
                   {[
-                    {
-                      label: "Montante",
-                      val: formatCurrency(Number(selectedTransaction.amount)),
-                      color: "text-white",
-                    },
-                    {
-                      label: "Vencimento",
-                      val: formatDate(selectedTransaction.due_date),
-                      color: "text-white",
-                    },
-                    {
-                      label: "Status",
-                      val: statusLabel(selectedTransaction),
-                      color: statusClass(selectedTransaction).split(" ")[1],
-                    },
-                    {
-                      label: "Workflow",
-                      val: translateWorkflowStatus(
-                        selectedTransaction.workflow_status
-                      ),
-                      color: "text-white",
-                    },
+                    { label: "Montante", val: formatCurrency(Number(selectedTransaction.amount)), color: "text-white" },
+                    { label: "Vencimento", val: formatDate(selectedTransaction.due_date), color: "text-white" },
+                    { label: "Status", val: statusLabel(selectedTransaction), color: statusClass(selectedTransaction).split(" ")[1] },
+                    { label: "Workflow", val: translateWorkflowStatus(selectedTransaction.workflow_status), color: "text-white" },
                   ].map((card) => (
-                    <div
-                      key={card.label}
-                      className="rounded-lg border border-surface/50 bg-background p-4"
-                    >
-                      <p className="mb-1 text-[9px] font-black uppercase text-text-secondary">
-                        {card.label}
-                      </p>
-                      <p
-                        className={`break-words text-sm font-bold uppercase ${card.color}`}
-                      >
-                        {card.val}
-                      </p>
+                    <div key={card.label} className="rounded-lg border border-surface/50 bg-background p-4">
+                      <p className="mb-1 text-[9px] font-black uppercase text-text-secondary">{card.label}</p>
+                      <p className={`break-words text-sm font-bold uppercase ${card.color}`}>{card.val}</p>
                     </div>
                   ))}
                 </div>
@@ -3721,94 +3268,39 @@ export default function FinanceiroPage() {
                   <section className="rounded-xl border border-cs-gold/20 bg-cs-gold/5 p-5">
                     <div className="flex items-center gap-2">
                       <Scale size={18} className="text-cs-gold" />
-                      <h4 className="text-sm font-black uppercase tracking-widest text-white">
-                        Conciliação do pagamento
-                      </h4>
+                      <h4 className="text-sm font-black uppercase tracking-widest text-white">Conciliação do pagamento</h4>
                     </div>
                     <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-4">
                       {[
-                        {
-                          label: "Valor da parcela",
-                          val: formatCurrency(selectedPaymentInfo.expected),
-                          color: "text-white",
-                        },
-                        {
-                          label: "Valor informado",
-                          val: formatCurrency(selectedPaymentInfo.reported),
-                          color: "text-cs-gold",
-                        },
-                        {
-                          label: "Diferença",
-                          val: `${selectedPaymentInfo.difference >= 0 ? "+" : ""}${formatCurrency(selectedPaymentInfo.difference)}`,
-                          color:
-                            selectedPaymentInfo.difference === 0
-                              ? "text-cs-green"
-                              : selectedPaymentInfo.difference < 0
-                              ? "text-orange-400"
-                              : "text-blue-400",
-                        },
-                        {
-                          label: "Classificação",
-                          val: selectedPaymentInfo.label,
-                          color: "text-white",
-                        },
+                        { label: "Valor da parcela", val: formatCurrency(selectedPaymentInfo.expected), color: "text-white" },
+                        { label: "Valor informado", val: formatCurrency(selectedPaymentInfo.reported), color: "text-cs-gold" },
+                        { label: "Diferença", val: `${selectedPaymentInfo.difference >= 0 ? "+" : ""}${formatCurrency(selectedPaymentInfo.difference)}`, color: selectedPaymentInfo.difference === 0 ? "text-cs-green" : selectedPaymentInfo.difference < 0 ? "text-orange-400" : "text-blue-400" },
+                        { label: "Classificação", val: selectedPaymentInfo.label, color: "text-white" },
                       ].map((card) => (
-                        <div
-                          key={card.label}
-                          className="rounded-lg border border-white/10 bg-background/40 p-4"
-                        >
-                          <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">
-                            {card.label}
-                          </p>
-                          <p
-                            className={`mt-2 text-sm font-black uppercase ${card.color}`}
-                          >
-                            {card.val}
-                          </p>
+                        <div key={card.label} className="rounded-lg border border-white/10 bg-background/40 p-4">
+                          <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">{card.label}</p>
+                          <p className={`mt-2 text-sm font-black uppercase ${card.color}`}>{card.val}</p>
                         </div>
                       ))}
                     </div>
-                    <p className="mt-4 text-sm text-zinc-200">
-                      {selectedPaymentInfo.helper}
-                    </p>
+                    <p className="mt-4 text-sm text-zinc-200">{selectedPaymentInfo.helper}</p>
                     {receivableForGroup.length > 1 && (
                       <div className="mt-4 rounded-lg border border-white/10 bg-background/30 p-4">
                         <div className="flex items-center gap-2">
                           <Clock3 size={16} className="text-cs-gold" />
-                          <p className="text-xs font-black uppercase tracking-widest text-text-secondary">
-                            Grupo de cobranças relacionadas
-                          </p>
+                          <p className="text-xs font-black uppercase tracking-widest text-text-secondary">Grupo de cobranças relacionadas</p>
                         </div>
                         <div className="mt-3 space-y-2">
                           {receivableForGroup.map((row) => (
-                            <div
-                              key={row.id}
-                              className={`flex flex-col gap-2 rounded-lg border px-3 py-3 md:flex-row md:items-center md:justify-between ${
-                                row.id === selectedTransaction.id
-                                  ? "border-cs-gold/30 bg-cs-gold/5"
-                                  : "border-white/10 bg-background/40"
-                              }`}
-                            >
+                            <div key={row.id} className={`flex flex-col gap-2 rounded-lg border px-3 py-3 md:flex-row md:items-center md:justify-between ${row.id === selectedTransaction.id ? "border-cs-gold/30 bg-cs-gold/5" : "border-white/10 bg-background/40"}`}>
                               <div>
                                 <p className="text-sm font-semibold text-white">
-                                  Parcela{" "}
-                                  {row.installment_number || 1}/
-                                  {row.total_installments ||
-                                    receivableForGroup.length}
-                                  {row.id === selectedTransaction.id && (
-                                    <span className="ml-2 text-[10px] font-black uppercase text-cs-gold">
-                                      ← atual
-                                    </span>
-                                  )}
+                                  Parcela {row.installment_number || 1}/{row.total_installments || receivableForGroup.length}
+                                  {row.id === selectedTransaction.id && <span className="ml-2 text-[10px] font-black uppercase text-cs-gold">← atual</span>}
                                 </p>
-                                <p className="text-xs uppercase tracking-wide text-text-secondary">
-                                  Venc. {formatDate(row.due_date)} ·{" "}
-                                  {statusLabel(row)}
-                                </p>
+                                <p className="text-xs uppercase tracking-wide text-text-secondary">Venc. {formatDate(row.due_date)} · {statusLabel(row)}</p>
                               </div>
-                              <div className="text-sm font-black text-white">
-                                {formatCurrency(Number(row.amount))}
-                              </div>
+                              <div className="text-sm font-black text-white">{formatCurrency(Number(row.amount))}</div>
                             </div>
                           ))}
                         </div>
@@ -3817,214 +3309,97 @@ export default function FinanceiroPage() {
                   </section>
                 ) : null}
 
-                {/* Resumo financeiro */}
                 <section className="rounded-xl border border-surface/50 bg-background/40 p-5">
-                  <h4 className="border-b border-surface/50 pb-3 text-xs font-black uppercase tracking-widest text-white">
-                    Resumo financeiro
-                  </h4>
+                  <h4 className="border-b border-surface/50 pb-3 text-xs font-black uppercase tracking-widest text-white">Resumo financeiro</h4>
                   <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                     {[
-                      {
-                        label: "Cliente",
-                        val: selectedTransaction.clients?.company_name || "-",
-                      },
-                      {
-                        label: "Pagamento informado",
-                        val: formatDateTime(
-                          selectedTransaction.payment_reported_at
-                        ),
-                      },
-                      {
-                        label: "Valor informado",
-                        val:
-                          selectedTransaction.payment_reported_amount != null
-                            ? formatCurrency(
-                                Number(
-                                  selectedTransaction.payment_reported_amount
-                                )
-                              )
-                            : "-",
-                      },
-                      {
-                        label: "Forma informada",
-                        val:
-                          selectedTransaction.payment_reported_method ||
-                          selectedTransaction.payment_method ||
-                          "-",
-                      },
-                      {
-                        label: "Referência",
-                        val:
-                          selectedTransaction.payment_reported_reference || "-",
-                      },
-                      {
-                        label: "Pagamento confirmado",
-                        val: formatDateTime(
-                          selectedTransaction.payment_confirmed_at
-                        ),
-                      },
+                      { label: "Cliente", val: selectedTransaction.clients?.company_name || "-" },
+                      { label: "Pagamento informado", val: formatDateTime(selectedTransaction.payment_reported_at) },
+                      { label: "Valor informado", val: selectedTransaction.payment_reported_amount != null ? formatCurrency(Number(selectedTransaction.payment_reported_amount)) : "-" },
+                      { label: "Forma informada", val: selectedTransaction.payment_reported_method || selectedTransaction.payment_method || "-" },
+                      { label: "Referência", val: selectedTransaction.payment_reported_reference || "-" },
+                      { label: "Pagamento confirmado", val: formatDateTime(selectedTransaction.payment_confirmed_at) },
                     ].map((item) => (
                       <div key={item.label}>
-                        <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">
-                          {item.label}
-                        </p>
+                        <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">{item.label}</p>
                         <p className="mt-1 text-sm text-white">{item.val}</p>
                       </div>
                     ))}
                     {selectedTransaction.type === "income" && (
                       <>
                         <div>
-                          <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">
-                            Categoria contestação
-                          </p>
-                          <p className="mt-1 text-sm text-white">
-                            {translateDisputeCategory(
-                              selectedTransaction.dispute_category
-                            )}
-                          </p>
+                          <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Categoria contestação</p>
+                          <p className="mt-1 text-sm text-white">{translateDisputeCategory(selectedTransaction.dispute_category)}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">
-                            Motivo contestação
-                          </p>
-                          <p className="mt-1 text-sm text-white">
-                            {selectedTransaction.dispute_reason || "-"}
-                          </p>
+                          <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Motivo contestação</p>
+                          <p className="mt-1 text-sm text-white">{selectedTransaction.dispute_reason || "-"}</p>
                         </div>
                       </>
                     )}
                     <div className="md:col-span-2">
-                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">
-                        Retorno / resolução do financeiro
-                      </p>
-                      <p className="mt-1 text-sm text-white">
-                        {selectedTransaction.resolution_notes || "-"}
-                      </p>
+                      <p className="text-[10px] font-black uppercase tracking-wide text-text-secondary">Retorno / resolução do financeiro</p>
+                      <p className="mt-1 text-sm text-white">{selectedTransaction.resolution_notes || "-"}</p>
                     </div>
                   </div>
                 </section>
 
-                {/* Histórico */}
                 <section className="rounded-xl border border-surface/50 bg-background/40 p-5">
                   <div className="flex items-center justify-between gap-3">
-                    <h4 className="text-xs font-black uppercase tracking-widest text-white">
-                      Histórico da cobrança
-                    </h4>
-                    {detailLoading ? (
-                      <Loader2
-                        className="animate-spin text-cs-gold"
-                        size={18}
-                      />
-                    ) : null}
+                    <h4 className="text-xs font-black uppercase tracking-widest text-white">Histórico da cobrança</h4>
+                    {detailLoading ? <Loader2 className="animate-spin text-cs-gold" size={18} /> : null}
                   </div>
                   <div className="mt-4 space-y-3">
                     {events.length === 0 ? (
-                      <p className="text-sm text-text-secondary">
-                        Nenhuma interação registrada.
-                      </p>
+                      <p className="text-sm text-text-secondary">Nenhuma interação registrada.</p>
                     ) : (
                       events.map((event) => (
-                        <div
-                          key={event.id}
-                          className={`rounded-xl border p-4 ${
-                            event.author_type === "finance" ||
-                            event.author_type === "system"
-                              ? "border-blue-500/20 bg-blue-500/5"
-                              : "border-surface/50 bg-surface"
-                          }`}
-                        >
+                        <div key={event.id} className={`rounded-xl border p-4 ${event.author_type === "finance" || event.author_type === "system" ? "border-blue-500/20 bg-blue-500/5" : "border-surface/50 bg-surface"}`}>
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="font-semibold text-white">
-                              {event.title ||
-                                translateEventType(event.event_type)}
-                            </p>
-                            <span className="text-xs text-text-secondary">
-                              {formatDateTime(event.created_at)}
-                            </span>
+                            <p className="font-semibold text-white">{event.title || translateEventType(event.event_type)}</p>
+                            <span className="text-xs text-text-secondary">{formatDateTime(event.created_at)}</span>
                           </div>
                           <p className="mt-1 text-xs uppercase tracking-wider text-text-secondary">
-                            {event.author_type === "client"
-                              ? "Cliente"
-                              : event.author_type === "finance"
-                              ? "Financeiro"
-                              : "Sistema"}{" "}
-                            ·{" "}
-                            {event.visibility === "shared"
-                              ? "Compartilhado"
-                              : "Interno"}
+                            {event.author_type === "client" ? "Cliente" : event.author_type === "finance" ? "Financeiro" : "Sistema"} · {event.visibility === "shared" ? "Compartilhado" : "Interno"}
                           </p>
-                          <p className="mt-3 text-sm text-zinc-200">
-                            {event.message || "-"}
-                          </p>
-                          {event.metadata &&
-                            Object.keys(event.metadata).length > 0 && (
-                              <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
-                                {Object.entries(event.metadata).map(
-                                  ([key, value]) => (
-                                    <div
-                                      key={key}
-                                      className="rounded-lg border border-surface/40 bg-background/30 px-3 py-2 text-xs text-text-secondary"
-                                    >
-                                      <span className="block uppercase tracking-wider">
-                                        {key.replaceAll("_", " ")}
-                                      </span>
-                                      <span className="mt-1 block text-white">
-                                        {String(value ?? "-")}
-                                      </span>
-                                    </div>
-                                  )
-                                )}
-                              </div>
-                            )}
+                          <p className="mt-3 text-sm text-zinc-200">{event.message || "-"}</p>
+                          {event.metadata && Object.keys(event.metadata).length > 0 && (
+                            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                              {Object.entries(event.metadata).map(([key, value]) => (
+                                <div key={key} className="rounded-lg border border-surface/40 bg-background/30 px-3 py-2 text-xs text-text-secondary">
+                                  <span className="block uppercase tracking-wider">{key.replaceAll("_", " ")}</span>
+                                  <span className="mt-1 block text-white">{String(value ?? "-")}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ))
                     )}
                   </div>
                 </section>
 
-                {/* Anexos */}
                 <section className="rounded-xl border border-surface/50 bg-background/40 p-5">
-                  <h4 className="text-xs font-black uppercase tracking-widest text-white">
-                    Anexos
-                  </h4>
+                  <h4 className="text-xs font-black uppercase tracking-widest text-white">Anexos</h4>
                   <div className="mt-4 space-y-3">
                     {attachments.length === 0 ? (
-                      <p className="text-sm text-text-secondary">
-                        Nenhum anexo disponível.
-                      </p>
+                      <p className="text-sm text-text-secondary">Nenhum anexo disponível.</p>
                     ) : (
                       attachments.map((file) => (
-                        <div
-                          key={file.id}
-                          className="flex flex-col gap-3 rounded-xl border border-surface/50 bg-surface p-4 md:flex-row md:items-center md:justify-between"
-                        >
+                        <div key={file.id} className="flex flex-col gap-3 rounded-xl border border-surface/50 bg-surface p-4 md:flex-row md:items-center md:justify-between">
                           <div className="min-w-0">
-                            <p className="truncate font-semibold text-white">
-                              {file.file_name}
-                            </p>
+                            <p className="truncate font-semibold text-white">{file.file_name}</p>
                             <p className="mt-1 text-xs uppercase tracking-wider text-text-secondary">
-                              {file.attachment_type} ·{" "}
-                              {file.uploaded_by_type === "client"
-                                ? "Cliente"
-                                : file.uploaded_by_type === "finance"
-                                ? "Financeiro"
-                                : "Sistema"}{" "}
-                              · {formatDateTime(file.created_at)}
+                              {file.attachment_type} · {file.uploaded_by_type === "client" ? "Cliente" : file.uploaded_by_type === "finance" ? "Financeiro" : "Sistema"} · {formatDateTime(file.created_at)}
                             </p>
                           </div>
                           {signedUrls[file.id] ? (
-                            <a
-                              href={signedUrls[file.id]}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2 rounded-lg border border-surface/50 bg-background px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-background/70"
-                            >
+                            <a href={signedUrls[file.id]} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-surface/50 bg-background px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-background/70">
                               <Paperclip size={16} /> Abrir
                             </a>
                           ) : (
                             <span className="inline-flex items-center gap-2 rounded-lg border border-surface/50 bg-background px-4 py-2 text-sm font-semibold text-text-secondary">
-                              <Loader2 className="animate-spin" size={16} />{" "}
-                              Carregando
+                              <Loader2 className="animate-spin" size={16} /> Carregando
                             </span>
                           )}
                         </div>
@@ -4033,154 +3408,61 @@ export default function FinanceiroPage() {
                   </div>
                 </section>
 
-                {/* Ações rápidas */}
                 <section className="rounded-xl border border-surface/50 bg-background/40 p-5">
-                  <h4 className="border-b border-surface/50 pb-3 text-xs font-black uppercase tracking-widest text-white">
-                    Ações rápidas
-                  </h4>
+                  <h4 className="border-b border-surface/50 pb-3 text-xs font-black uppercase tracking-widest text-white">Ações rápidas</h4>
                   <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
                     {selectedTransaction.type === "income" ? (
                       <>
-                        <button
-                          onClick={() => sendWhatsApp(selectedTransaction)}
-                          className="flex items-center justify-center gap-2 rounded-md border border-cs-green/20 bg-cs-green/10 py-3 text-xs font-black uppercase text-cs-green transition-all hover:bg-cs-green/20"
-                        >
+                        <button onClick={() => sendWhatsApp(selectedTransaction)} className="flex items-center justify-center gap-2 rounded-md border border-cs-green/20 bg-cs-green/10 py-3 text-xs font-black uppercase text-cs-green transition-all hover:bg-cs-green/20">
                           <MessageCircle size={16} /> WhatsApp
                         </button>
-                        <button
-                          onClick={() => sendInvoiceEmail(selectedTransaction)}
-                          disabled={isSendingMail}
-                          className="flex items-center justify-center gap-2 rounded-md border border-blue-500/20 bg-blue-500/10 py-3 text-xs font-black uppercase text-blue-400 transition-all hover:bg-blue-500/20 disabled:opacity-50"
-                        >
-                          {isSendingMail ? (
-                            <Loader2 className="animate-spin" size={16} />
-                          ) : (
-                            <Mail size={16} />
-                          )}{" "}
-                          E-mail
+                        <button onClick={() => sendInvoiceEmail(selectedTransaction)} disabled={isSendingMail} className="flex items-center justify-center gap-2 rounded-md border border-blue-500/20 bg-blue-500/10 py-3 text-xs font-black uppercase text-blue-400 transition-all hover:bg-blue-500/20 disabled:opacity-50">
+                          {isSendingMail ? <Loader2 className="animate-spin" size={16} /> : <Mail size={16} />} E-mail
                         </button>
-                        <button
-                          onClick={() =>
-                            router.push(
-                              `/financeiro/fatura/${selectedTransaction.id}`
-                            )
-                          }
-                          className="flex items-center justify-center gap-2 rounded-md border border-surface/50 bg-surface py-3 text-xs font-black uppercase text-white transition-all hover:bg-background"
-                        >
+                        <button onClick={() => router.push(`/financeiro/fatura/${selectedTransaction.id}`)} className="flex items-center justify-center gap-2 rounded-md border border-surface/50 bg-surface py-3 text-xs font-black uppercase text-white transition-all hover:bg-background">
                           <Receipt size={16} /> Gerar Fatura PDF
                         </button>
                       </>
                     ) : (
-                      <div className="text-sm text-text-secondary md:col-span-3">
-                        Ações rápidas disponíveis apenas para cobranças a
-                        receber.
-                      </div>
+                      <div className="text-sm text-text-secondary md:col-span-3">Ações rápidas disponíveis apenas para cobranças a receber.</div>
                     )}
                   </div>
                 </section>
               </div>
 
-              {/* Right sidebar — finance actions */}
+              {/* Right sidebar */}
               <aside className="max-h-[calc(94vh-110px)] space-y-5 overflow-y-auto border-l border-surface/50 bg-background/30 p-6">
                 <section className="rounded-xl border border-cs-gold/20 bg-cs-gold/5 p-5">
                   <h4 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-white">
-                    <ShieldAlert size={16} className="text-cs-gold" />
-                    Atendimento financeiro
+                    <ShieldAlert size={16} className="text-cs-gold" /> Atendimento financeiro
                   </h4>
-                  <p className="mt-2 text-xs uppercase tracking-wide text-text-secondary">
-                    Registre comentário, confirme, rejeite ou resolva.
-                  </p>
+                  <p className="mt-2 text-xs uppercase tracking-wide text-text-secondary">Registre comentário, confirme, rejeite ou resolva.</p>
                   <div className="mt-4 space-y-4">
                     <div>
-                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                        Comentário do financeiro
-                      </label>
-                      <textarea
-                        value={financeActionForm.comment}
-                        onChange={(e) =>
-                          setFinanceActionForm((prev) => ({
-                            ...prev,
-                            comment: e.target.value,
-                          }))
-                        }
-                        className="min-h-[110px] w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-gold"
-                        placeholder="Retorno claro para o cliente ou histórico interno."
-                      />
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">Comentário do financeiro</label>
+                      <textarea value={financeActionForm.comment} onChange={(e) => setFinanceActionForm((prev) => ({ ...prev, comment: e.target.value }))} className="min-h-[110px] w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-gold" placeholder="Retorno claro para o cliente ou histórico interno." />
                     </div>
                     <div>
-                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                        Tipo de resolução
-                      </label>
-                      <select
-                        value={financeActionForm.resolutionType}
-                        onChange={(e) =>
-                          setFinanceActionForm((prev) => ({
-                            ...prev,
-                            resolutionType: e.target.value,
-                          }))
-                        }
-                        className="w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-gold"
-                      >
-                        <option value="payment_confirmed">
-                          Pagamento confirmado
-                        </option>
-                        <option value="charge_corrected">
-                          Cobrança corrigida
-                        </option>
-                        <option value="dispute_rejected">
-                          Cobrança mantida (contestação rejeitada)
-                        </option>
-                        <option value="charge_cancelled">
-                          Cobrança cancelada
-                        </option>
-                        <option value="written_off">
-                          Baixa por perda
-                        </option>
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">Tipo de resolução</label>
+                      <select value={financeActionForm.resolutionType} onChange={(e) => setFinanceActionForm((prev) => ({ ...prev, resolutionType: e.target.value }))} className="w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-gold">
+                        <option value="payment_confirmed">Pagamento confirmado</option>
+                        <option value="charge_corrected">Cobrança corrigida</option>
+                        <option value="dispute_rejected">Cobrança mantida (contestação rejeitada)</option>
+                        <option value="charge_cancelled">Cobrança cancelada</option>
+                        <option value="written_off">Baixa por perda</option>
                       </select>
                     </div>
                     <div>
-                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                        Observação de resolução
-                      </label>
-                      <textarea
-                        value={financeActionForm.resolutionNotes}
-                        onChange={(e) =>
-                          setFinanceActionForm((prev) => ({
-                            ...prev,
-                            resolutionNotes: e.target.value,
-                          }))
-                        }
-                        className="min-h-[90px] w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-gold"
-                        placeholder="Explique a decisão tomada."
-                      />
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">Observação de resolução</label>
+                      <textarea value={financeActionForm.resolutionNotes} onChange={(e) => setFinanceActionForm((prev) => ({ ...prev, resolutionNotes: e.target.value }))} className="min-h-[90px] w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-gold" placeholder="Explique a decisão tomada." />
                     </div>
                     <div>
-                      <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                        Anexo do financeiro
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          financeAttachmentInputRef.current?.click()
-                        }
-                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-surface bg-background px-4 py-3 text-sm font-semibold text-white transition-all hover:border-cs-gold"
-                      >
+                      <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-text-secondary">Anexo do financeiro</label>
+                      <button type="button" onClick={() => financeAttachmentInputRef.current?.click()} className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-surface bg-background px-4 py-3 text-sm font-semibold text-white transition-all hover:border-cs-gold">
                         <Upload size={16} />
-                        {financeAttachmentFile
-                          ? financeAttachmentFile.name
-                          : "Selecionar arquivo"}
+                        {financeAttachmentFile ? financeAttachmentFile.name : "Selecionar arquivo"}
                       </button>
-                      <input
-                        ref={financeAttachmentInputRef}
-                        type="file"
-                        className="hidden"
-                        accept=".pdf,.jpg,.jpeg,.png,.webp"
-                        onChange={(e) =>
-                          setFinanceAttachmentFile(
-                            e.target.files?.[0] || null
-                          )
-                        }
-                      />
+                      <input ref={financeAttachmentInputRef} type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={(e) => setFinanceAttachmentFile(e.target.files?.[0] || null)} />
                     </div>
                   </div>
                 </section>
@@ -4188,216 +3470,95 @@ export default function FinanceiroPage() {
                 {selectedTransaction.type === "income" && selectedPaymentInfo ? (
                   <section className="space-y-3 rounded-xl border border-white/10 bg-surface p-4">
                     <h5 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
-                      <Scale size={15} className="text-cs-gold" />
-                      Decisão de conciliação
+                      <Scale size={15} className="text-cs-gold" /> Decisão de conciliação
                     </h5>
                     <div className="rounded-lg border border-white/10 bg-background/40 p-3 text-sm text-zinc-200">
-                      {selectedPaymentInfo.label}:{" "}
-                      {selectedPaymentInfo.helper}
+                      {selectedPaymentInfo.label}: {selectedPaymentInfo.helper}
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={handleAddFinanceComment}
-                      disabled={actionSubmitting}
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white hover:bg-white/10 disabled:opacity-50"
-                    >
-                      {actionSubmitting ? (
-                        <Loader2 className="animate-spin" size={18} />
-                      ) : (
-                        <FileText size={18} />
-                      )}
+                    <button type="button" onClick={handleAddFinanceComment} disabled={actionSubmitting} className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white hover:bg-white/10 disabled:opacity-50">
+                      {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <FileText size={18} />}
                       Registrar comentário
                     </button>
 
-                    {(selectedTransaction.workflow_status ===
-                      "awaiting_finance" ||
-                      selectedTransaction.workflow_status ===
-                        "under_review") && (
+                    {(selectedTransaction.workflow_status === "awaiting_finance" || selectedTransaction.workflow_status === "under_review") && (
                       <>
-                        {selectedPaymentInfo.scenario === "partial" &&
-                          receivableForGroup.filter(
-                            (r) =>
-                              r.id !== selectedTransaction.id &&
-                              r.status === "pending"
-                          ).length === 0 && (
-                            <div>
-                              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">
-                                Vencimento da nova cobrança de saldo *
-                              </label>
-                              <input
-                                type="date"
-                                value={financeActionForm.partialDueDate}
-                                onChange={(e) =>
-                                  setFinanceActionForm((prev) => ({
-                                    ...prev,
-                                    partialDueDate: e.target.value,
-                                  }))
-                                }
-                                className="w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-green"
-                                style={{ colorScheme: "dark" }}
-                              />
-                              <p className="mt-1 text-[10px] text-text-secondary">
-                                Saldo de {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Math.abs(selectedPaymentInfo.difference))} será gerado como nova cobrança nesta data.
-                              </p>
-                            </div>
-                          )}
-
-                        {selectedPaymentInfo.scenario === "partial" &&
-                          receivableForGroup.filter(
-                            (r) =>
-                              r.id !== selectedTransaction.id &&
-                              r.status === "pending"
-                          ).length > 0 && (
-                            <div className="rounded-lg border border-cs-green/20 bg-cs-green/5 px-3 py-2.5">
-                              <p className="text-xs font-bold text-cs-green">
-                                Saldo de {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Math.abs(selectedPaymentInfo.difference))} será diluído na próxima parcela aberta do grupo.
-                              </p>
-                            </div>
-                          )}
-
-                        <button
-                          type="button"
-                          onClick={handleConfirmPayment}
-                          disabled={actionSubmitting}
-                          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-cs-green px-4 py-3 text-sm font-bold text-white shadow-lg hover:opacity-90 disabled:opacity-50"
-                        >
-                          {actionSubmitting ? (
-                            <Loader2 className="animate-spin" size={18} />
-                          ) : (
-                            <CheckCheck size={18} />
-                          )}
-                          {selectedPaymentInfo.scenario === "partial"
-                            ? "Confirmar parcial e gerar saldo"
-                            : "Confirmar pagamento e dar baixa"}
+                        {selectedPaymentInfo.scenario === "partial" && receivableForGroup.filter((r) => r.id !== selectedTransaction.id && r.status === "pending").length === 0 && (
+                          <div>
+                            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-text-secondary">Vencimento da nova cobrança de saldo *</label>
+                            <input type="date" value={financeActionForm.partialDueDate} onChange={(e) => setFinanceActionForm((prev) => ({ ...prev, partialDueDate: e.target.value }))} className="w-full rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-green" style={{ colorScheme: "dark" }} />
+                            <p className="mt-1 text-[10px] text-text-secondary">
+                              Saldo de {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Math.abs(selectedPaymentInfo.difference))} será gerado como nova cobrança nesta data.
+                            </p>
+                          </div>
+                        )}
+                        {selectedPaymentInfo.scenario === "partial" && receivableForGroup.filter((r) => r.id !== selectedTransaction.id && r.status === "pending").length > 0 && (
+                          <div className="rounded-lg border border-cs-green/20 bg-cs-green/5 px-3 py-2.5">
+                            <p className="text-xs font-bold text-cs-green">
+                              Saldo de {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Math.abs(selectedPaymentInfo.difference))} será diluído na próxima parcela aberta do grupo.
+                            </p>
+                          </div>
+                        )}
+                        <button type="button" onClick={handleConfirmPayment} disabled={actionSubmitting} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-cs-green px-4 py-3 text-sm font-bold text-white shadow-lg hover:opacity-90 disabled:opacity-50">
+                          {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <CheckCheck size={18} />}
+                          {selectedPaymentInfo.scenario === "partial" ? "Confirmar parcial e gerar saldo" : "Confirmar pagamento e dar baixa"}
                         </button>
-
-                        <button
-                          type="button"
-                          onClick={handleRejectPayment}
-                          disabled={actionSubmitting}
-                          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-3 text-sm font-bold text-white shadow-lg hover:bg-red-500 disabled:opacity-50"
-                        >
-                          {actionSubmitting ? (
-                            <Loader2 className="animate-spin" size={18} />
-                          ) : (
-                            <X size={18} />
-                          )}
+                        <button type="button" onClick={handleRejectPayment} disabled={actionSubmitting} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-3 text-sm font-bold text-white shadow-lg hover:bg-red-500 disabled:opacity-50">
+                          {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <X size={18} />}
                           Rejeitar pagamento informado
                         </button>
                       </>
                     )}
 
-                    {selectedPaymentInfo.scenario === "over" &&
-                      receivableForGroup.filter(
-                        (r) =>
-                          r.id !== selectedTransaction.id &&
-                          r.status === "pending"
-                      ).length > 0 && (
-                        <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 space-y-3">
-                          <p className="text-xs font-black uppercase tracking-wide text-blue-300">
-                            Conciliação automática disponível
-                          </p>
-                          <p className="text-xs text-zinc-400">
-                            Excedente de{" "}
-                            {formatCurrency(selectedPaymentInfo.difference)}{" "}
-                            pode ser distribuído automaticamente para as{" "}
-                            {
-                              receivableForGroup.filter(
-                                (r) =>
-                                  r.id !== selectedTransaction.id &&
-                                  r.status === "pending"
-                              ).length
-                            }{" "}
-                            parcela(s) abertas do grupo.
-                          </p>
-                          <button
-                            type="button"
-                            onClick={handleAutoDistribute}
-                            disabled={actionSubmitting}
-                            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/15 px-4 py-3 text-sm font-bold text-blue-300 hover:bg-blue-500/25 disabled:opacity-50"
-                          >
-                            {actionSubmitting ? (
-                              <Loader2 className="animate-spin" size={18} />
-                            ) : (
-                              <Layers size={18} />
-                            )}
-                            Distribuir excedente automaticamente
-                          </button>
-                        </div>
-                      )}
+                    {selectedPaymentInfo.scenario === "over" && receivableForGroup.filter((r) => r.id !== selectedTransaction.id && r.status === "pending").length > 0 && (
+                      <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 space-y-3">
+                        <p className="text-xs font-black uppercase tracking-wide text-blue-300">Conciliação automática disponível</p>
+                        <p className="text-xs text-zinc-400">
+                          Excedente de {formatCurrency(selectedPaymentInfo.difference)} pode ser distribuído automaticamente para as{" "}
+                          {receivableForGroup.filter((r) => r.id !== selectedTransaction.id && r.status === "pending").length} parcela(s) abertas do grupo.
+                        </p>
+                        <button type="button" onClick={handleAutoDistribute} disabled={actionSubmitting} className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/15 px-4 py-3 text-sm font-bold text-blue-300 hover:bg-blue-500/25 disabled:opacity-50">
+                          {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Layers size={18} />}
+                          Distribuir excedente automaticamente
+                        </button>
+                      </div>
+                    )}
                   </section>
                 ) : (
                   <section className="rounded-xl border border-white/10 bg-surface p-4">
-                    <button
-                      type="button"
-                      onClick={handleAddFinanceComment}
-                      disabled={actionSubmitting}
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white hover:bg-white/10 disabled:opacity-50"
-                    >
-                      {actionSubmitting ? (
-                        <Loader2 className="animate-spin" size={18} />
-                      ) : (
-                        <FileText size={18} />
-                      )}
+                    <button type="button" onClick={handleAddFinanceComment} disabled={actionSubmitting} className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white hover:bg-white/10 disabled:opacity-50">
+                      {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <FileText size={18} />}
                       Registrar comentário
                     </button>
                   </section>
                 )}
 
-                {selectedTransaction.type === "income" &&
-                  selectedTransaction.dispute_status &&
-                  selectedTransaction.dispute_status !== "resolved" &&
-                  selectedTransaction.dispute_status !== "none" && (
-                    <section className="space-y-3 rounded-xl border border-orange-500/20 bg-orange-500/5 p-4">
-                      <h5 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
-                        <AlertTriangle size={15} className="text-orange-400" />
-                        Contestação
-                      </h5>
-                      <button
-                        type="button"
-                        onClick={handleResolveDispute}
-                        disabled={actionSubmitting}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-3 text-sm font-bold text-white shadow-lg hover:opacity-90 disabled:opacity-50"
-                      >
-                        {actionSubmitting ? (
-                          <Loader2 className="animate-spin" size={18} />
-                        ) : (
-                          <ShieldAlert size={18} />
-                        )}
-                        Resolver contestação
-                      </button>
-                    </section>
-                  )}
+                {selectedTransaction.type === "income" && selectedTransaction.dispute_status && selectedTransaction.dispute_status !== "resolved" && selectedTransaction.dispute_status !== "none" && (
+                  <section className="space-y-3 rounded-xl border border-orange-500/20 bg-orange-500/5 p-4">
+                    <h5 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
+                      <AlertTriangle size={15} className="text-orange-400" /> Contestação
+                    </h5>
+                    <button type="button" onClick={handleResolveDispute} disabled={actionSubmitting} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-3 text-sm font-bold text-white shadow-lg hover:opacity-90 disabled:opacity-50">
+                      {actionSubmitting ? <Loader2 className="animate-spin" size={18} /> : <ShieldAlert size={18} />}
+                      Resolver contestação
+                    </button>
+                  </section>
+                )}
 
                 <section className="rounded-xl border border-surface/50 bg-surface p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <button
-                      onClick={() =>
-                        setConfirmDeleteId(selectedTransaction.id)
-                      }
-                      className="flex items-center gap-2 text-xs font-black uppercase text-red-500 transition-colors hover:text-red-400"
-                    >
+                    <button onClick={() => setConfirmDeleteId(selectedTransaction.id)} className="flex items-center gap-2 text-xs font-black uppercase text-red-500 transition-colors hover:text-red-400">
                       <Trash2 size={16} /> Excluir
                     </button>
                     <div className="flex gap-3">
-                      <button
-                        onClick={() => openEditForm(selectedTransaction)}
-                        className="rounded-md border border-surface/50 bg-background px-4 py-2.5 text-xs font-black uppercase tracking-widest text-white transition-all hover:bg-surface/80"
-                      >
+                      <button onClick={() => openEditForm(selectedTransaction)} className="rounded-md border border-surface/50 bg-background px-4 py-2.5 text-xs font-black uppercase tracking-widest text-white transition-all hover:bg-surface/80">
                         Editar
                       </button>
-                      {selectedTransaction.status === "pending" &&
-                        selectedTransaction.type === "expense" && (
-                          <button
-                            onClick={() =>
-                              updateStatus(selectedTransaction.id, "paid")
-                            }
-                            className="rounded-md bg-cs-green px-5 py-2.5 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all hover:bg-opacity-90"
-                          >
-                            Dar baixa manual
-                          </button>
-                        )}
+                      {selectedTransaction.status === "pending" && selectedTransaction.type === "expense" && (
+                        <button onClick={() => updateStatus(selectedTransaction.id, "paid")} className="rounded-md bg-cs-green px-5 py-2.5 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all hover:bg-opacity-90">
+                          Dar baixa manual
+                        </button>
+                      )}
                     </div>
                   </div>
                 </section>
@@ -4416,121 +3577,38 @@ export default function FinanceiroPage() {
                 <h3 className="flex items-center gap-2 text-lg font-black uppercase tracking-tighter text-white">
                   <Bell size={20} className="text-cs-gold" /> Régua de Cobrança
                 </h3>
-                <p className="mt-1 text-xs uppercase tracking-wide text-text-secondary">
-                  Mensagens automáticas por WhatsApp para cobranças pendentes
-                </p>
+                <p className="mt-1 text-xs uppercase tracking-wide text-text-secondary">Mensagens automáticas por WhatsApp para cobranças pendentes</p>
               </div>
-              <button
-                onClick={() => setIsReguaOpen(false)}
-                className="text-text-secondary hover:text-white"
-              >
-                <X size={22} />
-              </button>
+              <button onClick={() => setIsReguaOpen(false)} className="text-text-secondary hover:text-white"><X size={22} /></button>
             </div>
-
             <div className="max-h-[70vh] overflow-y-auto p-6 space-y-5">
-              {(
-                [
-                  {
-                    key: "enableMinus3",
-                    msgKey: "messageMinus3",
-                    label: "D-3 — 3 dias antes do vencimento",
-                    color: "text-blue-400",
-                  },
-                  {
-                    key: "enableD0",
-                    msgKey: "messageD0",
-                    label: "D0 — No dia do vencimento",
-                    color: "text-cs-gold",
-                  },
-                  {
-                    key: "enablePlus5",
-                    msgKey: "messagePlus5",
-                    label: "D+5 — 5 dias após o vencimento",
-                    color: "text-red-400",
-                  },
-                ] as const
-              ).map((item) => (
-                <div
-                  key={item.key}
-                  className="rounded-xl border border-surface/50 bg-surface p-4 space-y-3"
-                >
+              {([
+                { key: "enableMinus3", msgKey: "messageMinus3", label: "D-3 — 3 dias antes do vencimento", color: "text-blue-400" },
+                { key: "enableD0", msgKey: "messageD0", label: "D0 — No dia do vencimento", color: "text-cs-gold" },
+                { key: "enablePlus5", msgKey: "messagePlus5", label: "D+5 — 5 dias após o vencimento", color: "text-red-400" },
+              ] as const).map((item) => (
+                <div key={item.key} className="rounded-xl border border-surface/50 bg-surface p-4 space-y-3">
                   <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id={item.key}
-                      checked={reguaConfig[item.key]}
-                      onChange={(e) =>
-                        setReguaConfig((p) => ({
-                          ...p,
-                          [item.key]: e.target.checked,
-                        }))
-                      }
-                      className="cursor-pointer accent-cs-gold"
-                    />
-                    <label
-                      htmlFor={item.key}
-                      className={`text-sm font-black uppercase tracking-wide cursor-pointer ${item.color}`}
-                    >
-                      {item.label}
-                    </label>
+                    <input type="checkbox" id={item.key} checked={reguaConfig[item.key]} onChange={(e) => setReguaConfig((p) => ({ ...p, [item.key]: e.target.checked }))} className="cursor-pointer accent-cs-gold" />
+                    <label htmlFor={item.key} className={`text-sm font-black uppercase tracking-wide cursor-pointer ${item.color}`}>{item.label}</label>
                   </div>
                   {reguaConfig[item.key] && (
                     <div>
-                      <p className="mb-1 text-[10px] uppercase tracking-wider text-text-secondary">
-                        Variáveis: {"{cliente}"}, {"{valor}"}, {"{data}"}
-                      </p>
-                      <textarea
-                        value={reguaConfig[item.msgKey]}
-                        onChange={(e) =>
-                          setReguaConfig((p) => ({
-                            ...p,
-                            [item.msgKey]: e.target.value,
-                          }))
-                        }
-                        rows={3}
-                        className="w-full resize-none rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-gold"
-                      />
+                      <p className="mb-1 text-[10px] uppercase tracking-wider text-text-secondary">Variáveis: {"{cliente}"}, {"{valor}"}, {"{data}"}</p>
+                      <textarea value={reguaConfig[item.msgKey]} onChange={(e) => setReguaConfig((p) => ({ ...p, [item.msgKey]: e.target.value }))} rows={3} className="w-full resize-none rounded-lg border border-surface bg-background px-3 py-2.5 text-sm text-white outline-none focus:border-cs-gold" />
                     </div>
                   )}
                 </div>
               ))}
-
               <div className="rounded-xl border border-cs-gold/20 bg-cs-gold/5 p-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-cs-gold">
-                  Como funciona
-                </p>
-                <p className="mt-2 text-xs text-zinc-400 leading-relaxed">
-                  Ao clicar em "Executar régua agora", o sistema identifica
-                  todas as cobranças pendentes cujo vencimento coincide com os
-                  gatilhos ativados (hoje) e abre janelas do WhatsApp com as
-                  mensagens formatadas. Nenhuma mensagem é enviada
-                  automaticamente — você confirma cada uma.
-                </p>
+                <p className="text-xs font-bold uppercase tracking-wide text-cs-gold">Como funciona</p>
+                <p className="mt-2 text-xs text-zinc-400 leading-relaxed">Ao clicar em "Executar régua agora", o sistema identifica todas as cobranças pendentes cujo vencimento coincide com os gatilhos ativados (hoje) e abre janelas do WhatsApp com as mensagens formatadas. Nenhuma mensagem é enviada automaticamente — você confirma cada uma.</p>
               </div>
             </div>
-
             <div className="flex gap-3 border-t border-surface/50 p-6">
-              <button
-                onClick={() => setIsReguaOpen(false)}
-                className="flex-1 rounded-md border border-surface py-3 text-xs font-black uppercase text-text-secondary hover:text-white"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={async () => {
-                  setReguaRunning(true);
-                  await runRegua();
-                  setReguaRunning(false);
-                }}
-                disabled={reguaRunning}
-                className="flex-1 inline-flex items-center justify-center gap-2 rounded-md bg-cs-gold py-3 text-xs font-black uppercase text-black shadow-lg hover:opacity-90 disabled:opacity-50"
-              >
-                {reguaRunning ? (
-                  <Loader2 className="animate-spin" size={16} />
-                ) : (
-                  <Bell size={16} />
-                )}
+              <button onClick={() => setIsReguaOpen(false)} className="flex-1 rounded-md border border-surface py-3 text-xs font-black uppercase text-text-secondary hover:text-white">Cancelar</button>
+              <button onClick={async () => { setReguaRunning(true); await runRegua(); setReguaRunning(false); }} disabled={reguaRunning} className="flex-1 inline-flex items-center justify-center gap-2 rounded-md bg-cs-gold py-3 text-xs font-black uppercase text-black shadow-lg hover:opacity-90 disabled:opacity-50">
+                {reguaRunning ? <Loader2 className="animate-spin" size={16} /> : <Bell size={16} />}
                 Executar régua agora
               </button>
             </div>
@@ -4545,25 +3623,11 @@ export default function FinanceiroPage() {
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-red-500/20 bg-red-500/10">
               <AlertTriangle size={32} className="text-red-500" />
             </div>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-white">
-              Remover Registro?
-            </h3>
-            <p className="text-sm font-medium text-text-secondary">
-              Esta ação é irreversível e afetará os relatórios financeiros.
-            </p>
+            <h3 className="text-xl font-black uppercase tracking-tighter text-white">Remover Registro?</h3>
+            <p className="text-sm font-medium text-text-secondary">Esta ação é irreversível e afetará os relatórios financeiros.</p>
             <div className="flex gap-4">
-              <button
-                onClick={() => setConfirmDeleteId(null)}
-                className="flex-1 rounded-md border border-surface py-3 text-xs font-black uppercase text-text-secondary transition-all hover:text-white"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => handleDeleteTransaction(confirmDeleteId)}
-                className="flex-1 rounded-md bg-red-600 py-3 text-xs font-black uppercase text-white shadow-lg transition-all hover:bg-red-500"
-              >
-                Excluir
-              </button>
+              <button onClick={() => setConfirmDeleteId(null)} className="flex-1 rounded-md border border-surface py-3 text-xs font-black uppercase text-text-secondary transition-all hover:text-white">Cancelar</button>
+              <button onClick={() => handleDeleteTransaction(confirmDeleteId)} className="flex-1 rounded-md bg-red-600 py-3 text-xs font-black uppercase text-white shadow-lg transition-all hover:bg-red-500">Excluir</button>
             </div>
           </div>
         </div>
