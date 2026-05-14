@@ -1849,7 +1849,7 @@ export default function FinanceiroPage() {
           .maybeSingle();
 
         if (!existingOS) {
-          const { data: quoteForOS } = await supabase
+          const { data: quoteForOS, error: quoteOSError } = await supabase
             .from("quotes")
             .select(
               "title, client_id, salesperson_id, final_amount, " +
@@ -1861,7 +1861,7 @@ export default function FinanceiroPage() {
             .eq("id", selectedTransaction.quote_id)
             .single();
 
-          if (quoteForOS) {
+          if (quoteForOS && !quoteOSError) {
             const { error: osError } = await supabase
               .from("service_orders")
               .insert({
