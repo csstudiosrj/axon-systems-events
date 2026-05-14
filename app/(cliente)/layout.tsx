@@ -51,11 +51,11 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     companyProfile?.legal_name ||
     "Portal do Cliente";
 
-  const supportEnabled = systemPreferences?.feature_toggles?.enable_support ?? true;
-  const trainingsEnabled = systemPreferences?.feature_toggles?.enable_trainings ?? true;
-  const teamEnabled = systemPreferences?.feature_toggles?.enable_team ?? true;
-  const financialEnabled = systemPreferences?.feature_toggles?.enable_financial ?? true;
-  const quotesEnabled = systemPreferences?.feature_toggles?.enable_quotes ?? true;
+  const supportEnabled = systemPreferences?.feature_toggles?.enable_support === true;
+  const trainingsEnabled = systemPreferences?.feature_toggles?.enable_trainings !== false;
+  const teamEnabled = systemPreferences?.feature_toggles?.enable_team !== false;
+  const financialEnabled = systemPreferences?.feature_toggles?.enable_financial !== false;
+  const quotesEnabled = systemPreferences?.feature_toggles?.enable_quotes !== false;
 
   // ── portal_modules: flags modulares vindas do banco (BLOCO 4 — PARTE B) ──
   // Fallback para feature_toggles existentes caso portal_modules ainda não
