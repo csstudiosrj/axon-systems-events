@@ -1849,7 +1849,7 @@ export default function FinanceiroPage() {
           .maybeSingle();
 
         if (!existingOS) {
-          const { data: quoteForOS, error: quoteOSError } = await supabase
+          const { data: quoteForOSRaw, error: quoteOSError } = await supabase
             .from("quotes")
             .select(
               "title, client_id, salesperson_id, final_amount, " +
@@ -1860,6 +1860,15 @@ export default function FinanceiroPage() {
             .eq("company_id", userCompanyId!)
             .eq("id", selectedTransaction.quote_id)
             .single();
+          // cast explícito: Supabase não infere tipo de select com string concatenada
+          type QuoteForOS = {
+            title: string; client_id: string | null; salesperson_id: string | null;
+            final_amount: number; event_start_date: string | null;
+            event_end_date: string | null; setup_start_date: string | null;
+            setup_end_date: string | null; teardown_start_date: string | null;
+            teardown_end_date: string | null;
+          };
+          const quoteForOS = quoteForOSRaw as QuoteForOS | null;
 
           if (quoteForOS && !quoteOSError) {
             const { error: osError } = await supabase
