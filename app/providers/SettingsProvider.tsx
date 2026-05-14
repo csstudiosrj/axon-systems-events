@@ -137,6 +137,7 @@ export interface SystemPreferences {
   commercial_documents: CommercialDocuments;
   currency_code: string;
   financial_categories: FinancialCategories;
+  portal_modules: Record<string, boolean>;  // ← BLOCO 4: flags de módulos do portal do cliente
 }
 
 interface CompanyProfileRow {
@@ -172,6 +173,7 @@ interface SystemPreferencesRow {
   commercial_documents: CommercialDocuments | null;
   currency_code: string | null;
   financial_categories: FinancialCategories | null;
+  portal_modules: Record<string, boolean> | null;  // ← BLOCO 4
 }
 
 // FIX: adicionado company_id — necessário para isolar queries por empresa
@@ -289,12 +291,22 @@ const defaultFinancialCategories: FinancialCategories = {
   expense: ["OPEX", "Folha de Pagamento", "Comissões", "Logística", "Impostos", "Manutenção"],
 };
 
+// ← BLOCO 4: default retrocompatível — todos os módulos ativos exceto OS
+const defaultPortalModules: Record<string, boolean> = {
+  faturas: true,
+  orcamentos: true,
+  os: false,
+  suporte: true,
+  treinamentos: true,
+};
+
 const defaultSystemPreferences: SystemPreferences = {
   feature_toggles: defaultFeatureToggles,
   custom_labels: defaultCustomLabels,
   commercial_documents: defaultCommercialDocuments,
   currency_code: "BRL",
   financial_categories: defaultFinancialCategories,
+  portal_modules: defaultPortalModules,
 };
 
 const SettingsContext = createContext<SettingsContextValue>({
@@ -349,6 +361,17 @@ function mergeFinancialCategories(input: FinancialCategories | null | undefined)
   };
 }
 
+// ← BLOCO 4: merge de portal_modules — mantém default para chaves ausentes
+function mergePortalModules(input: Record<string, boolean> | null | undefined): Record<string, boolean> {
+  if (!isPlainObject(input)) return { ...defaultPortalModules };
+  return {
+    ...defaultPortalModules,
+    ...Object.fromEntries(
+      Object.entries(input).filter(([, value]) => typeof value === "boolean")
+    ),
+  };
+}
+
 function normalizeCompanyProfile(row: CompanyProfileRow | null): CompanyProfile {
   if (!row) return { ...defaultCompanyProfile };
   return {
@@ -387,6 +410,7 @@ function normalizeSystemPreferences(row: SystemPreferencesRow | null): SystemPre
     commercial_documents: mergeCommercialDocuments(row.commercial_documents),
     currency_code: safeString(row.currency_code, defaultSystemPreferences.currency_code),
     financial_categories: mergeFinancialCategories(row.financial_categories),
+    portal_modules: mergePortalModules(row.portal_modules),  // ← BLOCO 4
   };
 }
 
@@ -485,7 +509,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           companyId
             ? supabase
                 .from("system_preferences")
-                .select("id, feature_toggles, custom_labels, commercial_documents, currency_code, financial_categories")
+                .select("id, feature_toggles, custom_labels, commercial_documents, currency_code, financial_categories, portal_modules")
                 .eq("company_id", companyId)
                 .maybeSingle<SystemPreferencesRow>()
             : Promise.resolve({ data: null, error: null }),
