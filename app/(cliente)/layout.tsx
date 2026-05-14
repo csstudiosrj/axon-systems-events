@@ -15,6 +15,7 @@ import {
   Users,
   User,
   Loader2,
+  ClipboardList,
 } from "lucide-react";
 import NotificationBell from "../components/NotificationBell";
 
@@ -55,6 +56,18 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const teamEnabled = systemPreferences?.feature_toggles?.enable_team ?? true;
   const financialEnabled = systemPreferences?.feature_toggles?.enable_financial ?? true;
   const quotesEnabled = systemPreferences?.feature_toggles?.enable_quotes ?? true;
+
+  // ── portal_modules: flags modulares vindas do banco (BLOCO 4 — PARTE B) ──
+  // Fallback para feature_toggles existentes caso portal_modules ainda não
+  // tenha sido preenchido para a empresa (retrocompatibilidade).
+  const portalModules = systemPreferences?.portal_modules as Record<string, boolean> | undefined;
+
+  const moduleEnabled = (key: string, fallback: boolean): boolean => {
+    if (portalModules && typeof portalModules[key] === "boolean") {
+      return portalModules[key];
+    }
+    return fallback;
+  };
 
   useEffect(() => {
     const checkUser = async () => {
@@ -114,22 +127,24 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   const navItems = useMemo(() => {
     if (userProfile?.role !== "client") {
-      return trainingsEnabled
+      return moduleEnabled("treinamentos", trainingsEnabled)
         ? [{ name: trainingsLabel, href: "/portal/treinamentos", icon: PlaySquare }]
         : [];
     }
 
     return [
-      { name: homeLabel, href: "/portal", icon: Home, enabled: true },
-      { name: invoicesLabel, href: "/portal/faturas", icon: CreditCard, enabled: financialEnabled },
-      { name: quotesLabel, href: "/portal/orcamentos", icon: FileText, enabled: quotesEnabled },
-      { name: teamLabel, href: "/portal/equipe", icon: Users, enabled: teamEnabled },
-      { name: trainingsLabel, href: "/portal/treinamentos", icon: PlaySquare, enabled: trainingsEnabled },
-      { name: supportLabel, href: "/portal/suporte", icon: Ticket, enabled: supportEnabled },
-      { name: profileLabel, href: "/portal/perfil", icon: User, enabled: true },
+      { name: homeLabel,      href: "/portal",              icon: Home,          enabled: true },
+      { name: invoicesLabel,  href: "/portal/faturas",      icon: CreditCard,    enabled: moduleEnabled("faturas",      financialEnabled) },
+      { name: quotesLabel,    href: "/portal/orcamentos",   icon: FileText,      enabled: moduleEnabled("orcamentos",   quotesEnabled) },
+      { name: "OS",           href: "/portal/os",           icon: ClipboardList, enabled: moduleEnabled("os",           false) },
+      { name: teamLabel,      href: "/portal/equipe",       icon: Users,         enabled: moduleEnabled("equipe",       teamEnabled) },
+      { name: trainingsLabel, href: "/portal/treinamentos", icon: PlaySquare,    enabled: moduleEnabled("treinamentos", trainingsEnabled) },
+      { name: supportLabel,   href: "/portal/suporte",      icon: Ticket,        enabled: moduleEnabled("suporte",      supportEnabled) },
+      { name: profileLabel,   href: "/portal/perfil",       icon: User,          enabled: true },
     ].filter((item) => item.enabled);
   }, [
     userProfile?.role,
+    portalModules,
     trainingsEnabled,
     trainingsLabel,
     homeLabel,
