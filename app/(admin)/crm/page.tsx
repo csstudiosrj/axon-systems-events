@@ -31,25 +31,30 @@ interface Toast {
 }
 
 const COLUMNS = [
-  { id: "new", color: "border-blue-500/30", bg: "bg-blue-500/10", text: "text-blue-400" },
-  { id: "contacted", color: "border-purple-500/30", bg: "bg-purple-500/10", text: "text-purple-400" },
-  { id: "proposal", color: "border-yellow-500/30", bg: "bg-yellow-500/10", text: "text-yellow-400" },
-  { id: "negotiation", color: "border-cs-gold/30", bg: "bg-cs-gold/10", text: "text-cs-gold" },
-  { id: "won", color: "border-cs-green/30", bg: "bg-cs-green/10", text: "text-cs-green" },
-  { id: "lost", color: "border-red-500/30", bg: "bg-red-500/10", text: "text-red-400" }
+  { id: "new",         color: "border-blue-500/30",   bg: "bg-blue-500/10",   text: "text-blue-400" },
+  { id: "contacted",   color: "border-purple-500/30", bg: "bg-purple-500/10", text: "text-purple-400" },
+  { id: "proposal",    color: "border-yellow-500/30", bg: "bg-yellow-500/10", text: "text-yellow-400" },
+  { id: "negotiation", color: "border-cs-gold/30",    bg: "bg-cs-gold/10",    text: "text-cs-gold" },
+  { id: "won",         color: "border-cs-green/30",   bg: "bg-cs-green/10",   text: "text-cs-green" },
+  { id: "lost",        color: "border-red-500/30",    bg: "bg-red-500/10",    text: "text-red-400" },
 ];
 
 export default function CRMPage() {
   const router = useRouter();
-  const { systemPreferences } = useSettings();
+  const settings = useSettings() as {
+    systemPreferences?: { custom_labels?: Record<string, string> } | null;
+    userCompanyId?: string | null;
+  };
+
+  const { systemPreferences, userCompanyId } = settings;
 
   // --- LABELS DINÂMICAS ---
   const custom_labels = systemPreferences?.custom_labels || {};
-  const crmLabel = custom_labels.menu_crm || "CRM / Vendas";
-  const leadSingular = custom_labels.entity_lead_singular || "Lead";
-  const leadPlural = custom_labels.entity_lead_plural || "Leads";
+  const crmLabel      = custom_labels.menu_crm                || "CRM / Vendas";
+  const leadSingular  = custom_labels.entity_lead_singular    || "Lead";
+  const leadPlural    = custom_labels.entity_lead_plural      || "Leads";
   const clientSingular = custom_labels.entity_client_singular || "Cliente";
-  const quoteSingular = custom_labels.entity_quote_singular || "Orçamento";
+  const quoteSingular  = custom_labels.entity_quote_singular  || "Orçamento";
 
   const [view, setView] = useState<"board" | "create">("board");
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -79,15 +84,18 @@ export default function CRMPage() {
   }, []);
 
   const fetchLeads = useCallback(async () => {
+    if (!userCompanyId) return;
+
     setLoading(true);
     const { data, error } = await supabase
       .from("leads")
       .select("*")
+      .eq("company_id", userCompanyId)
       .order("created_at", { ascending: false });
       
     if (!error && data) setLeads(data as Lead[]);
     setLoading(false);
-  }, []);
+  }, [userCompanyId]);
 
   useEffect(() => {
     if (view === "board") fetchLeads();
@@ -113,7 +121,7 @@ export default function CRMPage() {
     
     setIsSubmitting(true);
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       client_name: clientName,
       company_name: companyName,
       email,
@@ -122,8 +130,13 @@ export default function CRMPage() {
       event_date: eventDate ? new Date(eventDate).toISOString() : null,
       estimated_budget: estimatedBudget ? Number(estimatedBudget) : 0,
       notes,
-      status: leadStatus
+      status: leadStatus,
     };
+
+    // Novo lead sempre recebe company_id; edição filtra por id (dono já está gravado)
+    if (!editingLeadId) {
+      payload.company_id = userCompanyId;
+    }
 
     const { error } = editingLeadId 
       ? await supabase.from("leads").update(payload).eq("id", editingLeadId)
@@ -161,14 +174,16 @@ export default function CRMPage() {
     setIsConverting(true);
 
     try {
+      // Cliente e orçamento criados com company_id da empresa logada
       const { data: clientData, error: clientError } = await supabase
         .from("clients")
         .insert([{
+          company_id: userCompanyId,
           company_name: companyName || clientName,
           contact_name: clientName,
           email: email || null,
           phone: phone || null,
-          document: "Pendente" 
+          document: "Pendente",
         }])
         .select()
         .single();
@@ -178,9 +193,10 @@ export default function CRMPage() {
       const { error: quoteError } = await supabase
         .from("quotes")
         .insert([{
+          company_id: userCompanyId,
           client_id: clientData.id,
           title: eventType ? `${quoteSingular}: ${eventType}` : `${quoteSingular} - ${clientName}`,
-          status: "draft"
+          status: "draft",
         }]);
 
       if (quoteError) throw quoteError;
@@ -242,7 +258,7 @@ export default function CRMPage() {
       proposal: `${quoteSingular} Enviado`,
       negotiation: "Em Negociação",
       won: "Fechado (Ganho)",
-      lost: "Perdido"
+      lost: "Perdido",
     };
     return titles[colId] || colId;
   };
