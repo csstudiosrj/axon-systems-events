@@ -16,7 +16,7 @@ type HRTab = "colaboradores" | "ocorrencias" | "reembolsos" | "folha";
 
 interface Employee {
   id: string;
-  profile_id: string | null;  // vínculo com profiles.id para comissões
+  profile_id: string | null;
   full_name: string;
   role_label: string | null;
   contract_type: string | null;
@@ -96,7 +96,6 @@ interface Quote {
   commission_reserved_payroll_id: string | null;
 }
 
-// Perfil do sistema — usado no dropdown de vínculo de comissão
 interface SystemProfile {
   id: string;
   full_name: string;
@@ -311,19 +310,25 @@ function Empty({ label }: { label: string }) {
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function RHPage() {
-  const { systemPreferences, companyProfile } = useSettings();
+  const settings = useSettings() as {
+    systemPreferences?: { custom_labels?: Record<string, string> } | null;
+    companyProfile?: { company_name?: string } | null;
+    userCompanyId?: string | null;
+  };
+
+  const { systemPreferences, companyProfile, userCompanyId } = settings;
   const L = systemPreferences?.custom_labels ?? {};
   const labelEquipe = L.menu_team ?? "Equipe";
   const companyName = companyProfile?.company_name ?? "AXON";
 
-  const [tab, setTab]               = useState<HRTab>("colaboradores");
-  const [employees, setEmployees]   = useState<Employee[]>([]);
+  const [tab, setTab]                = useState<HRTab>("colaboradores");
+  const [employees, setEmployees]    = useState<Employee[]>([]);
   const [occurrences, setOcurrences] = useState<Occurrence[]>([]);
-  const [reimbursements, setReimbs] = useState<Reimbursement[]>([]);
-  const [payrolls, setPayrolls]     = useState<Payroll[]>([]);
-  const [loading, setLoading]       = useState(false);
-  const [search, setSearch]         = useState("");
-  const [toast, setToast]           = useState<Toast | null>(null);
+  const [reimbursements, setReimbs]  = useState<Reimbursement[]>([]);
+  const [payrolls, setPayrolls]      = useState<Payroll[]>([]);
+  const [loading, setLoading]        = useState(false);
+  const [search, setSearch]          = useState("");
+  const [toast, setToast]            = useState<Toast | null>(null);
 
   const [empModal,  setEmpModal]  = useState<"new" | Employee | null>(null);
   const [occModal,  setOccModal]  = useState<Occurrence | "new" | null>(null);
@@ -336,32 +341,53 @@ export default function RHPage() {
   }, []);
 
   const loadEmps = useCallback(async () => {
+    if (!userCompanyId) return;
     setLoading(true);
-    const { data } = await supabase.from("hr_employee_details").select("*").order("full_name");
+    const { data } = await supabase
+      .from("hr_employee_details")
+      .select("*")
+      .eq("company_id", userCompanyId)
+      .order("full_name");
     setEmployees((data ?? []) as Employee[]);
     setLoading(false);
-  }, []);
+  }, [userCompanyId]);
 
   const loadOccs = useCallback(async () => {
+    if (!userCompanyId) return;
     setLoading(true);
-    const { data } = await supabase.from("hr_occurrences").select("*").order("occurrence_date", { ascending: false });
+    const { data } = await supabase
+      .from("hr_occurrences")
+      .select("*")
+      .eq("company_id", userCompanyId)
+      .order("occurrence_date", { ascending: false });
     setOcurrences((data ?? []) as Occurrence[]);
     setLoading(false);
-  }, []);
+  }, [userCompanyId]);
 
   const loadReimbs = useCallback(async () => {
+    if (!userCompanyId) return;
     setLoading(true);
-    const { data } = await supabase.from("hr_reimbursements").select("*, hr_employee_details(full_name)").order("created_at", { ascending: false });
+    const { data } = await supabase
+      .from("hr_reimbursements")
+      .select("*, hr_employee_details(full_name)")
+      .eq("company_id", userCompanyId)
+      .order("created_at", { ascending: false });
     setReimbs((data ?? []) as unknown as Reimbursement[]);
     setLoading(false);
-  }, []);
+  }, [userCompanyId]);
 
   const loadPays = useCallback(async () => {
+    if (!userCompanyId) return;
     setLoading(true);
-    const { data } = await supabase.from("hr_payrolls").select("*, hr_employee_details(full_name, role_label)").order("reference_year", { ascending: false }).order("reference_month", { ascending: false });
+    const { data } = await supabase
+      .from("hr_payrolls")
+      .select("*, hr_employee_details(full_name, role_label)")
+      .eq("company_id", userCompanyId)
+      .order("reference_year", { ascending: false })
+      .order("reference_month", { ascending: false });
     setPayrolls((data ?? []) as unknown as Payroll[]);
     setLoading(false);
-  }, []);
+  }, [userCompanyId]);
 
   useEffect(() => {
     if (tab === "colaboradores") void loadEmps();
@@ -371,9 +397,14 @@ export default function RHPage() {
   }, [tab, loadEmps, loadOccs, loadReimbs, loadPays]);
 
   async function approveReimb(item: Reimbursement) {
-    const { error } = await supabase.from("hr_reimbursements").update({ status: "approved", approved_by: "admin", approved_at: new Date().toISOString() }).eq("id", item.id);
+    const { error } = await supabase
+      .from("hr_reimbursements")
+      .update({ status: "approved", approved_by: "admin", approved_at: new Date().toISOString() })
+      .eq("id", item.id);
     if (error) { showToast(error.message, "error"); return; }
+    // Inclui company_id no lançamento financeiro
     await supabase.from("financial_transactions").insert([{
+      company_id: userCompanyId,
       description: `Reembolso: ${item.description} — ${item.hr_employee_details.full_name}`,
       type: "expense", category: "Reembolsos RH", amount: item.amount, status: "pending",
       due_date: new Date().toISOString().split("T")[0],
@@ -619,11 +650,11 @@ export default function RHPage() {
         </div>
       )}
 
-      {/* MODAIS */}
+      {/* MODAIS — userCompanyId passado como prop para isolar queries internas */}
       {detailEmp && <EmpDetailModal emp={detailEmp} onClose={() => setDetailEmp(null)} onEdit={() => { setDetailEmp(null); setEmpModal(detailEmp); }} />}
-      {empModal  !== null && <EmpFormModal initial={empModal === "new" ? null : empModal} onClose={() => setEmpModal(null)} onSaved={() => { setEmpModal(null); void loadEmps(); showToast("Colaborador salvo.", "success"); }} />}
-      {occModal  !== null && <OccModal occurrence={occModal === "new" ? null : occModal} employees={employees} onClose={() => setOccModal(null)} onSaved={() => { setOccModal(null); void loadOccs(); showToast("Ocorrência registrada.", "success"); }} showToast={showToast} />}
-      {payModal  !== null && <PayModal payroll={payModal === "new" ? null : payModal} employees={employees} companyName={companyName} onClose={() => setPayModal(null)} onSaved={() => { setPayModal(null); void loadPays(); showToast("Folha salva.", "success"); }} showToast={showToast} />}
+      {empModal  !== null && <EmpFormModal initial={empModal === "new" ? null : empModal} userCompanyId={userCompanyId ?? null} onClose={() => setEmpModal(null)} onSaved={() => { setEmpModal(null); void loadEmps(); showToast("Colaborador salvo.", "success"); }} />}
+      {occModal  !== null && <OccModal occurrence={occModal === "new" ? null : occModal} employees={employees} userCompanyId={userCompanyId ?? null} onClose={() => setOccModal(null)} onSaved={() => { setOccModal(null); void loadOccs(); showToast("Ocorrência registrada.", "success"); }} showToast={showToast} />}
+      {payModal  !== null && <PayModal payroll={payModal === "new" ? null : payModal} employees={employees} companyName={companyName} userCompanyId={userCompanyId ?? null} onClose={() => setPayModal(null)} onSaved={() => { setPayModal(null); void loadPays(); showToast("Folha salva.", "success"); }} showToast={showToast} />}
     </div>
   );
 }
@@ -639,27 +670,27 @@ function EmpDetailModal({ emp, onClose, onEdit }: { emp: Employee; onClose: () =
           <button onClick={onEdit} className="flex items-center gap-2 rounded-lg border border-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/5"><Edit size={13} /> Editar</button>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
-          <II label="CPF"         value={emp.document_cpf ?? "—"} />
-          <II label="RG"          value={emp.document_rg ?? "—"} />
-          <II label="Nascimento"  value={emp.birth_date  ? new Date(emp.birth_date  + "T12:00").toLocaleDateString("pt-BR") : "—"} />
-          <II label="Admissão"    value={emp.hiring_date ? new Date(emp.hiring_date + "T12:00").toLocaleDateString("pt-BR") : "—"} />
-          <II label="Cargo"       value={emp.role_label ?? "—"} />
-          <II label="Contrato"    value={emp.contract_type?.toUpperCase() ?? "—"} />
-          <II label="E-mail"      value={emp.email ?? "—"} />
-          <II label="Telefone"    value={emp.phone ?? "—"} />
-          <II label="Status"      value={emp.status === "active" ? "Ativo" : "Inativo"} />
+          <II label="CPF"        value={emp.document_cpf ?? "—"} />
+          <II label="RG"         value={emp.document_rg  ?? "—"} />
+          <II label="Nascimento" value={emp.birth_date  ? new Date(emp.birth_date  + "T12:00").toLocaleDateString("pt-BR") : "—"} />
+          <II label="Admissão"   value={emp.hiring_date ? new Date(emp.hiring_date + "T12:00").toLocaleDateString("pt-BR") : "—"} />
+          <II label="Cargo"      value={emp.role_label ?? "—"} />
+          <II label="Contrato"   value={emp.contract_type?.toUpperCase() ?? "—"} />
+          <II label="E-mail"     value={emp.email ?? "—"} />
+          <II label="Telefone"   value={emp.phone ?? "—"} />
+          <II label="Status"     value={emp.status === "active" ? "Ativo" : "Inativo"} />
         </div>
         <div>
           <p className="mb-3 border-b border-white/10 pb-2 text-sm font-bold text-white">Remuneração</p>
           <div className="grid gap-4 md:grid-cols-3">
-            <II label="Salário base"      value={fBRL(emp.base_salary)}         hi />
+            <II label="Salário base"      value={fBRL(emp.base_salary)}            hi />
             <II label="Comissão"          value={`${emp.commission_rate ?? 0}%`} />
-            <II label="Vale Transporte"   value={fBRL(emp.vt_value)}            />
-            <II label="Vale Alimentação"  value={fBRL(emp.va_value)}            />
-            <II label="Vale Refeição"     value={fBRL(emp.vr_value ?? 0)}       />
+            <II label="Vale Transporte"   value={fBRL(emp.vt_value)} />
+            <II label="Vale Alimentação"  value={fBRL(emp.va_value)} />
+            <II label="Vale Refeição"     value={fBRL(emp.vr_value ?? 0)} />
             <II label="Plano de Saúde"    value={fBRL(emp.health_plan_value ?? 0)} />
             <II label="Plano Odonto"      value={fBRL(emp.dental_plan_value ?? 0)} />
-            <II label="Seguro de vida"    value={fBRL(emp.insurance_value ?? 0)}   />
+            <II label="Seguro de vida"    value={fBRL(emp.insurance_value ?? 0)} />
           </div>
         </div>
         <div>
@@ -678,39 +709,52 @@ function EmpDetailModal({ emp, onClose, onEdit }: { emp: Employee; onClose: () =
 
 // ─── Formulário colaborador ───────────────────────────────────────────────────
 
-function EmpFormModal({ initial, onClose, onSaved }: { initial: Employee | null; onClose: () => void; onSaved: () => void }) {
-  const [saving, setSaving] = useState(false);
-  // FIX #3: dropdown de profiles para vínculo de comissão
+function EmpFormModal({ initial, userCompanyId, onClose, onSaved }: {
+  initial: Employee | null;
+  userCompanyId: string | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving]   = useState(false);
   const [profiles, setProfiles] = useState<SystemProfile[]>([]);
 
   const [f, setF] = useState({
-    full_name: initial?.full_name ?? "", document_cpf: initial?.document_cpf ?? "",
-    document_rg: initial?.document_rg ?? "", birth_date: initial?.birth_date ?? "",
-    hiring_date: initial?.hiring_date ?? "", email: initial?.email ?? "",
-    phone: initial?.phone ?? "", role_label: initial?.role_label ?? "",
-    contract_type: initial?.contract_type ?? "clt",
-    base_salary: String(initial?.base_salary ?? 0),
-    commission_rate: String(initial?.commission_rate ?? 0),
-    vt_value: String(initial?.vt_value ?? 0), va_value: String(initial?.va_value ?? 0),
-    vr_value: String(initial?.vr_value ?? 0), health_plan_value: String(initial?.health_plan_value ?? 0),
-    dental_plan_value: String(initial?.dental_plan_value ?? 0), insurance_value: String(initial?.insurance_value ?? 0),
-    pix_key: initial?.pix_key ?? "",
-    bank_code: (initial?.bank_info as Record<string,string>)?.code ?? "",
-    bank_agency: (initial?.bank_info as Record<string,string>)?.agency ?? "",
-    bank_account: (initial?.bank_info as Record<string,string>)?.account ?? "",
-    status: initial?.status ?? "active",
-    profile_id: initial?.profile_id ?? "",
+    full_name:          initial?.full_name          ?? "",
+    document_cpf:       initial?.document_cpf       ?? "",
+    document_rg:        initial?.document_rg        ?? "",
+    birth_date:         initial?.birth_date         ?? "",
+    hiring_date:        initial?.hiring_date        ?? "",
+    email:              initial?.email              ?? "",
+    phone:              initial?.phone              ?? "",
+    role_label:         initial?.role_label         ?? "",
+    contract_type:      initial?.contract_type      ?? "clt",
+    base_salary:        String(initial?.base_salary        ?? 0),
+    commission_rate:    String(initial?.commission_rate    ?? 0),
+    vt_value:           String(initial?.vt_value           ?? 0),
+    va_value:           String(initial?.va_value           ?? 0),
+    vr_value:           String(initial?.vr_value           ?? 0),
+    health_plan_value:  String(initial?.health_plan_value  ?? 0),
+    dental_plan_value:  String(initial?.dental_plan_value  ?? 0),
+    insurance_value:    String(initial?.insurance_value    ?? 0),
+    pix_key:            initial?.pix_key            ?? "",
+    bank_code:          (initial?.bank_info as Record<string,string>)?.code    ?? "",
+    bank_agency:        (initial?.bank_info as Record<string,string>)?.agency  ?? "",
+    bank_account:       (initial?.bank_info as Record<string,string>)?.account ?? "",
+    status:             initial?.status             ?? "active",
+    profile_id:         initial?.profile_id         ?? "",
   });
   const s = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
 
-  // FIX #3: busca perfis disponíveis para o dropdown de vínculo de comissão
+  // Busca apenas perfis da empresa corrente para o dropdown de vínculo
   useEffect(() => {
+    if (!userCompanyId) return;
     void supabase
       .from("profiles")
       .select("id, full_name, email")
+      .eq("company_id", userCompanyId)
       .order("full_name")
       .then(({ data }) => setProfiles((data ?? []) as SystemProfile[]));
-  }, []);
+  }, [userCompanyId]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true);
@@ -730,7 +774,7 @@ function EmpFormModal({ initial, onClose, onSaved }: { initial: Employee | null;
     };
     const { error } = initial
       ? await supabase.from("hr_employee_details").update(payload).eq("id", initial.id)
-      : await supabase.from("hr_employee_details").insert([payload]);
+      : await supabase.from("hr_employee_details").insert([{ ...payload, company_id: userCompanyId }]);
     setSaving(false);
     if (!error) onSaved(); else console.error(error);
   }
@@ -757,23 +801,16 @@ function EmpFormModal({ initial, onClose, onSaved }: { initial: Employee | null;
             <Field label="Tipo de contrato"><Sel value={f.contract_type} onChange={e => s("contract_type", e.target.value)}>{CONTRACT_TYPES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</Sel></Field>
             <Field label="Data de admissão"><Input type="date" value={f.hiring_date} onChange={e => s("hiring_date", e.target.value)} /></Field>
             <Field label="Status"><Sel value={f.status} onChange={e => s("status", e.target.value)}><option value="active">Ativo</option><option value="inactive">Inativo</option></Sel></Field>
-
-            {/* FIX #3: dropdown de profiles em vez de input de UUID livre.
-                Vincula o colaborador a um usuário do sistema para que o
-                cálculo de comissões use profile_id = quotes.salesperson_id. */}
             <div className="md:col-span-2">
               <Field label="Usuário do sistema (para comissão automática)">
                 <Sel value={f.profile_id} onChange={e => s("profile_id", e.target.value)}>
                   <option value="">Nenhum — sem comissão automática</option>
                   {profiles.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.full_name || p.email}
-                    </option>
+                    <option key={p.id} value={p.id}>{p.full_name || p.email}</option>
                   ))}
                 </Sel>
                 <p className="mt-1 text-[10px] text-[var(--color-text-secondary)]">
                   Vincula ao usuário que assina orçamentos como responsável comercial.
-                  Orçamentos aprovados por esse usuário serão incluídos na folha.
                 </p>
               </Field>
             </div>
@@ -787,7 +824,7 @@ function EmpFormModal({ initial, onClose, onSaved }: { initial: Employee | null;
             <Field label="Comissão (%)"><Input type="number" min="0" max="100" step="0.1" value={f.commission_rate} onChange={e => s("commission_rate", e.target.value)} /></Field>
             <div>
               <Field label="Vale Transporte (R$)"><Input type="number" min="0" step="0.01" value={f.vt_value} onChange={e => s("vt_value", e.target.value)} /></Field>
-              <p className="mt-1 text-[10px] text-[var(--color-text-secondary)]">Desconto de 6% do salário aplicado na folha (lei trabalhista).</p>
+              <p className="mt-1 text-[10px] text-[var(--color-text-secondary)]">Desconto de 6% do salário aplicado na folha.</p>
             </div>
             <Field label="Vale Alimentação (R$)"><Input type="number" min="0" step="0.01" value={f.va_value} onChange={e => s("va_value", e.target.value)} /></Field>
             <Field label="Vale Refeição (R$)"><Input type="number" min="0" step="0.01" value={f.vr_value} onChange={e => s("vr_value", e.target.value)} /></Field>
@@ -820,23 +857,26 @@ function EmpFormModal({ initial, onClose, onSaved }: { initial: Employee | null;
 
 // ─── Modal ocorrência ─────────────────────────────────────────────────────────
 
-function OccModal({ occurrence, employees, onClose, onSaved, showToast }: {
-  occurrence: Occurrence | null; employees: Employee[];
-  onClose: () => void; onSaved: () => void;
+function OccModal({ occurrence, employees, userCompanyId, onClose, onSaved, showToast }: {
+  occurrence: Occurrence | null;
+  employees: Employee[];
+  userCompanyId: string | null;
+  onClose: () => void;
+  onSaved: () => void;
   showToast: (m: string, t: Toast["type"]) => void;
 }) {
   const isView = occurrence !== null;
-  const [editing, setEditing]   = useState(!isView);
-  const [saving, setSaving]     = useState(false);
+  const [editing,   setEditing]   = useState(!isView);
+  const [saving,    setSaving]    = useState(false);
   const [uploading, setUploading] = useState(false);
   const [f, setF] = useState({
-    employee_id: occurrence?.employee_id ?? "",
-    type: occurrence?.type ?? "warning",
-    occurrence_date: occurrence?.occurrence_date ?? new Date().toISOString().slice(0, 10),
-    days_count: String(occurrence?.days_count ?? 1),
-    description: occurrence?.description ?? "",
-    witnesses: occurrence?.witnesses ?? "",
-    attachment_url: occurrence?.attachment_url ?? "",
+    employee_id:      occurrence?.employee_id      ?? "",
+    type:             occurrence?.type             ?? "warning",
+    occurrence_date:  occurrence?.occurrence_date  ?? new Date().toISOString().slice(0, 10),
+    days_count:       String(occurrence?.days_count ?? 1),
+    description:      occurrence?.description      ?? "",
+    witnesses:        occurrence?.witnesses        ?? "",
+    attachment_url:   occurrence?.attachment_url   ?? "",
   });
   const s = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
 
@@ -846,7 +886,8 @@ function OccModal({ occurrence, employees, onClose, onSaved, showToast }: {
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
     setUploading(true);
-    const path = `rh/ocorrencias/${Date.now()}-${sanitize(file.name)}`;
+    // Prefixo com userCompanyId para isolar assets por empresa (item 10)
+    const path = `${userCompanyId}/rh/ocorrencias/${Date.now()}-${sanitize(file.name)}`;
     const { error } = await supabase.storage.from("axon-assets").upload(path, file, { upsert: true });
     if (!error) { const { data } = supabase.storage.from("axon-assets").getPublicUrl(path); s("attachment_url", data.publicUrl); }
     else showToast("Erro no upload.", "error");
@@ -860,6 +901,7 @@ function OccModal({ occurrence, employees, onClose, onSaved, showToast }: {
     setSaving(true);
     const occType = OCCURRENCE_TYPES.find(t => t.value === f.type);
     const { error } = await supabase.from("hr_occurrences").insert([{
+      company_id: userCompanyId,
       employee_id: f.employee_id, type: f.type, occurrence_date: f.occurrence_date,
       days_count: occType?.hasDays ? parseInt(f.days_count) || 1 : 1,
       description: f.description,
@@ -871,6 +913,7 @@ function OccModal({ occurrence, employees, onClose, onSaved, showToast }: {
       const days = parseInt(f.days_count) || 1;
       const discount = +((emp.base_salary / 30) * days).toFixed(2);
       await supabase.from("financial_transactions").insert([{
+        company_id: userCompanyId,
         description: `Desconto suspensão — ${emp.full_name} (${days}d)`,
         type: "expense", category: "Desconto RH",
         amount: discount, status: "pending",
@@ -981,73 +1024,62 @@ function OccModal({ occurrence, employees, onClose, onSaved, showToast }: {
 
 // ─── Modal folha ──────────────────────────────────────────────────────────────
 
-function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast }: {
-  payroll: Payroll | null; employees: Employee[]; companyName: string;
-  onClose: () => void; onSaved: () => void;
+function PayModal({ payroll, employees, companyName, userCompanyId, onClose, onSaved, showToast }: {
+  payroll: Payroll | null;
+  employees: Employee[];
+  companyName: string;
+  userCompanyId: string | null;
+  onClose: () => void;
+  onSaved: () => void;
   showToast: (m: string, t: Toast["type"]) => void;
 }) {
-  const isView = payroll !== null;
+  const isView  = payroll !== null;
   const [editing, setEditing] = useState(!isView);
-  const [saving, setSaving]   = useState(false);
+  const [saving,  setSaving]  = useState(false);
   const [closing, setClosing] = useState(false);
-  const [quotes, setQuotes]   = useState<Quote[]>([]);
+  const [quotes,  setQuotes]  = useState<Quote[]>([]);
   const printRef = useRef<HTMLDivElement>(null);
   const now = new Date();
 
   const [f, setF] = useState({
-    employee_id:          payroll?.employee_id ?? "",
-    reference_month:      String(payroll?.reference_month ?? now.getMonth() + 1),
-    reference_year:       String(payroll?.reference_year ?? now.getFullYear()),
-    total_commissions:    String(payroll?.total_commissions ?? 0),
+    employee_id:          payroll?.employee_id          ?? "",
+    reference_month:      String(payroll?.reference_month      ?? now.getMonth() + 1),
+    reference_year:       String(payroll?.reference_year       ?? now.getFullYear()),
+    total_commissions:    String(payroll?.total_commissions    ?? 0),
     total_reimbursements: String(payroll?.total_reimbursements ?? 0),
-    absence_days:         String(payroll?.absence_days ?? 0),
+    absence_days:         String(payroll?.absence_days         ?? 0),
   });
   const s = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
 
   const emp = employees.find(e => e.id === (payroll?.employee_id ?? f.employee_id));
 
-  // FIX #1 + #2: busca orçamentos usando profile_id do colaborador.
-  // Inclui tanto orçamentos não reservados (para novas folhas) quanto os já
-  // reservados para esta folha específica (para edição/view de folha existente).
-  // Antes, o filtro .is("commission_reserved_at", null) excluía os orçamentos
-  // reservados, deixando `quotes` vazio ao fechar a folha e zerando as comissões.
   useEffect(() => {
     if (!f.employee_id) { setQuotes([]); return; }
     const currentEmp = employees.find(e => e.id === f.employee_id);
     const profileId  = currentEmp?.profile_id;
-
-    // Sem vínculo de profile_id: não há como calcular comissões automaticamente
     if (!profileId) { setQuotes([]); return; }
 
     const baseQuery = supabase
       .from("quotes")
       .select("id,title,final_amount,status,commission_reserved_at,commission_reserved_payroll_id")
-      .eq("salesperson_id", profileId)   // salesperson_id referencia profiles.id
+      .eq("company_id", userCompanyId!)
+      .eq("salesperson_id", profileId)
       .eq("status", "approved")
       .is("commission_paid_at", null);
 
-    // FIX #2: quando há folha existente, inclui orçamentos reservados para ela
-    // usando .or() — evita que `quotes` fique vazio no fechamento.
     const fetcher = payroll?.id
-      ? baseQuery.or(
-          `commission_reserved_at.is.null,commission_reserved_payroll_id.eq.${payroll.id}`
-        )
+      ? baseQuery.or(`commission_reserved_at.is.null,commission_reserved_payroll_id.eq.${payroll.id}`)
       : baseQuery.is("commission_reserved_at", null);
 
     void fetcher.then(({ data }) => setQuotes((data ?? []) as Quote[]));
-  }, [f.employee_id, employees, payroll?.id]);
+  }, [f.employee_id, employees, payroll?.id, userCompanyId]);
 
-  // Auto-preenche comissão com base nos orçamentos encontrados
   useEffect(() => {
     if (!emp || quotes.length === 0) return;
-    const total = quotes.reduce(
-      (sum, q) => sum + q.final_amount * ((emp.commission_rate ?? 0) / 100),
-      0
-    );
+    const total = quotes.reduce((sum, q) => sum + q.final_amount * ((emp.commission_rate ?? 0) / 100), 0);
     s("total_commissions", total.toFixed(2));
   }, [quotes, emp]);
 
-  // Pré-preenche dias de falta com base nas ocorrências do mês
   useEffect(() => {
     if (!f.employee_id || !f.reference_month || !f.reference_year) return;
     const monthStart = `${f.reference_year}-${String(parseInt(f.reference_month)).padStart(2,"0")}-01`;
@@ -1079,6 +1111,7 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
   async function submit(e: React.FormEvent) {
     e.preventDefault(); if (!emp) return; setSaving(true);
     const { data: ex } = await supabase.from("hr_payrolls").select("id")
+      .eq("company_id", userCompanyId!)
       .eq("employee_id", f.employee_id)
       .eq("reference_month", parseInt(f.reference_month))
       .eq("reference_year", parseInt(f.reference_year))
@@ -1099,60 +1132,45 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
       const { error } = await supabase.from("hr_payrolls").update(payload).eq("id", payroll.id);
       if (error) { showToast(error.message, "error"); setSaving(false); return; }
     } else {
-      const { data, error } = await supabase.from("hr_payrolls").insert([payload]).select().single();
+      const { data, error } = await supabase.from("hr_payrolls").insert([{ ...payload, company_id: userCompanyId }]).select().single();
       if (error) { showToast(error.message, "error"); setSaving(false); return; }
       payrollId = (data as { id: string }).id;
     }
 
-    // Reserva os orçamentos para esta folha — impede duplicação em folhas futuras
     if (quotes.length > 0 && payrollId) {
       const reserveNow = new Date().toISOString();
       await Promise.all(
         quotes
-          .filter(q => !q.commission_reserved_at) // só reserva os ainda não reservados
-          .map(q =>
-            supabase.from("quotes").update({
-              commission_reserved_at:         reserveNow,
-              commission_reserved_payroll_id: payrollId,
-            }).eq("id", q.id)
-          )
+          .filter(q => !q.commission_reserved_at)
+          .map(q => supabase.from("quotes").update({ commission_reserved_at: reserveNow, commission_reserved_payroll_id: payrollId }).eq("id", q.id))
       );
     }
 
-    setSaving(false);
-    onSaved();
+    setSaving(false); onSaved();
   }
 
-  // FIX #1: closePayroll busca os orçamentos reservados diretamente do banco,
-  // não usa o state `quotes`. Antes, `quotes` estava vazio no fechamento porque
-  // o useEffect filtrava commission_reserved_at = null (orçamentos reservados
-  // têm commission_reserved_at preenchido), logo as comissões nunca eram pagas.
   async function closePayroll() {
     if (!payroll) return;
     setClosing(true);
     const closeNow = new Date().toISOString();
 
-    // 1. Fecha a folha
-    const { error: e1 } = await supabase
-      .from("hr_payrolls")
-      .update({ status: "closed", confirmed_at: closeNow })
-      .eq("id", payroll.id);
+    const { error: e1 } = await supabase.from("hr_payrolls").update({ status: "closed", confirmed_at: closeNow }).eq("id", payroll.id);
     if (e1) { showToast(e1.message, "error"); setClosing(false); return; }
 
-    // 2. Injeta no financeiro
     await supabase.from("financial_transactions").insert([{
+      company_id: userCompanyId,
       description: `Folha ${mName(payroll.reference_month)}/${payroll.reference_year} — ${payroll.hr_employee_details.full_name}`,
       type: "expense", category: "Folha de Pagamento", amount: payroll.final_net_value, status: "pending",
       due_date: new Date(payroll.reference_year, payroll.reference_month - 1, 5).toISOString().split("T")[0],
     }]);
 
-    // FIX #1: busca orçamentos reservados para ESTA folha direto do banco
     const commissionedEmp = employees.find(e => e.id === payroll.employee_id);
     const rate = (commissionedEmp?.commission_rate ?? 0) / 100;
 
     const { data: reservedQuotes } = await supabase
       .from("quotes")
       .select("id, final_amount")
+      .eq("company_id", userCompanyId!)
       .eq("commission_reserved_payroll_id", payroll.id)
       .is("commission_paid_at", null);
 
@@ -1160,26 +1178,17 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
       await Promise.all(
         reservedQuotes.map(q =>
           supabase.from("quotes").update({
-            commission_paid_at:             closeNow,
-            commission_payroll_id:          payroll.id,
-            commission_amount:              +(q.final_amount * rate).toFixed(2),
-            // Limpa a reserva — comissão oficialmente paga
-            commission_reserved_at:         null,
-            commission_reserved_payroll_id: null,
+            commission_paid_at: closeNow, commission_payroll_id: payroll.id,
+            commission_amount: +(q.final_amount * rate).toFixed(2),
+            commission_reserved_at: null, commission_reserved_payroll_id: null,
           }).eq("id", q.id)
         )
       );
     }
 
     const commCount = reservedQuotes?.length ?? 0;
-    showToast(
-      commCount > 0
-        ? `Folha fechada — ${commCount} comissão(ões) liquidada(s).`
-        : "Folha fechada.",
-      "success"
-    );
-    setClosing(false);
-    onSaved();
+    showToast(commCount > 0 ? `Folha fechada — ${commCount} comissão(ões) liquidada(s).` : "Folha fechada.", "success");
+    setClosing(false); onSaved();
   }
 
   function handlePrint() {
@@ -1249,9 +1258,9 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
                   <SR label="Salário base" value={fBRL(displayP!.total_base_salary)} />
                   {displayP!.total_commissions > 0    && <SR label="Comissões"       value={fBRL(displayP!.total_commissions)}    sub />}
                   {displayP!.total_reimbursements > 0 && <SR label="Reembolsos"      value={fBRL(displayP!.total_reimbursements)} sub />}
-                  {displayEmp && displayEmp.vt_value > 0           && <SR label="Vale Transporte"  value={fBRL(displayEmp.vt_value)}            sub />}
-                  {displayEmp && displayEmp.va_value > 0           && <SR label="Vale Alimentação" value={fBRL(displayEmp.va_value)}            sub />}
-                  {displayEmp && (displayEmp.vr_value ?? 0) > 0          && <SR label="Vale Refeição"    value={fBRL(displayEmp.vr_value ?? 0)}       sub />}
+                  {displayEmp && displayEmp.vt_value > 0             && <SR label="Vale Transporte"  value={fBRL(displayEmp.vt_value)}              sub />}
+                  {displayEmp && displayEmp.va_value > 0             && <SR label="Vale Alimentação" value={fBRL(displayEmp.va_value)}              sub />}
+                  {displayEmp && (displayEmp.vr_value ?? 0) > 0      && <SR label="Vale Refeição"    value={fBRL(displayEmp.vr_value ?? 0)}         sub />}
                   {displayEmp && (displayEmp.health_plan_value ?? 0) > 0 && <SR label="Plano de Saúde"  value={fBRL(displayEmp.health_plan_value ?? 0)} sub />}
                   {displayEmp && (displayEmp.dental_plan_value ?? 0) > 0 && <SR label="Plano Odonto"    value={fBRL(displayEmp.dental_plan_value ?? 0)} sub />}
                   {displayEmp && (displayEmp.insurance_value ?? 0) > 0   && <SR label="Seguro de vida"  value={fBRL(displayEmp.insurance_value ?? 0)}   sub />}
@@ -1342,7 +1351,7 @@ function PayModal({ payroll, employees, companyName, onClose, onSaved, showToast
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-red-400">Descontos</p>
                 <SR label="INSS"  value={fBRL(inss)} red />
                 <SR label="IRRF"  value={fBRL(irrf)} red />
-                {vtDiscount > 0  && <SR label="VT (6% salário)"      value={fBRL(vtDiscount)}   red sub />}
+                {vtDiscount > 0  && <SR label="VT (6% salário)"           value={fBRL(vtDiscount)}   red sub />}
                 {absDiscount > 0 && <SR label={`Faltas (${absenceDays}d)`} value={fBRL(absDiscount)} red sub />}
                 <SR label="Total descontos" value={fBRL(totalDeduct)} bold red />
               </div>
