@@ -410,6 +410,18 @@ function getErrorMessage(error: unknown) {
   return JSON.stringify(error);
 }
 
+// FIX: Função auxiliar para filtrar valores undefined de objetos comerciais
+function sanitizeCommercialDocuments(
+  source: Record<string, unknown> | null | undefined
+): Partial<CommercialDocuments> {
+  if (!source) return {};
+  return Object.fromEntries(
+    Object.entries(source).filter(
+      ([, value]) => value !== undefined && (typeof value === "string" || typeof value === "boolean")
+    ) as [string, string | boolean][]
+  );
+}
+
 export default function ConfiguracoesPage() {
   const router = useRouter();
 
@@ -466,7 +478,7 @@ export default function ConfiguracoesPage() {
     setPreferencesForm({
       custom_labels:       { ...DEFAULT_CUSTOM_LABELS,       ...(systemPreferences?.custom_labels       ?? {}) },
       feature_toggles:     { ...DEFAULT_FEATURE_TOGGLES,     ...(systemPreferences?.feature_toggles     ?? {}) } as FeatureToggles,
-      commercial_documents:{ ...DEFAULT_COMMERCIAL_DOCUMENTS, ...((systemPreferences?.commercial_documents ?? {}) as Partial<CommercialDocuments>) },
+      commercial_documents:{ ...DEFAULT_COMMERCIAL_DOCUMENTS, ...sanitizeCommercialDocuments(systemPreferences?.commercial_documents) },
     });
   }, [companyProfile, systemPreferences]);
 
