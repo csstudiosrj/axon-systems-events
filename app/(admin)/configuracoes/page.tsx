@@ -466,7 +466,7 @@ export default function ConfiguracoesPage() {
     setPreferencesForm({
       custom_labels:       { ...DEFAULT_CUSTOM_LABELS,       ...(systemPreferences?.custom_labels       ?? {}) },
       feature_toggles:     { ...DEFAULT_FEATURE_TOGGLES,     ...(systemPreferences?.feature_toggles     ?? {}) } as FeatureToggles,
-      commercial_documents:{ ...DEFAULT_COMMERCIAL_DOCUMENTS, ...(systemPreferences?.commercial_documents ?? {}) },
+      commercial_documents:{ ...DEFAULT_COMMERCIAL_DOCUMENTS, ...((systemPreferences?.commercial_documents ?? {}) as Partial<CommercialDocuments>) },
     });
   }, [companyProfile, systemPreferences]);
 
