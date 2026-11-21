@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getChamador } from "../../../lib/authServer";
  
 export const runtime = "edge";
  
@@ -28,6 +29,14 @@ interface PublishBody {
  *   BLOG_WEBHOOK_SECRET → Token compartilhado para autenticação
  */
 export async function POST(request: Request) {
+  const chamador = await getChamador(request);
+  if (!chamador) {
+    return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  }
+  if (!["super_admin", "admin", "marketing"].includes(chamador.role)) {
+    return NextResponse.json({ error: "Ação não permitida para seu nível de acesso." }, { status: 403 });
+  }
+
   const webhookUrl    = process.env.BLOG_WEBHOOK_URL;
   const webhookSecret = process.env.BLOG_WEBHOOK_SECRET;
  

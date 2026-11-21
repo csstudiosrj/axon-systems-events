@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../../lib/supabase";
 import { Users, UserPlus, Trash2, Loader2, AlertTriangle, CheckCircle, X, ShieldAlert, Mail } from "lucide-react";
+import { authFetch } from "@/app/lib/authFetch";
 
 // --- BLINDAGEM TYPESCRIPT ---
 interface TeamMember {
@@ -104,7 +105,7 @@ export default function EquipeClientePage() {
     setIsProcessing(true);
 
     try {
-      const response = await fetch("/api/invite", {
+      const response = await authFetch("/api/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

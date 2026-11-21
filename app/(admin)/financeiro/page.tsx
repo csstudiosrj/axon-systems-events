@@ -12,6 +12,7 @@ import {
   X, Scale, Clock3, Download, ChevronLeft, ChevronRight, Bell, Layers,
   CalendarRange, ListFilter, SlidersHorizontal, CreditCard,
 } from "lucide-react";
+import { authFetch } from "@/app/lib/authFetch";
 
 interface Client {
   id: string;
@@ -1397,7 +1398,7 @@ export default function FinanceiroPage() {
     let sent = 0;
     for (const t of selected) {
       try {
-        const res = await fetch("/api/finance/send-invoice", {
+        const res = await authFetch("/api/finance/send-invoice", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1619,7 +1620,7 @@ export default function FinanceiroPage() {
     }
     setIsSendingMail(true);
     try {
-      const res = await fetch("/api/finance/send-invoice", {
+      const res = await authFetch("/api/finance/send-invoice", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

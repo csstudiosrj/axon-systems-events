@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
-import { createClient } from '@supabase/supabase-js';
+import { getChamador, getSupabaseAdmin } from '../../../lib/authServer';
 
 export async function POST(request: Request) {
   try {
@@ -20,22 +20,26 @@ export async function POST(request: Request) {
       throw new Error('RESEND_FROM_EMAIL não configurado no servidor.');
     }
 
+    // Sessão obrigatória; empresa e papel vêm do banco, não do corpo da requisição
+    const chamador = await getChamador(request);
+    if (!chamador) {
+      return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
+    }
+    if (!['super_admin', 'admin', 'financial'].includes(chamador.role) || !chamador.company_id) {
+      return NextResponse.json({ error: 'Ação não permitida para seu nível de acesso.' }, { status: 403 });
+    }
+
     // Instanciação lazy — dentro do handler, nunca no escopo do módulo
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
+    const supabaseAdmin = getSupabaseAdmin();
     const resend        = new Resend(resendApiKey);
 
-    const body = await request.json() as {
-      transactionId?: string;
-      company_id?: string;
-    };
+    const body = await request.json() as { transactionId?: string };
 
-    const { transactionId, company_id } = body;
+    const { transactionId } = body;
+    const company_id = chamador.company_id;
 
     if (!transactionId) {
       return NextResponse.json({ error: 'transactionId é obrigatório.' }, { status: 400 });
-    }
-    if (!company_id) {
-      return NextResponse.json({ error: 'company_id é obrigatório.' }, { status: 400 });
     }
 
     // ── Dados da empresa (remetente dinâmico) ────────────────────────────────
