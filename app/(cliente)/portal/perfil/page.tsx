@@ -24,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { supabase } from "@/app/lib/supabase";
+import { authFetch } from "@/app/lib/authFetch";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -376,7 +377,7 @@ export default function ConfiguracoesPage() {
     if (!inviteEmail) { addToast("error", "Campo obrigatório", "Informe o e-mail."); return; }
     setIsProcessing(true);
     try {
-      const res = await fetch("/api/invite", {
+      const res = await authFetch("/api/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

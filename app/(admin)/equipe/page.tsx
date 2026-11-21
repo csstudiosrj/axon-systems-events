@@ -9,6 +9,7 @@ import {
   ChevronDown, ChevronUp, User, ShieldAlert, MoreHorizontal
 } from "lucide-react";
 import { useSettings } from "@/app/providers/SettingsProvider";
+import { authFetch } from "@/app/lib/authFetch";
 
 // --- TIPAGENS (BLINDAGEM TYPESCRIPT) ---
 interface Client {
@@ -150,7 +151,7 @@ export default function EquipePage() {
 
     setIsProcessing(true);
     try {
-      const response = await fetch("/api/invite", {
+      const response = await authFetch("/api/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

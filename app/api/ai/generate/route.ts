@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getChamador, ehPapelInterno } from "../../../lib/authServer";
 
 export const runtime = "edge";
 export const maxDuration = 60;
@@ -41,6 +42,14 @@ interface AiSuggestion {
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
+  const chamador = await getChamador(request);
+  if (!chamador) {
+    return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  }
+  if (!ehPapelInterno(chamador.role)) {
+    return NextResponse.json({ error: "Ação não permitida para seu nível de acesso." }, { status: 403 });
+  }
+
   const apiKey = process.env.GOOGLE_GEMINI_API;
   if (!apiKey) {
     return NextResponse.json({ error: "Chave GOOGLE_GEMINI_API não configurada." }, { status: 500 });

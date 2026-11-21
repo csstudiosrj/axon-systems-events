@@ -30,6 +30,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { authFetch } from "@/app/lib/authFetch";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -186,7 +187,7 @@ export default function MarketingPage() {
     setLoadingSuggestions(true);
     setSuggestions([]);
     try {
-      const res = await fetch("/api/ai/generate", {
+      const res = await authFetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -255,7 +256,7 @@ export default function MarketingPage() {
     setContent("");
 
     try {
-      const res = await fetch("/api/ai/generate", {
+      const res = await authFetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -343,7 +344,7 @@ export default function MarketingPage() {
     }
     setIsPublishing(true);
     try {
-      const res = await fetch("/api/blog/publish", {
+      const res = await authFetch("/api/blog/publish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
