@@ -29,3 +29,15 @@ Gatilhos (mexeu aqui, implemente junto):
 - `app/(admin)/layout.tsx` e as telas de equipe: o acesso e o papel devem ser conferidos no servidor, nunca só na tela.
 - Toda rota em `app/api/*` que usa a chave de servidor do Supabase: exigir sessão e derivar empresa e papel do usuário logado. Nunca aceitar `company_id` ou papel vindos do corpo da requisição.
 - Qualquer SQL novo: RLS ligado e funções sem acesso de visitante por padrão.
+
+## Registro de correções (20/11/2026)
+
+Feito (PR #3 e migração `20261120_01_fecha_funcoes_expostas`):
+- Rotas `/api/invite`, `/api/finance/send-invoice`, `/api/ai/generate` e `/api/blog/publish` exigem sessão; papel, empresa e cliente vêm do banco (`app/lib/authServer.ts`). As telas usam `app/lib/authFetch.ts`.
+- Banco: funções-gatilho e `handle_new_user` fechadas para visitantes e usuários logados; `search_path` fixo nas 13 funções; `get_company_id` só para usuário logado; funções novas nascem sem acesso de visitante.
+
+Pendente (decisão ou ação manual):
+- 25 tabelas com RLS ligado e sem política (ficam travadas para o navegador). Antes de ter clientes reais, escrever as políticas por `company_id` e por papel, incluindo o acesso do portal do cliente.
+- Ligar a proteção contra senha vazada em Auth do painel do Supabase (não há como ligar por SQL).
+- `/api/portal/company` e `/api/leads` são públicos de propósito (branding da tela de login; formulário por token).
+- Ainda não existe área de super admin nem tabelas `admin_*`: o kit entra do zero.
